@@ -26,12 +26,12 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-500 to-pink-500">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-500">
       <form onSubmit={submit} className="bg-white rounded-2xl p-8 w-96 shadow-2xl">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-lg bg-orange-500 flex items-center justify-center text-white font-bold text-xl">D</div>
+          <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xl">🐋</div>
           <div>
-            <div className="text-xl font-bold">DropXL 分销平台</div>
+            <div className="text-xl font-bold">蓝鲸跨境海外仓分销平台</div>
             <div className="text-sm text-gray-500">B2B 订单管理系统</div>
           </div>
         </div>

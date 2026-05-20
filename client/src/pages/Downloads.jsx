@@ -29,13 +29,10 @@ export default function Downloads() {
 
       <div className="bg-white rounded-xl shadow border-l-4 border-green-500 p-5">
         <h2 className="font-semibold mb-3 text-green-600">📄 工具文件下载</h2>
-        <p className="text-sm text-gray-600 mb-4">下载表格制作工具和库存更新工具</p>
+        <p className="text-sm text-gray-600 mb-4">下载蓝鲸工具客户端安装程序</p>
         <div className="grid grid-cols-4 gap-3">
-          <button onClick={() => alert('表格制作工具下载')} className="bg-green-500 text-white rounded-lg py-3 px-4 flex justify-between items-center hover:bg-green-600">
-            📄 表格制作工具 <span>⬇️</span>
-          </button>
-          <button onClick={() => alert('库存更新工具下载')} className="bg-green-500 text-white rounded-lg py-3 px-4 flex justify-between items-center hover:bg-green-600">
-            📄 库存更新工具 <span>⬇️</span>
+          <button onClick={() => alert('蓝鲸工具安装EXE下载')} className="bg-green-500 text-white rounded-lg py-3 px-4 flex justify-between items-center hover:bg-green-600">
+            📄 蓝鲸工具安装EXE下载 <span>⬇️</span>
           </button>
         </div>
       </div>

@@ -36,9 +36,9 @@ export default function Layout({ user, setUser }) {
     <div className="flex h-screen bg-gray-100">
       <aside className="w-60 bg-slate-900 text-white flex flex-col">
         <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-orange-500 flex items-center justify-center font-bold">D</div>
+          <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center font-bold">🐋</div>
           <div>
-            <div className="font-semibold">DropXL 分销</div>
+            <div className="font-semibold">蓝鲸跨境海外仓</div>
             <div className="text-xs text-gray-400">{user?.is_admin ? '管理后台' : '分销平台'}</div>
           </div>
         </div>
@@ -65,8 +65,8 @@ export default function Layout({ user, setUser }) {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-orange-500 flex items-center justify-center text-white font-bold text-sm">D</div>
-            <span className="font-semibold">DropXL {user?.is_admin ? '管理后台' : '分销平台'}</span>
+            <div className="w-8 h-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm">🐋</div>
+            <span className="font-semibold">蓝鲸跨境海外仓分销平台</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-gray-500">欢迎，</span>
