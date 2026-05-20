@@ -17,13 +17,15 @@ const adminMenu = [
   { to: '/admin/users', icon: '👥', label: '用户管理' },
   { to: '/admin/orders', icon: '📋', label: '订单审核' },
   { to: '/admin/aftersales', icon: '🔧', label: '售后管理' },
-  { to: '/admin/api-test', icon: '🧪', label: 'DropXL API测试' },
+  { to: '/admin/staff', icon: '🛡️', label: '员工管理', ownerOnly: true },
+  { to: '/admin/audit-logs', icon: '📜', label: '操作审计日志', ownerOnly: true },
+  { to: '/admin/api-test', icon: '🧪', label: 'DropXL API测试', ownerOnly: true },
   { to: '/profile', icon: '👤', label: '个人资料' },
 ];
 
 export default function Layout({ user, setUser }) {
   const nav = useNavigate();
-  const menu = user?.is_admin ? adminMenu : userMenu;
+  const menu = (user?.is_admin ? adminMenu : userMenu).filter(m => !m.ownerOnly || user?.is_owner);
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
@@ -72,9 +74,11 @@ export default function Layout({ user, setUser }) {
               {(user?.display_name || user?.username || '?').slice(0, 1)}
             </div>
             <span className="font-medium">{user?.display_name || user?.username}</span>
-            {user?.is_admin
-              ? <span className="badge bg-purple-100 text-purple-700">管理员</span>
-              : <span className="badge bg-orange-100 text-orange-600">分销商</span>}
+            {user?.is_owner
+              ? <span className="badge bg-red-100 text-red-700">👑 店主</span>
+              : user?.is_admin
+                ? <span className="badge bg-purple-100 text-purple-700">员工</span>
+                : <span className="badge bg-orange-100 text-orange-600">分销商</span>}
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6">

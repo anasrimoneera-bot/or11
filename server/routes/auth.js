@@ -13,7 +13,7 @@ router.post('/login', (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: '用户名或密码错误' });
   }
-  const token = sign({ id: user.id, username: user.username, role: user.role, is_admin: !!user.is_admin });
+  const token = sign({ id: user.id, username: user.username, role: user.role, is_admin: !!user.is_admin, is_owner: !!user.is_owner });
   res.json({
     token,
     user: {
@@ -23,13 +23,14 @@ router.post('/login', (req, res) => {
       email: user.email,
       role: user.role,
       is_admin: !!user.is_admin,
+      is_owner: !!user.is_owner,
       member_level: user.member_level,
     },
   });
 });
 
 router.get('/me', authRequired, (req, res) => {
-  const user = db.prepare('SELECT id, username, display_name, email, phone, company, address, role, is_admin, member_level, member_days, sku_limit, created_at FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, username, display_name, email, phone, company, address, role, is_admin, is_owner, member_level, member_days, sku_limit, created_at FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: '用户不存在' });
   const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(user.id);
   user.balance = bal?.balance || 0;

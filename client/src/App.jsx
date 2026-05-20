@@ -17,6 +17,8 @@ import AdminUsers from './pages/admin/AdminUsers.jsx';
 import AdminOrders from './pages/admin/AdminOrders.jsx';
 import AdminAfterSales from './pages/admin/AdminAfterSales.jsx';
 import AdminApiTest from './pages/admin/AdminApiTest.jsx';
+import AdminStaff from './pages/admin/AdminStaff.jsx';
+import AdminAuditLogs from './pages/admin/AdminAuditLogs.jsx';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -42,7 +44,9 @@ export default function App() {
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/aftersales" element={<AdminAfterSales />} />
-            <Route path="/admin/api-test" element={<AdminApiTest />} />
+            {user?.is_owner && <Route path="/admin/staff" element={<AdminStaff />} />}
+            {user?.is_owner && <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />}
+            {user?.is_owner && <Route path="/admin/api-test" element={<AdminApiTest />} />}
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/admin" />} />
           </>

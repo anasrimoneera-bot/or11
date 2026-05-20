@@ -23,4 +23,9 @@ function adminRequired(req, res, next) {
   next();
 }
 
-module.exports = { sign, authRequired, adminRequired };
+function ownerRequired(req, res, next) {
+  if (!req.user?.is_owner) return res.status(403).json({ error: '此操作仅店主可执行' });
+  next();
+}
+
+module.exports = { sign, authRequired, adminRequired, ownerRequired };

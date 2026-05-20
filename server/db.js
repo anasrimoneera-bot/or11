@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   address TEXT,
   role TEXT DEFAULT 'distributor',
   is_admin INTEGER DEFAULT 0,
+  is_owner INTEGER DEFAULT 0,
   parent_id INTEGER,
   member_level TEXT DEFAULT '一级分销',
   member_days INTEGER DEFAULT 0,
@@ -128,6 +129,29 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  username TEXT,
+  display_name TEXT,
+  is_owner INTEGER DEFAULT 0,
+  method TEXT,
+  path TEXT,
+  action TEXT,
+  target_type TEXT,
+  target_id TEXT,
+  target_name TEXT,
+  summary TEXT,
+  changes TEXT,
+  payload TEXT,
+  ip TEXT,
+  status INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 `);
 
 function ensureDefaultUser() {
@@ -137,8 +161,8 @@ function ensureDefaultUser() {
   if (!db.prepare('SELECT id FROM users WHERE username = ?').get(adminName)) {
     const hash = bcrypt.hashSync(adminPass, 10);
     const info = db.prepare(`
-      INSERT INTO users (username, password_hash, display_name, role, is_admin)
-      VALUES (?, ?, '系统管理员', 'admin', 1)
+      INSERT INTO users (username, password_hash, display_name, role, is_admin, is_owner)
+      VALUES (?, ?, '店主', 'owner', 1, 1)
     `).run(adminName, hash);
     db.prepare('INSERT INTO user_balance (user_id, balance) VALUES (?, 0)').run(info.lastInsertRowid);
   }
