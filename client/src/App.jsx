@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import api from './api';
 import Layout from './components/Layout.jsx';
 import Login from './pages/Login.jsx';
@@ -16,9 +16,11 @@ import AdminDashboard from './pages/admin/AdminDashboard.jsx';
 import AdminUsers from './pages/admin/AdminUsers.jsx';
 import AdminOrders from './pages/admin/AdminOrders.jsx';
 import AdminAfterSales from './pages/admin/AdminAfterSales.jsx';
-import AdminApiTest from './pages/admin/AdminApiTest.jsx';
-import AdminStaff from './pages/admin/AdminStaff.jsx';
-import AdminAuditLogs from './pages/admin/AdminAuditLogs.jsx';
+
+// 店主专属页面 - 通过动态 import 隔离，员工的浏览器永远不会下载这些 JS 块
+const AdminApiTest = lazy(() => import('./pages/admin/AdminApiTest.jsx'));
+const AdminStaff = lazy(() => import('./pages/admin/AdminStaff.jsx'));
+const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs.jsx'));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -44,9 +46,9 @@ export default function App() {
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/aftersales" element={<AdminAfterSales />} />
-            {user?.is_owner && <Route path="/admin/staff" element={<AdminStaff />} />}
-            {user?.is_owner && <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />}
-            {user?.is_owner && <Route path="/admin/api-test" element={<AdminApiTest />} />}
+            {user?.is_owner && <Route path="/admin/staff" element={<Suspense fallback={<div>加载中...</div>}><AdminStaff /></Suspense>} />}
+            {user?.is_owner && <Route path="/admin/audit-logs" element={<Suspense fallback={<div>加载中...</div>}><AdminAuditLogs /></Suspense>} />}
+            {user?.is_owner && <Route path="/admin/api-test" element={<Suspense fallback={<div>加载中...</div>}><AdminApiTest /></Suspense>} />}
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/admin" />} />
           </>

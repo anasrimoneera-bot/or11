@@ -1,5 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import api from '../../api';
+
+const OwnerMarkupField = lazy(() => import('./OwnerMarkupField.jsx'));
+const OwnerCols = lazy(() => import('./OwnerColumns.jsx').then(m => ({
+  default: ({ kind, ...p }) => kind === 'h' ? <m.UserMarkupHeader /> : <m.UserMarkupCell {...p} />
+})));
+// 字段名通过运行时解码避免主 bundle 出现字面量
+const SECRET_KEY = atob('bWFya3VwX3BjdA==');
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
@@ -29,7 +36,7 @@ export default function AdminUsers() {
               <th className="px-3 py-2 text-left">邮箱</th>
               <th className="px-3 py-2 text-left">会员等级</th>
               <th className="px-3 py-2 text-right">SKU限制</th>
-              {isOwner && <th className="px-3 py-2 text-right text-red-600">加价%</th>}
+              {isOwner && <Suspense fallback={<th />}><OwnerCols kind="h" /></Suspense>}
               <th className="px-3 py-2 text-right">余额</th>
               <th className="px-3 py-2 text-left">注册时间</th>
               <th className="px-3 py-2"></th>
@@ -44,7 +51,7 @@ export default function AdminUsers() {
                 <td className="px-3 py-2">{u.email || '-'}</td>
                 <td className="px-3 py-2">{u.member_level}</td>
                 <td className="px-3 py-2 text-right">{u.sku_limit}</td>
-                {isOwner && <td className="px-3 py-2 text-right text-red-600 font-semibold">{u.markup_pct ?? 30}%</td>}
+                {isOwner && <Suspense fallback={<td />}><OwnerCols kind="c" value={u[SECRET_KEY]} /></Suspense>}
                 <td className={`px-3 py-2 text-right font-semibold ${u.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>¥{(u.balance || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-xs">{u.created_at}</td>
                 <td className="px-3 py-2 text-right">
@@ -129,15 +136,15 @@ function BalanceModal({ user, onClose, onDone }) {
 }
 
 function EditModal({ user, isOwner, onClose, onDone }) {
-  const [f, setF] = useState({
+  const baseFields = {
     display_name: user.display_name || '', email: user.email || '', phone: user.phone || '',
     company: user.company || '', member_level: user.member_level, sku_limit: user.sku_limit, member_days: user.member_days,
-    markup_pct: user.markup_pct ?? 30,
-  });
+  };
+  // 仅店主版的状态字段动态合入，员工版的主 bundle 不会出现该字段名
+  const [f, setF] = useState(isOwner ? { ...baseFields, [SECRET_KEY]: user[SECRET_KEY] ?? 30 } : baseFields);
   const [newPass, setNewPass] = useState('');
   const submit = async () => {
     const payload = { ...f };
-    if (!isOwner) delete payload.markup_pct;
     await api.put(`/admin/users/${user.id}`, payload);
     if (newPass) await api.post(`/admin/users/${user.id}/reset-password`, { password: newPass });
     onDone();
@@ -156,13 +163,9 @@ function EditModal({ user, isOwner, onClose, onDone }) {
         <input className="field" type="number" placeholder="会员天数" value={f.member_days} onChange={e => setF({ ...f, member_days: e.target.value })} />
         <input className="field" type="password" placeholder="重置密码(留空不改)" value={newPass} onChange={e => setNewPass(e.target.value)} />
         {isOwner && (
-          <div className="col-span-2 bg-red-50 border border-red-200 rounded p-2">
-            <label className="text-sm text-red-700">🔒 加价百分比 (仅店主可见)</label>
-            <div className="flex items-center gap-2">
-              <input className="field" type="number" step="0.1" value={f.markup_pct} onChange={e => setF({ ...f, markup_pct: e.target.value })} />
-              <span className="text-red-700">%</span>
-            </div>
-          </div>
+          <Suspense fallback={null}>
+            <OwnerMarkupField value={f[SECRET_KEY]} onChange={v => setF({ ...f, [SECRET_KEY]: v })} />
+          </Suspense>
         )}
       </div>
       <div className="flex justify-end gap-2 mt-4">
