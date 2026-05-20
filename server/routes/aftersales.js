@@ -1,0 +1,117 @@
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const db = require('../db');
+const { authRequired } = require('../middleware/auth');
+
+const router = express.Router();
+
+const UPLOAD_DIR = path.join(__dirname, '..', '..', 'data', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+    cb(null, name);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+
+router.get('/', authRequired, (req, res) => {
+  const { q, status, limit = 20, offset = 0 } = req.query;
+  const conds = ['user_id = ?'];
+  const args = [req.user.id];
+  if (status && status !== 'all') { conds.push('status = ?'); args.push(status); }
+  if (q) {
+    conds.push('(order_no LIKE ? OR title LIKE ? OR description LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  const where = 'WHERE ' + conds.join(' AND ');
+  const rows = db.prepare(`SELECT * FROM aftersales_tickets ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...args, Number(limit), Number(offset));
+  const total = db.prepare(`SELECT COUNT(*) AS c FROM aftersales_tickets ${where}`).get(...args).c;
+  res.json({ rows, total });
+});
+
+router.get('/stats', authRequired, (req, res) => {
+  const userId = req.user.id;
+  const counts = {
+    total: db.prepare('SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ?').get(userId).c,
+    pending: db.prepare("SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ? AND status = 'pending'").get(userId).c,
+    processing: db.prepare("SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ? AND status = 'processing'").get(userId).c,
+    waiting_refund: db.prepare("SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ? AND status = 'waiting_refund'").get(userId).c,
+    completed: db.prepare("SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ? AND status = 'completed'").get(userId).c,
+  };
+  res.json(counts);
+});
+
+// 用户根据订单号/品牌/国家搜索自己的订单（用于售后选择）
+router.get('/search-orders', authRequired, (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json([]);
+  const rows = db.prepare(`
+    SELECT * FROM purchase_orders
+    WHERE user_id = ? AND (order_no LIKE ? OR shop_name LIKE ? OR country LIKE ?)
+    ORDER BY created_at DESC LIMIT 10
+  `).all(req.user.id, `%${q}%`, `%${q}%`, `%${q}%`);
+  res.json(rows);
+});
+
+router.get('/:id', authRequired, (req, res) => {
+  const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!t) return res.status(404).json({ error: '工单不存在' });
+  const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
+  const attachments = db.prepare('SELECT id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
+  res.json({ ...t, messages, attachments });
+});
+
+router.get('/attachments/:id', authRequired, (req, res) => {
+  const att = db.prepare(`
+    SELECT a.*, t.user_id FROM aftersales_attachments a
+    JOIN aftersales_tickets t ON t.id = a.ticket_id
+    WHERE a.id = ?
+  `).get(req.params.id);
+  if (!att) return res.status(404).end();
+  if (!req.user.is_admin && att.user_id !== req.user.id) return res.status(403).end();
+  res.setHeader('Content-Type', att.mimetype || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.original_name || att.filename)}"`);
+  res.sendFile(path.join(UPLOAD_DIR, att.filename));
+});
+
+router.post('/', authRequired, upload.array('files', 10), (req, res) => {
+  const { order_no, country, reason, description, priority } = req.body || {};
+  if (!order_no) return res.status(400).json({ error: '请选择订单' });
+  if (!reason) return res.status(400).json({ error: '请选择售后原因' });
+  if (!description || !description.trim()) return res.status(400).json({ error: '请填写备注说明' });
+
+  const order = db.prepare('SELECT id FROM purchase_orders WHERE order_no = ? AND user_id = ?').get(order_no, req.user.id);
+
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO aftersales_tickets (user_id, order_id, order_no, country, title, reason, description, priority, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `).run(req.user.id, order?.id || null, order_no, country, `售后申请 - ${reason}`, reason, description, priority || '中优先级');
+
+    const ticketId = info.lastInsertRowid;
+    const insAtt = db.prepare('INSERT INTO aftersales_attachments (ticket_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?)');
+    for (const f of req.files || []) {
+      insAtt.run(ticketId, f.filename, Buffer.from(f.originalname, 'latin1').toString('utf8'), f.mimetype, f.size);
+    }
+    return ticketId;
+  });
+
+  res.json({ ok: true, id: tx() });
+});
+
+router.post('/:id/messages', authRequired, (req, res) => {
+  const { content } = req.body || {};
+  const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!t) return res.status(404).json({ error: '工单不存在' });
+  db.prepare('INSERT INTO aftersales_messages (ticket_id, author, is_admin, content) VALUES (?, ?, 0, ?)').run(t.id, req.user.username, content);
+  db.prepare('UPDATE aftersales_tickets SET updated_at = CURRENT_TIMESTAMP, has_new_message = 1 WHERE id = ?').run(t.id);
+  res.json({ ok: true });
+});
+
+module.exports = router;
