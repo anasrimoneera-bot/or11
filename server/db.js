@@ -153,6 +153,19 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
+CREATE TABLE IF NOT EXISTS purchase_order_shipping (
+  order_id INTEGER PRIMARY KEY,
+  name TEXT,
+  address1 TEXT,
+  address2 TEXT,
+  city TEXT,
+  state TEXT,
+  postal TEXT,
+  country TEXT,
+  phone TEXT,
+  buyer_email TEXT
+);
+
 CREATE TABLE IF NOT EXISTS dropxl_products (
   country TEXT NOT NULL,
   code TEXT NOT NULL,
@@ -258,6 +271,16 @@ function ensureDefaultUser() {
     db.prepare('INSERT INTO shops (user_id, name, country) VALUES (?, ?, ?)').run(info.lastInsertRowid, 'FF', '美国');
   }
 }
+
+function ensureColumn(table, column, type) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`).run();
+  }
+}
+
+// 历史库添加 PR-C 新列
+ensureColumn('purchase_orders', 'dropxl_exported_at', 'TEXT');
 
 ensureDefaultUser();
 

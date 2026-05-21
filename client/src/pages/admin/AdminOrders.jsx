@@ -60,11 +60,35 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '导入失败'); }
   };
 
+  const exportDropxlTemplate = async () => {
+    if (!confirm('确认导出待处理订单为 DropXL 采购模板？\n• 默认只导出未导出过的订单\n• 导出后会标记为"已导出"，下次不再重复\n• 导出后请前往 DropXL 平台手动提交')) return;
+    try {
+      const r = await api.post('/admin/orders/dropxl-template-export', {}, { responseType: 'blob' });
+      const blob = r.data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dropxl-purchase-orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // blob 错误响应需特殊处理
+      let msg = '导出失败';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
+      } else {
+        msg = e.response?.data?.error || e.message;
+      }
+      alert(msg);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">📋 订单管理</h1>
         <div className="flex gap-2">
+          <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出 DropXL 采购模板</button>
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary">🔄 从DropXL同步跟踪号/状态</button>
         </div>

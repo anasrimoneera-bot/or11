@@ -24,6 +24,8 @@ const ACTIONS = [
   { re: /^POST \/test-dropxl$/, action: 'DropXL API 测试' },
   // 系统设置
   { re: /^PUT \/settings$/, action: '修改系统设置', target: 'settings' },
+  // 导出 DropXL 采购模板
+  { re: /^POST \/orders\/dropxl-template-export$/, action: '导出 DropXL 采购模板' },
   // 商品库存上传与国家加价
   { re: /^POST \/products\/inventory-upload\/[^/]+$/, action: '上传国家库存文件', target: 'inventory' },
   { re: /^POST \/products\/sync-all$/, action: '一键同步全部国家库存', target: 'inventory' },

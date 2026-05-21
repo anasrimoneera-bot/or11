@@ -592,6 +592,97 @@ router.post('/aftersales/:id/refund', (req, res) => {
   res.json({ ok: true });
 });
 
+// ============ 导出 DropXL 采购模板 ============
+const XLSX_LIB = require('xlsx');
+
+router.post('/orders/dropxl-template-export', (req, res) => {
+  const { from_date, to_date, include_exported = false, user_id } = req.body || {};
+  const conds = ["po.status IN ('pending_purchase', 'pending_shipment')"];
+  const args = [];
+  if (!include_exported) {
+    conds.push('po.dropxl_exported_at IS NULL');
+  }
+  if (from_date) { conds.push('date(po.created_at) >= ?'); args.push(from_date); }
+  if (to_date) { conds.push('date(po.created_at) <= ?'); args.push(to_date); }
+  if (user_id) { conds.push('po.user_id = ?'); args.push(Number(user_id)); }
+  const where = 'WHERE ' + conds.join(' AND ');
+
+  const orders = db.prepare(`
+    SELECT po.id, po.order_no, po.customer_ref,
+           pos.name, pos.address1, pos.address2, pos.city, pos.state,
+           pos.postal, pos.country, pos.phone, pos.buyer_email
+    FROM purchase_orders po
+    LEFT JOIN purchase_order_shipping pos ON pos.order_id = po.id
+    ${where}
+    ORDER BY po.id ASC
+  `).all(...args);
+
+  if (orders.length === 0) {
+    return res.status(404).json({ error: '没有符合条件的订单可导出' });
+  }
+
+  const itemsByOrder = new Map();
+  const items = db.prepare(`
+    SELECT order_id, sku, quantity FROM purchase_order_items
+    WHERE order_id IN (${orders.map(() => '?').join(',')})
+  `).all(...orders.map(o => o.id));
+  for (const it of items) {
+    if (!itemsByOrder.has(it.order_id)) itemsByOrder.set(it.order_id, []);
+    itemsByOrder.get(it.order_id).push(it);
+  }
+
+  // 展开成 DropXL 12 列 (一行 = 一个 product_code)
+  const dropxlRows = [];
+  for (const o of orders) {
+    const its = itemsByOrder.get(o.id) || [];
+    for (const it of its) {
+      dropxlRows.push({
+        order_reference: o.order_no,
+        product_code: it.sku,
+        quantity: it.quantity,
+        address: o.address1 || '',
+        address2: o.address2 || '',
+        province: o.state || '',
+        city: o.city || '',
+        country: o.country || '',
+        postal_code: o.postal || '',
+        phone: o.phone || '',
+        name: o.name || '',
+        email: o.buyer_email || '',
+      });
+    }
+  }
+
+  if (dropxlRows.length === 0) {
+    return res.status(404).json({ error: '订单存在但没有任何商品行可导出' });
+  }
+
+  // 标记这些订单为已导出
+  const now = new Date().toISOString();
+  const mark = db.prepare('UPDATE purchase_orders SET dropxl_exported_at = ? WHERE id = ?');
+  const tx = db.transaction(() => {
+    for (const o of orders) mark.run(now, o.id);
+  });
+  tx();
+
+  const ws = XLSX_LIB.utils.json_to_sheet(dropxlRows, {
+    header: ['order_reference', 'product_code', 'quantity', 'address', 'address2', 'province', 'city', 'country', 'postal_code', 'phone', 'name', 'email'],
+  });
+  ws['!cols'] = [
+    { wch: 22 }, { wch: 14 }, { wch: 8 }, { wch: 32 }, { wch: 20 }, { wch: 8 }, { wch: 16 },
+    { wch: 8 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 32 },
+  ];
+  const wb = XLSX_LIB.utils.book_new();
+  XLSX_LIB.utils.book_append_sheet(wb, ws, 'DropXL Purchase Orders');
+  const buf = XLSX_LIB.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  setAudit(res, { summary: `导出 DropXL 采购模板：${orders.length} 个订单 / ${dropxlRows.length} 行商品` });
+  const fileName = `dropxl-purchase-orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+});
+
 // ============ 系统设置（仅店主） ============
 const { getExchangeRate, setSetting } = require('../settings');
 

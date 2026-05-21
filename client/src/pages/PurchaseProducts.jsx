@@ -15,6 +15,9 @@ export default function PurchaseProducts() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [pickedFile, setPickedFile] = useState(null);
+  const [preview, setPreview] = useState(null);   // { rows, summary, exchange_rate }
+  const [previewing, setPreviewing] = useState(false);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -38,10 +41,41 @@ export default function PurchaseProducts() {
   const purchaseCny = purchaseUsd * (Number(exchangeRate) || 0);
 
   const triggerFilePicker = () => fileInputRef.current?.click();
-  const onFilePicked = (e) => setPickedFile(e.target.files?.[0] || null);
-  const batchPurchase = () => {
+  const onFilePicked = (e) => {
+    setPickedFile(e.target.files?.[0] || null);
+    setPreview(null);
+  };
+  const batchPurchase = async () => {
     if (!pickedFile) return alert('请先选择亚马逊订单模板文件');
-    alert('批量采购功能正在改造中：将通过 SKU 自动匹配 DropXL 商品库并按国家加价后展示采购价。即将上线。');
+    setPreviewing(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', pickedFile);
+      const r = await api.post('/orders/batch/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setPreview(r.data);
+    } catch (e) {
+      alert(e.response?.data?.error || '解析失败：' + e.message);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+  const submitBatch = async () => {
+    if (!preview) return;
+    const submittable = preview.rows.filter(r => r.matched && r.errors.length === 0);
+    if (submittable.length === 0) return alert('没有可提交的行');
+    if (!confirm(`确认提交 ${submittable.length} 条匹配成功的行？\n（同一 Amazon 订单的多条 SKU 会合并为一个采购订单）`)) return;
+    setBatchSubmitting(true);
+    try {
+      const r = await api.post('/orders/batch/submit', { rows: submittable });
+      alert(`提交完成：成功 ${r.data.summary.created} / 跳过(已存在) ${r.data.summary.skipped} / 失败 ${r.data.summary.failed}`);
+      setPreview(null);
+      setPickedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (e) {
+      alert(e.response?.data?.error || '提交失败');
+    } finally {
+      setBatchSubmitting(false);
+    }
   };
 
   const addItem = () => setForm({ ...form, items: [...form.items, { sku: '', product_name: '', quantity: 1, unit_price: 0 }] });
@@ -99,9 +133,23 @@ export default function PurchaseProducts() {
                 {pickedFile ? pickedFile.name : '未选择任何文件'}
               </div>
               <button type="button" onClick={triggerFilePicker} className="btn btn-warning">选择文件</button>
-              <button type="button" onClick={batchPurchase} className="btn btn-success">批量采购</button>
+              <button type="button" onClick={batchPurchase} disabled={!pickedFile || previewing} className="btn btn-success">
+                {previewing ? '解析中...' : '解析并预览'}
+              </button>
+            </div>
+            <div className="text-xs text-gray-500 mt-2">
+              系统会按表格中 <b>sku</b> 列自动匹配店主商品库，按收件国家自动应用加价规则。匹配通过后点击下方"提交"。
             </div>
           </div>
+
+          {preview && (
+            <BatchPreviewPanel
+              preview={preview}
+              onCancel={() => setPreview(null)}
+              onSubmit={submitBatch}
+              submitting={batchSubmitting}
+            />
+          )}
 
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold mb-3">📝 基本信息</h3>
@@ -221,6 +269,79 @@ function Row({ label, children }) {
     <div className="flex justify-between items-center">
       <span className="text-gray-600">{label}</span>
       <span>{children}</span>
+    </div>
+  );
+}
+
+function BatchPreviewPanel({ preview, onCancel, onSubmit, submitting }) {
+  const { rows, summary, exchange_rate } = preview;
+  return (
+    <div className="bg-white rounded-xl shadow border">
+      <div className="border-b px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="font-semibold">📊 预览结果</div>
+        <div className="text-sm flex gap-4 items-center">
+          <span>总行数 <b>{summary.total}</b></span>
+          <span className="text-green-600">匹配 <b>{summary.matched}</b></span>
+          <span className="text-red-600">未匹配 <b>{summary.unmatched}</b></span>
+          <span className="text-blue-600">可提交 <b>{summary.ready_to_submit}</b></span>
+          <span className="text-gray-500">汇率 {exchange_rate}</span>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="btn btn-ghost border">取消</button>
+          <button onClick={onSubmit} disabled={submitting || summary.ready_to_submit === 0} className="btn btn-primary">
+            {submitting ? '提交中...' : `✓ 提交 ${summary.ready_to_submit} 条`}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-auto" style={{ maxHeight: 480 }}>
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 text-gray-500 sticky top-0">
+            <tr>
+              <th className="px-2 py-2 text-left">行</th>
+              <th className="px-2 py-2 text-left">order-id</th>
+              <th className="px-2 py-2 text-left">sku</th>
+              <th className="px-2 py-2 text-right">数量</th>
+              <th className="px-2 py-2 text-left">Amazon 商品名</th>
+              <th className="px-2 py-2 text-right">B2B (USD)</th>
+              <th className="px-2 py-2 text-right">库存</th>
+              <th className="px-2 py-2 text-left">国家</th>
+              <th className="px-2 py-2 text-right">加价%</th>
+              <th className="px-2 py-2 text-right">加价后(USD)</th>
+              <th className="px-2 py-2 text-left">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const ok = r.matched && r.errors.length === 0;
+              const hasWarning = (r.warnings && r.warnings.length > 0);
+              const rowCls = !ok ? 'bg-red-50' : (hasWarning ? 'bg-yellow-50' : '');
+              return (
+                <tr key={r.row_no} className={`border-t ${rowCls}`}>
+                  <td className="px-2 py-1">{r.row_no}</td>
+                  <td className="px-2 py-1 font-mono">{r.amazon_order_id}</td>
+                  <td className="px-2 py-1 font-mono">{r.sku}</td>
+                  <td className="px-2 py-1 text-right">{r.quantity}</td>
+                  <td className="px-2 py-1 max-w-xs truncate" title={r.product_name}>{r.product_name || '—'}</td>
+                  <td className="px-2 py-1 text-right">{r.dropxl_product?.b2b_price != null ? `$${Number(r.dropxl_product.b2b_price).toFixed(2)}` : '—'}</td>
+                  <td className={`px-2 py-1 text-right ${r.dropxl_product && r.dropxl_product.stock <= 0 ? 'text-red-500' : ''}`}>
+                    {r.dropxl_product ? r.dropxl_product.stock : '—'}
+                  </td>
+                  <td className="px-2 py-1">{r.country_name || <span className="text-red-500">{r.ship_country}?</span>}</td>
+                  <td className="px-2 py-1 text-right">{r.markup_pct != null ? `${r.markup_pct}%` : '—'}</td>
+                  <td className="px-2 py-1 text-right font-semibold">{r.display_price_usd != null ? `$${Number(r.display_price_usd).toFixed(2)}` : '—'}</td>
+                  <td className="px-2 py-1">
+                    {!ok
+                      ? <span className="badge bg-red-100 text-red-700" title={r.errors.join('\n')}>{r.errors[0] || '未匹配'}</span>
+                      : hasWarning
+                      ? <span className="badge bg-yellow-100 text-yellow-700" title={r.warnings.join('\n')}>⚠ 无库存</span>
+                      : <span className="badge bg-green-100 text-green-700">就绪</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
