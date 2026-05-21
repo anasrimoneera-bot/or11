@@ -15,7 +15,7 @@ const userMenu = [
 const adminMenu = [
   { to: '/admin', icon: '🏠', label: '管理控制台' },
   { to: '/admin/users', icon: '👥', label: '用户管理' },
-  { to: '/admin/orders', icon: '📋', label: '订单审核' },
+  { to: '/admin/orders', icon: '📋', label: '订单管理' },
   { to: '/admin/aftersales', icon: '🔧', label: '售后管理' },
   { to: '/admin/staff', icon: '🛡️', label: '员工管理', ownerOnly: true },
   { to: '/admin/audit-logs', icon: '📜', label: '操作审计日志', ownerOnly: true },

@@ -25,6 +25,10 @@ export default function AdminOrders() {
   const isOwner = !!me?.is_owner;
 
   const load = () => {
+    if (filters.status === 'all' && !filters.q) {
+      setRows([]);
+      return;
+    }
     const params = {};
     if (filters.status !== 'all') params.status = filters.status;
     if (filters.q) params.q = filters.q;
@@ -58,7 +62,7 @@ export default function AdminOrders() {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">📋 订单审核与发货</h1>
+        <h1 className="text-2xl font-bold">📋 订单管理</h1>
         <div className="flex gap-2">
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary">🔄 从DropXL同步跟踪号/状态</button>
@@ -105,7 +109,11 @@ export default function AdminOrders() {
                 <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
                 {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
-                <td className="px-3 py-2 text-xs">{o.tracking_no || '-'}</td>
+                <td className="px-3 py-2 text-xs">{
+                  o.tracking_no
+                    ? o.tracking_no.split(',').map((t, i) => <div key={i} className="whitespace-nowrap">{t.trim()}</div>)
+                    : '-'
+                }</td>
                 <td className="px-3 py-2"><span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status]}</span></td>
                 <td className="px-3 py-2 text-xs">{o.created_at}</td>
                 <td className="px-3 py-2 text-right">
@@ -115,7 +123,9 @@ export default function AdminOrders() {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={isOwner ? 13 : 11} className="p-6 text-center text-gray-400">暂无订单</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={isOwner ? 13 : 11} className="p-6 text-center text-gray-400">
+              {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
+            </td></tr>}
           </tbody>
         </table>
       </div>
