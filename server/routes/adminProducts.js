@@ -1,183 +1,174 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const XLSX = require('xlsx');
 const db = require('../db');
-const dropxl = require('../dropxl');
 const { authRequired, adminRequired, ownerRequired } = require('../middleware/auth');
-const { audit, setAudit } = require('../middleware/audit');
+const { setAudit } = require('../middleware/audit');
 
 const router = express.Router();
-router.use(authRequired, adminRequired, audit);
+router.use(authRequired, adminRequired);
 
-// 同步任务在内存维护，重启后丢失（产品数据本身在 DB 里，重启不影响）
-const syncJobs = new Map();
-const JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
+const INVENTORY_DIR = path.join(__dirname, '..', '..', 'data', 'inventory');
+if (!fs.existsSync(INVENTORY_DIR)) fs.mkdirSync(INVENTORY_DIR, { recursive: true });
 
-function cleanupOldSyncJobs() {
-  const cutoff = Date.now() - JOB_RETENTION_MS;
-  for (const [id, job] of syncJobs.entries()) {
-    if (job.finishedAt && new Date(job.finishedAt).getTime() < cutoff) {
-      syncJobs.delete(id);
-    }
-  }
+const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+const COUNTRY_TO_CODE = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', 荷兰: 'NL', 意大利: 'IT', 西班牙: 'ES', 波兰: 'PL' };
+const COUNTRY_CODE_TO_NAME = Object.fromEntries(Object.entries(COUNTRY_TO_CODE).map(([k, v]) => [v, k]));
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
+
+function resolveCountry(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (COUNTRIES.includes(s)) return s;
+  return COUNTRY_CODE_TO_NAME[s.toUpperCase()] || null;
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+// 解析上传的 DropXL 国家库存 xlsx（3 列：SKU / B2B_price / Stock）
+function parseInventoryXlsx(buffer) {
+  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) throw new Error('文件不含工作表');
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  return rows.map(r => {
+    // 字段名不区分大小写匹配
+    const lower = {};
+    for (const k of Object.keys(r)) lower[String(k).toLowerCase().trim()] = r[k];
+    const sku = String(lower['sku'] ?? '').trim();
+    const price = Number(lower['b2b_price'] ?? lower['price'] ?? 0) || 0;
+    const stock = Number(lower['stock'] ?? lower['quantity'] ?? 0) || 0;
+    return sku ? { sku, price, stock } : null;
+  }).filter(Boolean);
+}
 
-async function runProductSync(job) {
-  const PAGE_SIZE = 500;
-  const RATE_LIMIT_MS = 1100;
-  const upsert = db.prepare(`
-    INSERT INTO dropxl_products
-      (code, dropxl_id, name, category_path, quantity, price, currency, country, dropxl_updated_at, synced_at, sync_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(code) DO UPDATE SET
-      dropxl_id = excluded.dropxl_id,
-      name = excluded.name,
-      category_path = excluded.category_path,
-      quantity = excluded.quantity,
-      price = excluded.price,
-      currency = excluded.currency,
-      country = excluded.country,
-      dropxl_updated_at = excluded.dropxl_updated_at,
-      synced_at = excluded.synced_at,
-      sync_id = excluded.sync_id
-  `);
-  let offset = 0;
-  let total = null;
-  const now = new Date().toISOString();
+// ============ 国家库存上传（仅店主） ============
+router.post('/inventory-upload/:country', ownerRequired, upload.single('file'), (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  if (!req.file) return res.status(400).json({ error: '请选择文件' });
 
+  let rows;
   try {
-    while (true) {
-      const data = await dropxl.listProducts({ limit: PAGE_SIZE, offset });
-      const items = data?.data || [];
-      if (data?.pagination?.total != null) total = data.pagination.total;
-
-      const tx = db.transaction((arr) => {
-        for (const p of arr) {
-          const qty = Number(p.quantity) || 0;
-          if (qty <= 0) { job.skippedNoStock++; continue; }
-          if (!p.code) continue;
-          upsert.run(
-            String(p.code),
-            p.id != null ? Number(p.id) : null,
-            p.name || null,
-            p.category_path || null,
-            qty,
-            Number(p.price) || 0,
-            p.currency || null,
-            null,                  // country: DropXL 当前 API 不带国家维度，留空
-            p.updated_at || null,
-            now,
-            job.syncId,
-          );
-          job.upserted++;
-        }
-      });
-      tx(items);
-
-      job.fetched += items.length;
-      job.progress = { fetched: job.fetched, total: total ?? job.fetched };
-      if (!items.length || items.length < PAGE_SIZE || (total != null && job.fetched >= total)) break;
-      offset += PAGE_SIZE;
-      await sleep(RATE_LIMIT_MS);
-    }
-
-    // 清理上一轮同步遗留的、本轮没出现的商品（含已不再有库存的）
-    const del = db.prepare('DELETE FROM dropxl_products WHERE sync_id != ? OR sync_id IS NULL').run(job.syncId);
-    job.deleted = del.changes;
-
-    job.status = 'done';
-    job.finishedAt = new Date().toISOString();
+    rows = parseInventoryXlsx(req.file.buffer);
   } catch (e) {
-    job.status = 'failed';
-    job.error = e.message;
-    job.finishedAt = new Date().toISOString();
+    return res.status(400).json({ error: '解析失败：' + e.message });
   }
-}
+  if (rows.length === 0) return res.status(400).json({ error: '文件中未找到有效行（需含 SKU 列）' });
 
-// ============ 同步任务 ============
-router.post('/sync', ownerRequired, (req, res) => {
-  for (const j of syncJobs.values()) {
-    if (j.status === 'running') {
-      return res.status(409).json({ error: '已有商品同步任务在运行中，请等待完成' });
-    }
-  }
-  cleanupOldSyncJobs();
-  const syncId = Date.now();
-  const job = {
-    syncId,
-    status: 'running',
-    progress: { fetched: 0, total: null },
-    fetched: 0,
-    upserted: 0,
-    skippedNoStock: 0,
-    deleted: 0,
-    error: null,
-    startedAt: new Date().toISOString(),
-    finishedAt: null,
-    startedBy: req.user.username,
-  };
-  syncJobs.set(String(syncId), job);
-  runProductSync(job);
-  setAudit(res, { summary: `启动 DropXL 商品同步` });
-  res.json({ syncId });
+  // 原始文件落盘，分销商下载时原样下发
+  const code = COUNTRY_TO_CODE[country];
+  const storedFilename = `${code}.xlsx`;
+  const storedPath = path.join(INVENTORY_DIR, storedFilename);
+  fs.writeFileSync(storedPath, req.file.buffer);
+
+  const now = new Date().toISOString();
+  const inStock = rows.filter(r => r.stock > 0).length;
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM dropxl_products WHERE country = ?').run(country);
+    const ins = db.prepare('INSERT OR REPLACE INTO dropxl_products (country, code, b2b_price, stock, uploaded_at) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) ins.run(country, r.sku, r.price, r.stock, now);
+    db.prepare(`
+      INSERT INTO inventory_uploads (country, original_filename, stored_filename, rows_count, in_stock_count, uploaded_by, uploaded_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(country, req.file.originalname, storedFilename, rows.length, inStock, req.user.username, now);
+  });
+  tx();
+
+  setAudit(res, {
+    target_name: country,
+    summary: `上传 ${country} 库存：${rows.length} 条（有库存 ${inStock}），文件 ${req.file.originalname}`,
+  });
+  res.json({ ok: true, country, rows: rows.length, in_stock: inStock });
 });
 
-router.get('/sync', (req, res) => {
-  const list = Array.from(syncJobs.values()).sort((a, b) => b.syncId - a.syncId).slice(0, 20);
-  res.json({ jobs: list });
+// 每个国家的最近一次上传状态
+router.get('/inventory-status', (req, res) => {
+  const rows = db.prepare(`
+    SELECT iu.country, iu.original_filename, iu.rows_count, iu.in_stock_count,
+           iu.uploaded_by, iu.uploaded_at,
+           (SELECT COUNT(*) FROM dropxl_products dp WHERE dp.country = iu.country) AS db_total,
+           (SELECT COUNT(*) FROM dropxl_products dp WHERE dp.country = iu.country AND dp.stock > 0) AS db_in_stock
+    FROM inventory_uploads iu
+    INNER JOIN (
+      SELECT country, MAX(uploaded_at) AS mx FROM inventory_uploads GROUP BY country
+    ) latest ON latest.country = iu.country AND latest.mx = iu.uploaded_at
+    ORDER BY iu.country
+  `).all();
+  const map = Object.fromEntries(rows.map(r => [r.country, r]));
+  const list = COUNTRIES.map(c => ({
+    country: c,
+    code: COUNTRY_TO_CODE[c],
+    ...(map[c] || { rows_count: 0, in_stock_count: 0, db_total: 0, db_in_stock: 0, uploaded_at: null, uploaded_by: null, original_filename: null }),
+  }));
+  res.json(list);
 });
 
-router.get('/sync/:id', (req, res) => {
-  const job = syncJobs.get(String(req.params.id));
-  if (!job) return res.status(404).json({ error: '同步任务不存在或已过期' });
-  res.json(job);
+// 店主侧下载源文件（验证用）
+router.get('/inventory-file/:country', ownerRequired, (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const code = COUNTRY_TO_CODE[country];
+  const file = path.join(INVENTORY_DIR, `${code}.xlsx`);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: '该国家尚未上传库存文件' });
+  const latest = db.prepare(`
+    SELECT original_filename FROM inventory_uploads
+    WHERE country = ? ORDER BY uploaded_at DESC LIMIT 1
+  `).get(country);
+  res.download(file, latest?.original_filename || `${code}-inventory.xlsx`);
 });
 
-// ============ 商品列表（带筛选） ============
+// ============ 商品列表（按国家筛选，必填国家） ============
 router.get('/', (req, res) => {
   const {
-    q = '', country = '', min_price = '', max_price = '',
-    min_quantity = '', limit = 50, offset = 0,
+    country, q = '', min_price = '', max_price = '',
+    min_stock = '', max_stock = '', stock_filter = 'all',
+    limit = 50, offset = 0,
   } = req.query;
 
-  const conds = [];
-  const args = [];
-  if (q.trim()) {
-    conds.push('(code LIKE ? OR name LIKE ?)');
-    args.push(`%${q.trim()}%`, `%${q.trim()}%`);
-  }
-  if (country.trim()) {
-    conds.push('country = ?');
-    args.push(country.trim());
-  }
-  if (min_price !== '' && !isNaN(Number(min_price))) {
-    conds.push('price >= ?'); args.push(Number(min_price));
-  }
-  if (max_price !== '' && !isNaN(Number(max_price))) {
-    conds.push('price <= ?'); args.push(Number(max_price));
-  }
-  if (min_quantity !== '' && !isNaN(Number(min_quantity))) {
-    conds.push('quantity >= ?'); args.push(Number(min_quantity));
-  }
-  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const country_zh = resolveCountry(country);
+  if (!country_zh) return res.status(400).json({ error: '请指定国家 (country=美国/US/...)' });
+
+  const conds = ['country = ?'];
+  const args = [country_zh];
+  if (q.trim()) { conds.push('code LIKE ?'); args.push(`%${q.trim()}%`); }
+  if (min_price !== '' && !isNaN(Number(min_price))) { conds.push('b2b_price >= ?'); args.push(Number(min_price)); }
+  if (max_price !== '' && !isNaN(Number(max_price))) { conds.push('b2b_price <= ?'); args.push(Number(max_price)); }
+  if (min_stock !== '' && !isNaN(Number(min_stock))) { conds.push('stock >= ?'); args.push(Number(min_stock)); }
+  if (max_stock !== '' && !isNaN(Number(max_stock))) { conds.push('stock <= ?'); args.push(Number(max_stock)); }
+  if (stock_filter === 'in_stock') { conds.push('stock > 0'); }
+  else if (stock_filter === 'out_of_stock') { conds.push('stock = 0'); }
+  const where = 'WHERE ' + conds.join(' AND ');
 
   const total = db.prepare(`SELECT COUNT(*) AS c FROM dropxl_products ${where}`).get(...args).c;
   const rows = db.prepare(`
-    SELECT code, dropxl_id, name, category_path, quantity, price, currency, country, dropxl_updated_at, synced_at
+    SELECT country, code, b2b_price, stock, uploaded_at
     FROM dropxl_products
     ${where}
-    ORDER BY name ASC
+    ORDER BY CAST(code AS INTEGER) ASC, code ASC
     LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
 
-  const lastSync = db.prepare('SELECT MAX(synced_at) AS t FROM dropxl_products').get().t;
+  const markup = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country_zh);
 
-  res.json({ rows, total, last_synced_at: lastSync });
+  res.json({
+    rows,
+    total,
+    country: country_zh,
+    markup_pct: markup?.markup_pct ?? null,
+  });
 });
 
-// 单个商品按 code 查询 - 给批量采购匹配用
-router.get('/by-code/:code', (req, res) => {
-  const row = db.prepare('SELECT * FROM dropxl_products WHERE code = ?').get(req.params.code);
+// 单查（给批量采购匹配用）：必须同时给 country + code
+router.get('/by-code/:country/:code', (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const row = db.prepare('SELECT * FROM dropxl_products WHERE country = ? AND code = ?').get(country, req.params.code);
   if (!row) return res.status(404).json({ error: '未找到商品' });
   res.json(row);
 });
@@ -195,14 +186,10 @@ router.put('/country-markup/:country', ownerRequired, (req, res) => {
   const country = req.params.country;
   const cur = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
   if (cur) {
-    db.prepare(`
-      UPDATE country_markup SET markup_pct = ?, updated_at = CURRENT_TIMESTAMP WHERE country = ?
-    `).run(v, country);
+    db.prepare('UPDATE country_markup SET markup_pct = ?, updated_at = CURRENT_TIMESTAMP WHERE country = ?').run(v, country);
     setAudit(res, { target_name: country, summary: `${country} 加价: ${cur.markup_pct}% → ${v}%` });
   } else {
-    db.prepare(`
-      INSERT INTO country_markup (country, markup_pct) VALUES (?, ?)
-    `).run(country, v);
+    db.prepare('INSERT INTO country_markup (country, markup_pct) VALUES (?, ?)').run(country, v);
     setAudit(res, { target_name: country, summary: `新增 ${country} 加价规则: ${v}%` });
   }
   res.json({ ok: true });

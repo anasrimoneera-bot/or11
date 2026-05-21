@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react';
+import api from '../api';
+
 const countries = [
   { name: '美国', code: 'US' }, { name: '英国', code: 'GB' }, { name: '德国', code: 'DE' },
   { name: '法国', code: 'FR' }, { name: '荷兰', code: 'NL' }, { name: '意大利', code: 'IT' },
@@ -5,9 +8,45 @@ const countries = [
 ];
 
 export default function Downloads() {
-  const downloadFeed = (code) => {
-    alert(`下载 ${code} 库存数据。当DropXL API开放feed下载后此按钮将直接调用接口。`);
+  const [status, setStatus] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  useEffect(() => {
+    api.get('/inventory/status')
+      .then(r => {
+        const map = {};
+        for (const s of r.data) map[s.country] = s;
+        setStatus(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const downloadFeed = async (country) => {
+    setBusy(country);
+    try {
+      const r = await api.get(`/inventory/${encodeURIComponent(country)}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      // 后端 Content-Disposition 会带原始文件名；前端做兜底
+      const cd = r.headers['content-disposition'] || '';
+      const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i);
+      a.href = url;
+      a.download = match ? decodeURIComponent(match[1]) : `${country}-inventory.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      let msg = '下载失败';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
+      } else {
+        msg = e.response?.data?.error || e.message;
+      }
+      alert(msg);
+    } finally {
+      setBusy(null);
+    }
   };
+
   return (
     <div className="space-y-6">
       <div>
@@ -17,13 +56,33 @@ export default function Downloads() {
 
       <div className="bg-white rounded-xl shadow border-l-4 border-blue-500 p-5">
         <h2 className="font-semibold mb-3 text-blue-600">🌐 库存更新下载</h2>
-        <p className="text-sm text-gray-600 mb-4">下载各国库存更新数据 (XLSX 格式)</p>
+        <p className="text-sm text-gray-600 mb-4">下载各国库存更新数据 (XLSX 格式)。由店主端最新上传的源文件原样下发。</p>
         <div className="grid grid-cols-4 gap-3">
-          {countries.map(c => (
-            <button key={c.code} onClick={() => downloadFeed(c.code)} className="bg-blue-500 text-white rounded-lg py-3 px-4 flex justify-between items-center hover:bg-blue-600">
-              🌐 {c.name} 库存更新 <span>⬇️</span>
-            </button>
-          ))}
+          {countries.map(c => {
+            const s = status[c.name];
+            const disabled = !s?.available || busy === c.name;
+            return (
+              <button
+                key={c.code}
+                onClick={() => downloadFeed(c.name)}
+                disabled={disabled}
+                className={`rounded-lg py-3 px-4 flex flex-col items-start gap-1 transition ${
+                  disabled
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                }`}
+              >
+                <span className="w-full flex justify-between items-center font-medium">
+                  🌐 {c.name} 库存更新 <span>{busy === c.name ? '...' : '⬇️'}</span>
+                </span>
+                <span className="text-xs opacity-80">
+                  {s?.available
+                    ? `${s.rows_count} 条 · ${new Date(s.uploaded_at).toLocaleDateString()}`
+                    : '暂未上传'}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

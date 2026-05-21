@@ -1,119 +1,91 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../../api';
 
+const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+const PAGE_SIZE = 50;
+
 export default function AdminProducts() {
-  const [syncJob, setSyncJob] = useState(null);
-  const [syncJobs, setSyncJobs] = useState([]);
-  const [lastSyncAt, setLastSyncAt] = useState(null);
+  const [status, setStatus] = useState([]);
   const [markup, setMarkup] = useState([]);
+  const [activeCountry, setActiveCountry] = useState('美国');
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ q: '', country: '', min_price: '', max_price: '', min_quantity: '' });
+  const [filters, setFilters] = useState({ q: '', min_price: '', max_price: '', stock_filter: 'all' });
   const [page, setPage] = useState(0);
-  const pollRef = useRef(null);
-  const PAGE_SIZE = 50;
 
+  const loadStatus = () => api.get('/admin/products/inventory-status').then(r => setStatus(r.data));
   const loadMarkup = () => api.get('/admin/products/country-markup').then(r => setMarkup(r.data));
-  const loadJobs = () => api.get('/admin/products/sync').then(r => {
-    setSyncJobs(r.data.jobs);
-    const running = r.data.jobs.find(j => j.status === 'running');
-    setSyncJob(running || null);
-  });
   const loadProducts = () => {
     setLoading(true);
-    const params = { ...filters, limit: PAGE_SIZE, offset: page * PAGE_SIZE };
+    const params = { country: activeCountry, limit: PAGE_SIZE, offset: page * PAGE_SIZE, ...filters };
     Object.keys(params).forEach(k => { if (params[k] === '') delete params[k]; });
     api.get('/admin/products', { params })
-      .then(r => { setRows(r.data.rows); setTotal(r.data.total); setLastSyncAt(r.data.last_synced_at); })
+      .then(r => { setRows(r.data.rows); setTotal(r.data.total); })
+      .catch(() => { setRows([]); setTotal(0); })
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadMarkup(); loadJobs(); }, []);
-  useEffect(() => { loadProducts(); /* eslint-disable-next-line */ }, [page]);
-
-  // 同步任务运行时轮询进度
-  useEffect(() => {
-    if (syncJob && syncJob.status === 'running') {
-      pollRef.current = setInterval(() => {
-        api.get(`/admin/products/sync/${syncJob.syncId}`).then(r => {
-          setSyncJob(r.data);
-          if (r.data.status !== 'running') {
-            clearInterval(pollRef.current);
-            loadJobs();
-            loadProducts();
-          }
-        });
-      }, 2000);
-      return () => clearInterval(pollRef.current);
-    }
-  }, [syncJob?.syncId, syncJob?.status]);
-
-  const startSync = async () => {
-    if (!confirm('确认从 DropXL 拉取全量商品库存？流程大约需要 15-20 分钟，会自动剔除无库存商品。')) return;
-    try {
-      const r = await api.post('/admin/products/sync');
-      loadJobs();
-      setSyncJob({ syncId: r.data.syncId, status: 'running', progress: { fetched: 0, total: null } });
-    } catch (e) {
-      alert(e.response?.data?.error || '启动失败');
-    }
-  };
+  useEffect(() => { loadStatus(); loadMarkup(); }, []);
+  useEffect(() => { setPage(0); /* eslint-disable-next-line */ }, [activeCountry]);
+  useEffect(() => { loadProducts(); /* eslint-disable-next-line */ }, [activeCountry, page]);
 
   const applyFilters = () => { setPage(0); loadProducts(); };
   const resetFilters = () => {
-    setFilters({ q: '', country: '', min_price: '', max_price: '', min_quantity: '' });
+    setFilters({ q: '', min_price: '', max_price: '', stock_filter: 'all' });
     setPage(0);
     setTimeout(loadProducts, 0);
   };
-
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const activeStatus = status.find(s => s.country === activeCountry);
+  const activeMarkup = markup.find(m => m.country === activeCountry);
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">📦 商品库存价格管理</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            从 DropXL 同步全量商品库（仅保留有库存的商品），并按国家维护加价百分比。
-            {lastSyncAt && <> 上次同步：<b>{new Date(lastSyncAt).toLocaleString()}</b></>}
-          </p>
-        </div>
-        <button onClick={startSync} disabled={syncJob?.status === 'running'} className="btn btn-success">
-          {syncJob?.status === 'running' ? '同步中...' : '🔄 开始同步'}
-        </button>
+      <div>
+        <h1 className="text-2xl font-bold">📦 商品库存价格管理</h1>
+        <p className="text-gray-500 text-sm mt-1">
+          各国库存以 XLSX 上传维护（DropXL 单国库存文件，含 SKU/B2B_price/Stock 三列）。
+          分销商在"下载支持"页可下载店主最近上传的对应国家文件。
+        </p>
       </div>
 
-      {syncJob && (
-        <SyncStatusCard job={syncJob} />
-      )}
+      <CountryUploadGrid status={status} onChange={() => { loadStatus(); loadProducts(); }} activeCountry={activeCountry} setActiveCountry={setActiveCountry} />
 
       <CountryMarkupCard markup={markup} onChange={loadMarkup} />
 
       <div className="bg-white rounded-xl shadow border">
         <div className="border-b p-4 flex items-end gap-3 flex-wrap">
-          <div>
-            <label className="text-xs text-gray-500 block">关键词（code / name）</label>
-            <input className="field" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} placeholder="搜索..." />
+          <div className="text-sm">
+            <div className="text-xs text-gray-500">当前国家</div>
+            <div className="font-semibold text-lg">{activeCountry}</div>
+            {activeStatus?.uploaded_at && (
+              <div className="text-xs text-gray-500">
+                共 {activeStatus.db_total} 行，有库存 {activeStatus.db_in_stock}
+                ，最近更新 {new Date(activeStatus.uploaded_at).toLocaleString()}
+                {activeMarkup && <> · 加价 <b>{activeMarkup.markup_pct}%</b></>}
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <label className="text-xs text-gray-500 block">SKU 搜索</label>
+            <input className="field" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} placeholder="如 110075" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 block">国家</label>
-            <select className="field" value={filters.country} onChange={e => setFilters({ ...filters, country: e.target.value })}>
-              <option value="">全部</option>
-              {markup.map(m => <option key={m.country} value={m.country}>{m.country}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block">最低价 (USD)</label>
+            <label className="text-xs text-gray-500 block">最低价 USD</label>
             <input type="number" className="field w-24" value={filters.min_price} onChange={e => setFilters({ ...filters, min_price: e.target.value })} />
           </div>
           <div>
-            <label className="text-xs text-gray-500 block">最高价 (USD)</label>
+            <label className="text-xs text-gray-500 block">最高价 USD</label>
             <input type="number" className="field w-24" value={filters.max_price} onChange={e => setFilters({ ...filters, max_price: e.target.value })} />
           </div>
           <div>
-            <label className="text-xs text-gray-500 block">最低库存</label>
-            <input type="number" className="field w-24" value={filters.min_quantity} onChange={e => setFilters({ ...filters, min_quantity: e.target.value })} />
+            <label className="text-xs text-gray-500 block">库存状态</label>
+            <select className="field" value={filters.stock_filter} onChange={e => setFilters({ ...filters, stock_filter: e.target.value })}>
+              <option value="all">全部</option>
+              <option value="in_stock">有库存</option>
+              <option value="out_of_stock">无库存</option>
+            </select>
           </div>
           <div className="flex gap-2">
             <button onClick={applyFilters} className="btn btn-primary">筛选</button>
@@ -125,35 +97,35 @@ export default function AdminProducts() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
               <tr>
-                <th className="px-3 py-2 text-left">product_code</th>
-                <th className="px-3 py-2 text-left">名称</th>
-                <th className="px-3 py-2 text-left">分类</th>
+                <th className="px-3 py-2 text-left">SKU (product_code)</th>
+                <th className="px-3 py-2 text-right">B2B 价 (USD)</th>
+                <th className="px-3 py-2 text-right">加价后 (USD)</th>
                 <th className="px-3 py-2 text-right">库存</th>
-                <th className="px-3 py-2 text-right">单价</th>
-                <th className="px-3 py-2 text-left">国家</th>
-                <th className="px-3 py-2 text-left">DropXL 更新时间</th>
+                <th className="px-3 py-2 text-left">上传时间</th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={7} className="p-6 text-center text-gray-400">加载中...</td></tr>}
+              {loading && <tr><td colSpan={5} className="p-6 text-center text-gray-400">加载中...</td></tr>}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={7} className="p-6 text-center text-gray-400">
-                  {total === 0 && lastSyncAt == null
-                    ? '商品库为空，点击右上角"开始同步"从 DropXL 拉取数据'
+                <tr><td colSpan={5} className="p-6 text-center text-gray-400">
+                  {activeStatus?.uploaded_at == null
+                    ? `${activeCountry} 还未上传库存，请在上方点击"上传库存"`
                     : '当前筛选条件无匹配商品'}
                 </td></tr>
               )}
-              {!loading && rows.map(r => (
-                <tr key={r.code} className="border-t hover:bg-gray-50">
-                  <td className="px-3 py-2 font-mono">{r.code}</td>
-                  <td className="px-3 py-2 max-w-md truncate" title={r.name}>{r.name}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500 max-w-xs truncate" title={r.category_path}>{r.category_path}</td>
-                  <td className="px-3 py-2 text-right">{r.quantity}</td>
-                  <td className="px-3 py-2 text-right">{(r.currency || '$')} {Number(r.price).toFixed(2)}</td>
-                  <td className="px-3 py-2 text-gray-400">{r.country || '—'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-400">{r.dropxl_updated_at || '—'}</td>
-                </tr>
-              ))}
+              {!loading && rows.map(r => {
+                const markupPct = activeMarkup?.markup_pct ?? 0;
+                const display = r.b2b_price * (1 + markupPct / 100);
+                return (
+                  <tr key={r.code} className="border-t hover:bg-gray-50">
+                    <td className="px-3 py-2 font-mono">{r.code}</td>
+                    <td className="px-3 py-2 text-right">${r.b2b_price.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-green-700">${display.toFixed(2)}</td>
+                    <td className={`px-3 py-2 text-right ${r.stock === 0 ? 'text-gray-400' : ''}`}>{r.stock}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500">{r.uploaded_at ? new Date(r.uploaded_at).toLocaleString() : '—'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -168,65 +140,121 @@ export default function AdminProducts() {
           </div>
         )}
       </div>
-
-      {syncJobs.length > 0 && (
-        <div className="bg-white rounded-xl shadow border">
-          <div className="border-b px-4 py-2 font-medium">最近同步记录</div>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500">
-              <tr>
-                <th className="px-3 py-2 text-left">开始时间</th>
-                <th className="px-3 py-2 text-left">完成时间</th>
-                <th className="px-3 py-2 text-left">发起人</th>
-                <th className="px-3 py-2 text-right">入库</th>
-                <th className="px-3 py-2 text-right">跳过(无库存)</th>
-                <th className="px-3 py-2 text-right">删除旧记录</th>
-                <th className="px-3 py-2 text-left">状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {syncJobs.map(j => (
-                <tr key={j.syncId} className="border-t">
-                  <td className="px-3 py-2 text-xs">{new Date(j.startedAt).toLocaleString()}</td>
-                  <td className="px-3 py-2 text-xs">{j.finishedAt ? new Date(j.finishedAt).toLocaleString() : '—'}</td>
-                  <td className="px-3 py-2">{j.startedBy}</td>
-                  <td className="px-3 py-2 text-right">{j.upserted}</td>
-                  <td className="px-3 py-2 text-right text-gray-400">{j.skippedNoStock}</td>
-                  <td className="px-3 py-2 text-right text-gray-400">{j.deleted || '—'}</td>
-                  <td className="px-3 py-2">
-                    {j.status === 'done' && <span className="badge bg-green-100 text-green-700">完成</span>}
-                    {j.status === 'running' && <span className="badge bg-blue-100 text-blue-700">运行中</span>}
-                    {j.status === 'failed' && <span className="badge bg-red-100 text-red-700" title={j.error}>失败</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
 
-function SyncStatusCard({ job }) {
-  const pct = job.progress?.total > 0 ? (job.fetched / job.progress.total * 100) : null;
+function CountryUploadGrid({ status, onChange, activeCountry, setActiveCountry }) {
   return (
-    <div className={`rounded-xl border p-4 ${job.status === 'failed' ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
-      <div className="flex items-center justify-between">
-        <div className="font-medium">
-          {job.status === 'running' && `🔄 同步进行中：已抓取 ${job.fetched}${job.progress?.total ? ` / ${job.progress.total}` : ''} 条`}
-          {job.status === 'done' && `✅ 同步完成：入库 ${job.upserted} 条 / 跳过无库存 ${job.skippedNoStock} 条 / 删除旧记录 ${job.deleted} 条`}
-          {job.status === 'failed' && `❌ 同步失败：${job.error}`}
-        </div>
-        <div className="text-xs text-gray-500">
-          {pct != null && `${pct.toFixed(1)}%`}
-        </div>
+    <div className="bg-white rounded-xl shadow border">
+      <div className="border-b px-4 py-3 font-medium">
+        🗂️ 各国库存文件
+        <span className="text-xs text-gray-500 font-normal ml-2">每个国家上传一次即覆盖该国全量库存，分销商立即可下载</span>
       </div>
-      {pct != null && job.status === 'running' && (
-        <div className="mt-2 h-1.5 bg-blue-100 rounded overflow-hidden">
-          <div className="h-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
-        </div>
-      )}
+      <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {COUNTRIES.map(c => {
+          const s = status.find(x => x.country === c);
+          return (
+            <CountryUploadCard
+              key={c}
+              country={c}
+              status={s}
+              active={c === activeCountry}
+              onClick={() => setActiveCountry(c)}
+              onUploaded={onChange}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CountryUploadCard({ country, status, active, onClick, onUploaded }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const onPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!confirm(`确认用 "${file.name}" 替换 ${country} 的库存数据？\n注意：原有该国库存会被全量覆盖。`)) {
+      e.target.value = '';
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post(`/admin/products/inventory-upload/${encodeURIComponent(country)}`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      alert(`${country} 库存已更新：共 ${r.data.rows} 行（有库存 ${r.data.in_stock}）`);
+      onUploaded();
+    } catch (err) {
+      alert(err.response?.data?.error || '上传失败');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const downloadSource = async (e) => {
+    e.stopPropagation();
+    try {
+      const r = await api.get(`/admin/products/inventory-file/${encodeURIComponent(country)}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = status?.original_filename || `${country}-inventory.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      let msg = '下载失败';
+      if (err.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await err.response.data.text()).error || msg; } catch {}
+      }
+      alert(msg);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClick}
+      className={`rounded-lg border p-3 cursor-pointer transition ${
+        active ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-blue-300'
+      }`}
+    >
+      <div className="flex justify-between items-center">
+        <div className="font-medium">🌐 {country}</div>
+        {status?.uploaded_at && (
+          <span
+            onClick={downloadSource}
+            className="text-xs text-blue-600 hover:underline"
+            title="下载源文件"
+          >⬇️ 源文件</span>
+        )}
+      </div>
+      <div className="text-xs text-gray-500 mt-1 min-h-[32px]">
+        {status?.uploaded_at ? (
+          <>
+            <div>{status.rows_count} 行 · 有库存 {status.in_stock_count}</div>
+            <div>更新 {new Date(status.uploaded_at).toLocaleDateString()}</div>
+          </>
+        ) : (
+          <div className="text-gray-400">尚未上传库存</div>
+        )}
+      </div>
+      <div className="mt-2">
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}
+          className="btn btn-primary text-xs w-full justify-center py-1"
+        >
+          {uploading ? '上传中...' : (status?.uploaded_at ? '📤 替换库存' : '📤 上传库存')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -234,7 +262,6 @@ function SyncStatusCard({ job }) {
 function CountryMarkupCard({ markup, onChange }) {
   const [edits, setEdits] = useState({});
   const [saving, setSaving] = useState(null);
-
   const save = async (country) => {
     const v = edits[country];
     if (v === undefined) return;
@@ -249,13 +276,12 @@ function CountryMarkupCard({ markup, onChange }) {
       setSaving(null);
     }
   };
-
   return (
     <div className="bg-white rounded-xl shadow border">
       <div className="border-b px-4 py-3 font-medium">
         💰 按国家加价规则
         <span className="text-xs text-gray-500 font-normal ml-2">
-          分销商批量采购时，DropXL 原价 × (1 + 该国家加价%) 即为展示采购价
+          分销商批量采购时：B2B 原价 × (1 + 该国家加价%) 即为展示采购价
         </span>
       </div>
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">

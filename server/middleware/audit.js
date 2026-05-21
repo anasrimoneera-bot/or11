@@ -24,8 +24,8 @@ const ACTIONS = [
   { re: /^POST \/test-dropxl$/, action: 'DropXL API 测试' },
   // 系统设置
   { re: /^PUT \/settings$/, action: '修改系统设置', target: 'settings' },
-  // 商品同步与国家加价
-  { re: /^POST \/products\/sync$/, action: '同步 DropXL 商品库' },
+  // 商品库存上传与国家加价
+  { re: /^POST \/products\/inventory-upload\/[^/]+$/, action: '上传国家库存文件', target: 'inventory' },
   { re: /^PUT \/products\/country-markup\/[^/]+$/, action: '修改国家加价百分比', target: 'country_markup' },
   // 售后政策
   { re: /^POST \/aftersales-policies$/, action: '新增售后政策章节', target: 'aftersales_policy' },

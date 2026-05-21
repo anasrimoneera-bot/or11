@@ -154,20 +154,27 @@ CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS dropxl_products (
-  code TEXT PRIMARY KEY,
-  dropxl_id INTEGER,
-  name TEXT,
-  category_path TEXT,
-  quantity INTEGER DEFAULT 0,
-  price REAL DEFAULT 0,
-  currency TEXT,
-  country TEXT,
-  dropxl_updated_at TEXT,
-  synced_at TEXT,
-  sync_id INTEGER
+  country TEXT NOT NULL,
+  code TEXT NOT NULL,
+  b2b_price REAL DEFAULT 0,
+  stock INTEGER DEFAULT 0,
+  uploaded_at TEXT,
+  PRIMARY KEY (country, code)
 );
 CREATE INDEX IF NOT EXISTS idx_dropxl_products_country ON dropxl_products(country);
-CREATE INDEX IF NOT EXISTS idx_dropxl_products_name ON dropxl_products(name);
+CREATE INDEX IF NOT EXISTS idx_dropxl_products_code ON dropxl_products(code);
+
+CREATE TABLE IF NOT EXISTS inventory_uploads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  country TEXT NOT NULL,
+  original_filename TEXT,
+  stored_filename TEXT,
+  rows_count INTEGER DEFAULT 0,
+  in_stock_count INTEGER DEFAULT 0,
+  uploaded_by TEXT,
+  uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_uploads_country ON inventory_uploads(country, uploaded_at DESC);
 
 CREATE TABLE IF NOT EXISTS country_markup (
   country TEXT PRIMARY KEY,
@@ -187,6 +194,27 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   published_at TEXT
 );
 `);
+
+// 迁移：PR-B 早期版本曾使用 code 作为单一 PK + 多个 API 同步相关字段。
+// 现在改为 (country, code) 复合 PK，schema 不兼容，检测后重建。
+(function migrateDropxlProducts() {
+  const info = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='dropxl_products'").get();
+  if (!info?.sql) return;
+  if (info.sql.includes('PRIMARY KEY (country, code)')) return;
+  db.exec('DROP TABLE dropxl_products');
+  db.exec(`
+    CREATE TABLE dropxl_products (
+      country TEXT NOT NULL,
+      code TEXT NOT NULL,
+      b2b_price REAL DEFAULT 0,
+      stock INTEGER DEFAULT 0,
+      uploaded_at TEXT,
+      PRIMARY KEY (country, code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dropxl_products_country ON dropxl_products(country);
+    CREATE INDEX IF NOT EXISTS idx_dropxl_products_code ON dropxl_products(code);
+  `);
+})();
 
 function ensureDefaultUser() {
   // 创建管理员账号
