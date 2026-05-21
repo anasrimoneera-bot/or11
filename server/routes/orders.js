@@ -137,39 +137,7 @@ router.put('/:id', authRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/sync', authRequired, async (req, res) => {
-  try {
-    const data = await dropxl.listOrders({ limit: 100 });
-    const items = data?.items || data?.orders || data || [];
-    let updated = 0;
-    const upd = db.prepare(`
-      UPDATE purchase_orders
-      SET status = ?, tracking_no = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = ? AND dropxl_order_id = ?
-    `);
-    for (const o of items) {
-      const status = mapDropxlStatus(o.status);
-      const tracking = (o.tracking && (o.tracking.number || o.tracking.code)) || o.tracking_number || '';
-      const id = o.id || o.order_id;
-      if (!id) continue;
-      const r = upd.run(status, tracking, req.user.id, String(id));
-      if (r.changes > 0) updated++;
-    }
-    res.json({ ok: true, total: items.length, updated });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
-
-function mapDropxlStatus(s) {
-  if (!s) return 'pending_shipment';
-  const v = String(s).toLowerCase();
-  if (v.includes('ship')) return 'shipped';
-  if (v.includes('cancel')) return 'cancelled';
-  if (v.includes('refund')) return 'refunded';
-  if (v.includes('complete') || v.includes('delivered')) return 'completed';
-  if (v.includes('paid')) return 'pending_shipment';
-  return 'pending_purchase';
-}
+// 注意：DropXL 同步功能已下放到管理后台 (POST /api/admin/orders/sync)，
+// 分销商端不再开放（避免占用 DropXL 限速配额、避免分销商触发上游 API）
 
 module.exports = router;

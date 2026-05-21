@@ -38,25 +38,12 @@ export default function Orders() {
   useEffect(() => { load(); api.get('/accounts/shops').then(r => setShops(r.data)); }, []);
   useEffect(load, [filters.status]);
 
-  const sync = async () => {
-    try {
-      const { data } = await api.post('/orders/sync');
-      alert(`同步完成，共 ${data.total} 单，更新 ${data.updated} 单`);
-      load();
-    } catch (e) {
-      alert('同步失败：' + (e.response?.data?.error || e.message));
-    }
-  };
-
   const reset = () => setFilters({ status: 'all', country: '', shop: '', q: '', start: '', end: '' });
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">🛒 订单管理</h1>
-        <div className="flex gap-2">
-          <button onClick={sync} className="btn btn-primary">🔄 从DropXL同步</button>
-        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
