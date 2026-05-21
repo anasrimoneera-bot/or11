@@ -1,13 +1,14 @@
 const axios = require('axios');
 
-const BASE = process.env.DROPXL_API_BASE || 'https://b2b.dropxl.com/api';
+const BASE = process.env.DROPXL_API_BASE || 'https://b2b.dropxl.com/api_customer';
+const EMAIL = process.env.DROPXL_API_EMAIL || '';
 const TOKEN = process.env.DROPXL_API_TOKEN || '';
 
 const client = axios.create({
   baseURL: BASE,
   timeout: 30000,
+  auth: { username: EMAIL, password: TOKEN },
   headers: {
-    'Authorization': `Bearer ${TOKEN}`,
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
