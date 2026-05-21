@@ -86,7 +86,7 @@ function enrichRow(row) {
 
   // 商品按 (国家, SKU) 复合查询 - PR-B 调整后的库存表结构
   const product = (sku && country)
-    ? db.prepare('SELECT country, code, b2b_price, stock FROM dropxl_products WHERE country = ? AND code = ?').get(country, sku)
+    ? db.prepare('SELECT country, code, b2b_price, stock, image_url FROM dropxl_products WHERE country = ? AND code = ?').get(country, sku)
     : null;
 
   let markupPct = null;
@@ -105,7 +105,7 @@ function enrichRow(row) {
     ...row,
     country_name: country,
     matched: !!product,
-    dropxl_product: product ? { code: product.code, stock: product.stock } : null,
+    dropxl_product: product ? { code: product.code, stock: product.stock, image_url: product.image_url } : null,
     unit_price_usd: unitPriceUsd,
     errors: errors.concat(
       !country && row.ship_country ? [`国家代码 ${row.ship_country} 无法识别`] : [],
@@ -166,6 +166,7 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
       row_no: r.row_no,
       sku: r.sku,
       product_name: r.product_name,
+      image_url: r.dropxl_product?.image_url || null,
       quantity: Number(r.quantity) || 0,
       unit_price_usd: r.unit_price_usd,
       item_price: r.item_price,
