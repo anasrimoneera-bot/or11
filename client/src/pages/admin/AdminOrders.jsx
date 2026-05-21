@@ -88,8 +88,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-left">订单号</th>
               <th className="px-3 py-2 text-left">用户</th>
               <th className="px-3 py-2 text-left">国家/店铺</th>
-              <th className="px-3 py-2 text-right">亚马逊金额</th>
-              <th className="px-3 py-2 text-right">税后金额</th>
+              <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
               <th className="px-3 py-2 text-right">采购(USD)</th>
               <th className="px-3 py-2 text-right">采购(¥)</th>
               <th className="px-3 py-2 text-right">利润 (USD)</th>
@@ -103,10 +102,9 @@ export default function AdminOrders() {
           </thead>
           <tbody>
             {rows.map(o => {
-              const tax = Number(o.amazon_tax_amount) || 0;
+              const sales = Number(o.amazon_amount) || 0;
               const purchase = Number(o.purchase_amount_usd) || 0;
-              const ship = Number(o.shipping_fee) || 0;
-              const profit = tax > 0 ? tax - purchase - ship : 0;
+              const profit = sales > 0 ? sales - purchase : 0;
               return (
               <tr key={o.id} className="border-t hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
@@ -118,16 +116,10 @@ export default function AdminOrders() {
                     onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { amazon_amount: v }); load(); }}
                   />
                 </td>
-                <td className="px-3 py-2 text-right">
-                  <EditableAmount
-                    value={o.amazon_tax_amount || 0}
-                    onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { amazon_tax_amount: v }); load(); }}
-                  />
-                </td>
                 <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
-                <td className={`px-3 py-2 text-right font-semibold ${tax === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {tax === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
                 </td>
                 {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
@@ -145,7 +137,7 @@ export default function AdminOrders() {
                 </td>
               </tr>
             );})}
-            {rows.length === 0 && <tr><td colSpan={isOwner ? 15 : 13} className="p-6 text-center text-gray-400">
+            {rows.length === 0 && <tr><td colSpan={isOwner ? 13 : 11} className="p-6 text-center text-gray-400">
               {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
