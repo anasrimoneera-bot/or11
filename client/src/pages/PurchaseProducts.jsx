@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 
 const countries = ['美国', '英国', '德国', '法国', '意大利', '荷兰', '西班牙', '波兰'];
@@ -6,15 +6,21 @@ const currencyByCountry = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国:
 
 export default function PurchaseProducts() {
   const [shops, setShops] = useState([]);
+  const [exchangeRate, setExchangeRate] = useState(null);
   const [form, setForm] = useState({
     order_no: '', customer_ref: '', country: '美国', shop_name: '',
-    amazon_amount: 0, amazon_tax_amount: 0, shipping_fee: 0, exchange_rate: 6.86,
+    amazon_amount: 0, amazon_tax_amount: 0, shipping_fee: 0,
     shipping_address: { name: '', street: '', city: '', state: '', zip: '', country: 'US', phone: '' },
     items: [{ sku: '', product_name: '', quantity: 1, unit_price: 0 }],
   });
   const [submitting, setSubmitting] = useState(false);
+  const [pickedFile, setPickedFile] = useState(null);
+  const fileInputRef = useRef(null);
 
-  useEffect(() => { api.get('/orders/shop-names').then(r => setShops(r.data)); }, []);
+  useEffect(() => {
+    api.get('/orders/shop-names').then(r => setShops(r.data));
+    api.get('/settings').then(r => setExchangeRate(r.data.exchange_rate_cny_per_usd));
+  }, []);
 
   const downloadTemplate = async () => {
     try {
@@ -29,7 +35,14 @@ export default function PurchaseProducts() {
   };
 
   const purchaseUsd = form.items.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 1), 0);
-  const purchaseCny = purchaseUsd * (Number(form.exchange_rate) || 0);
+  const purchaseCny = purchaseUsd * (Number(exchangeRate) || 0);
+
+  const triggerFilePicker = () => fileInputRef.current?.click();
+  const onFilePicked = (e) => setPickedFile(e.target.files?.[0] || null);
+  const batchPurchase = () => {
+    if (!pickedFile) return alert('请先选择亚马逊订单模板文件');
+    alert('批量采购功能正在改造中：将通过 SKU 自动匹配 DropXL 商品库并按国家加价后展示采购价。即将上线。');
+  };
 
   const addItem = () => setForm({ ...form, items: [...form.items, { sku: '', product_name: '', quantity: 1, unit_price: 0 }] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
@@ -73,11 +86,20 @@ export default function PurchaseProducts() {
         <div className="col-span-2 space-y-4">
           <div className="bg-white rounded-xl shadow border border-dashed border-orange-300 p-4">
             <h3 className="font-semibold mb-2">📋 批量采购</h3>
-            <div className="text-sm mb-1">上传采购订单CSV文件</div>
-            <div className="flex gap-2">
-              <input type="file" accept=".csv" className="flex-1 field" />
-              <button className="btn btn-warning">选择文件</button>
-              <button className="btn btn-success">批量采购</button>
+            <div className="text-sm mb-1">上传亚马逊订单模板（.xlsx / .csv）</div>
+            <div className="flex gap-2 items-center">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={onFilePicked}
+              />
+              <div className="flex-1 field flex items-center text-sm text-gray-600 truncate">
+                {pickedFile ? pickedFile.name : '未选择任何文件'}
+              </div>
+              <button type="button" onClick={triggerFilePicker} className="btn btn-warning">选择文件</button>
+              <button type="button" onClick={batchPurchase} className="btn btn-success">批量采购</button>
             </div>
           </div>
 
@@ -174,7 +196,9 @@ export default function PurchaseProducts() {
             <div className="space-y-2 text-sm">
               <Row label="币别">{currencyByCountry[form.country] || 'USD'}</Row>
               <Row label="汇率">
-                <input type="number" step="0.01" className="w-20 text-right border-b focus:outline-none bg-transparent" value={form.exchange_rate} onChange={e => setForm({ ...form, exchange_rate: e.target.value })} />
+                <span title="由店主在系统设置中维护">
+                  {exchangeRate == null ? '加载中...' : Number(exchangeRate).toFixed(4)}
+                </span>
               </Row>
               <Row label="采购金额(USD)"><b>${purchaseUsd.toFixed(4)}</b></Row>
               <div className="border-t pt-2 mt-2 flex justify-between items-center">

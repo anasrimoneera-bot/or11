@@ -82,9 +82,12 @@ router.post('/', authRequired, async (req, res) => {
   const {
     order_no, customer_ref, shop_name, country,
     amazon_amount = 0, amazon_tax_amount = 0, shipping_fee = 0,
-    items = [], exchange_rate = 6.86,
+    items = [],
     shipping_address,
   } = req.body || {};
+
+  // 汇率统一由店主在系统设置中维护，分销商提交的值会被忽略
+  const exchange_rate = require('../settings').getExchangeRate();
 
   if (!order_no) return res.status(400).json({ error: '请填写订单号' });
   if (!items.length) return res.status(400).json({ error: '请至少添加一个商品' });

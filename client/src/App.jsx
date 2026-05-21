@@ -23,6 +23,7 @@ const AdminStaff = lazy(() => import('./pages/admin/AdminStaff.jsx'));
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs.jsx'));
 const AdminProductsExport = lazy(() => import('./pages/admin/AdminProductsExport.jsx'));
 const AdminAfterSalesPolicy = lazy(() => import('./pages/admin/AdminAfterSalesPolicy.jsx'));
+const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -53,6 +54,7 @@ export default function App() {
             {user?.is_owner && <Route path="/admin/api-test" element={<Suspense fallback={<div>加载中...</div>}><AdminApiTest /></Suspense>} />}
             {user?.is_owner && <Route path="/admin/products-export" element={<Suspense fallback={<div>加载中...</div>}><AdminProductsExport /></Suspense>} />}
             {user?.is_owner && <Route path="/admin/aftersales-policy" element={<Suspense fallback={<div>加载中...</div>}><AdminAfterSalesPolicy /></Suspense>} />}
+            {user?.is_owner && <Route path="/admin/settings" element={<Suspense fallback={<div>加载中...</div>}><AdminSettings /></Suspense>} />}
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/admin" />} />
           </>

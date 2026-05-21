@@ -238,4 +238,14 @@ function ensureDefaultPolicies() {
 
 ensureDefaultPolicies();
 
+function ensureDefaultSettings() {
+  const defaults = [
+    { key: 'exchange_rate_cny_per_usd', value: '6.86' },
+  ];
+  const ins = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  for (const d of defaults) ins.run(d.key, d.value);
+}
+
+ensureDefaultSettings();
+
 module.exports = db;

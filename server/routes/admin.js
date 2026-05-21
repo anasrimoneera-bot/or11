@@ -284,7 +284,8 @@ router.post('/orders/:id/confirm', (req, res) => {
   if (!order) return res.status(404).json({ error: '订单不存在' });
   if (order.status !== 'pending_purchase') return res.status(400).json({ error: '订单状态不允许确认' });
 
-  const rate = Number(exchange_rate) || order.exchange_rate;
+  // 汇率取值优先级：请求体覆盖（仅店主可改） > 订单已锁定的汇率 > 当前系统设置
+  const rate = Number(exchange_rate) || order.exchange_rate || getExchangeRate();
   const refund = Number(distributor_refund) || 0;
   if (!rate || rate <= 0) return res.status(400).json({ error: '请填写汇率' });
 
@@ -589,6 +590,26 @@ router.post('/aftersales/:id/refund', (req, res) => {
   });
   tx();
   res.json({ ok: true });
+});
+
+// ============ 系统设置（仅店主） ============
+const { getExchangeRate, setSetting } = require('../settings');
+
+router.get('/settings', ownerRequired, (req, res) => {
+  res.json({
+    exchange_rate_cny_per_usd: getExchangeRate(),
+  });
+});
+
+router.put('/settings', ownerRequired, (req, res) => {
+  const { exchange_rate_cny_per_usd } = req.body || {};
+  if (exchange_rate_cny_per_usd !== undefined) {
+    const v = Number(exchange_rate_cny_per_usd);
+    if (!isFinite(v) || v <= 0) return res.status(400).json({ error: '汇率必须是正数' });
+    setSetting('exchange_rate_cny_per_usd', v);
+    setAudit(res, { summary: `修改人民币/美元汇率: ${v}` });
+  }
+  res.json({ ok: true, exchange_rate_cny_per_usd: getExchangeRate() });
 });
 
 // ============ 售后政策维护（仅店主） ============
