@@ -20,7 +20,6 @@ const adminMenu = [
   { to: '/admin/aftersales', icon: '🔧', label: '售后管理' },
   { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', ownerOnly: true },
   { to: '/admin/staff', icon: '🛡️', label: '员工管理', ownerOnly: true },
-  { to: '/admin/audit-logs', icon: '📜', label: '操作审计日志', ownerOnly: true },
   { to: '/admin/api-test', icon: '🧪', label: 'DropXL API测试', ownerOnly: true },
   { to: '/admin/products', icon: '📦', label: '商品库存价格管理', ownerOnly: true },
   { to: '/admin/settings', icon: '⚙️', label: '系统设置', ownerOnly: true },

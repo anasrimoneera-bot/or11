@@ -20,7 +20,6 @@ import AdminAfterSales from './pages/admin/AdminAfterSales.jsx';
 // 店主专属页面 - 通过动态 import 隔离，员工的浏览器永远不会下载这些 JS 块
 const AdminApiTest = lazy(() => import('./pages/admin/AdminApiTest.jsx'));
 const AdminStaff = lazy(() => import('./pages/admin/AdminStaff.jsx'));
-const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs.jsx'));
 const AdminProducts = lazy(() => import('./pages/admin/AdminProducts.jsx'));
 const AdminAfterSalesPolicy = lazy(() => import('./pages/admin/AdminAfterSalesPolicy.jsx'));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
@@ -50,7 +49,6 @@ export default function App() {
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/aftersales" element={<AdminAfterSales />} />
             {user?.is_owner && <Route path="/admin/staff" element={<Suspense fallback={<div>加载中...</div>}><AdminStaff /></Suspense>} />}
-            {user?.is_owner && <Route path="/admin/audit-logs" element={<Suspense fallback={<div>加载中...</div>}><AdminAuditLogs /></Suspense>} />}
             {user?.is_owner && <Route path="/admin/api-test" element={<Suspense fallback={<div>加载中...</div>}><AdminApiTest /></Suspense>} />}
             {user?.is_owner && <Route path="/admin/products" element={<Suspense fallback={<div>加载中...</div>}><AdminProducts /></Suspense>} />}
             {user?.is_owner && <Route path="/admin/aftersales-policy" element={<Suspense fallback={<div>加载中...</div>}><AdminAfterSalesPolicy /></Suspense>} />}
