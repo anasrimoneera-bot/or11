@@ -7,6 +7,7 @@ const PAGE_SIZE = 50;
 export default function AdminProducts() {
   const [status, setStatus] = useState([]);
   const [markup, setMarkup] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [activeCountry, setActiveCountry] = useState('美国');
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -16,6 +17,7 @@ export default function AdminProducts() {
 
   const loadStatus = () => api.get('/admin/products/inventory-status').then(r => setStatus(r.data));
   const loadMarkup = () => api.get('/admin/products/country-markup').then(r => setMarkup(r.data));
+  const loadAccounts = () => api.get('/admin/products/dropxl-accounts').then(r => setAccounts(r.data));
   const loadProducts = () => {
     setLoading(true);
     const params = { country: activeCountry, limit: PAGE_SIZE, offset: page * PAGE_SIZE, ...filters };
@@ -26,7 +28,14 @@ export default function AdminProducts() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadStatus(); loadMarkup(); }, []);
+  useEffect(() => { loadStatus(); loadMarkup(); loadAccounts(); }, []);
+  // 任一国家正在 API 同步时，每 3 秒刷新一次状态卡片
+  const anySyncing = status.some(s => s.api_sync_status === 'running' || s.api_sync_status === 'pending');
+  useEffect(() => {
+    if (!anySyncing) return;
+    const t = setInterval(() => { loadStatus(); }, 3000);
+    return () => clearInterval(t);
+  }, [anySyncing]);
   useEffect(() => { setPage(0); /* eslint-disable-next-line */ }, [activeCountry]);
   useEffect(() => { loadProducts(); /* eslint-disable-next-line */ }, [activeCountry, page]);
 
@@ -52,13 +61,18 @@ export default function AdminProducts() {
         </div>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded p-3">
-        ℹ️ <b>说明</b>：DropXL 商品 API 不支持按国家筛选（返回全球 55 万条统一目录、统一库存），
-        所以不能用 API 自动按国家同步。请在各国卡片上手动上传你从 DropXL 后台下载的对应国家 inventory xlsx 文件，
-        每次上传会全量覆盖该国数据。
+      <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded p-3">
+        ℹ️ 每个国家 DropXL 独立账户独立 API token，已配置凭据的国家可点 "🔄 API 同步" 自动拉取；
+        未配置或想全量替换的国家可手动上传 xlsx。在 <b>系统设置 → DropXL 多国账户</b> 维护各国凭据。
       </div>
 
-      <CountryUploadGrid status={status} onChange={() => { loadStatus(); loadProducts(); }} activeCountry={activeCountry} setActiveCountry={setActiveCountry} />
+      <CountryUploadGrid
+        status={status}
+        accounts={accounts}
+        onChange={() => { loadStatus(); loadProducts(); }}
+        activeCountry={activeCountry}
+        setActiveCountry={setActiveCountry}
+      />
 
       <CountryMarkupCard markup={markup} onChange={loadMarkup} />
 
@@ -158,7 +172,7 @@ export default function AdminProducts() {
   );
 }
 
-function CountryUploadGrid({ status, onChange, activeCountry, setActiveCountry }) {
+function CountryUploadGrid({ status, accounts, onChange, activeCountry, setActiveCountry }) {
   return (
     <div className="bg-white rounded-xl shadow border">
       <div className="border-b px-4 py-3 font-medium">
@@ -168,11 +182,13 @@ function CountryUploadGrid({ status, onChange, activeCountry, setActiveCountry }
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
         {COUNTRIES.map(c => {
           const s = status.find(x => x.country === c);
+          const acc = accounts.find(x => x.country === c);
           return (
             <CountryUploadCard
               key={c}
               country={c}
               status={s}
+              account={acc}
               active={c === activeCountry}
               onClick={() => setActiveCountry(c)}
               onUploaded={onChange}
@@ -184,9 +200,23 @@ function CountryUploadGrid({ status, onChange, activeCountry, setActiveCountry }
   );
 }
 
-function CountryUploadCard({ country, status, active, onClick, onUploaded }) {
+function CountryUploadCard({ country, status, account, active, onClick, onUploaded }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
+  const hasCreds = !!(account?.has_token && account?.enabled);
+  const syncing = status?.api_sync_status === 'running' || status?.api_sync_status === 'pending';
+  const syncProgress = status?.api_sync_progress;
+
+  const apiSync = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`确认从 DropXL API 同步 ${country} 全量商品？\n会用 ${country} 账户的 API token 拉取，覆盖该国现有库存数据。\n按 DropXL 限速 1 秒/请求，55 万条约耗时 15-20 分钟。`)) return;
+    try {
+      await api.post(`/admin/products/sync-country/${encodeURIComponent(country)}`);
+      onUploaded();
+    } catch (err) {
+      alert(err.response?.data?.error || '启动失败');
+    }
+  };
 
   const onPick = async (e) => {
     const file = e.target.files?.[0];
@@ -248,25 +278,37 @@ function CountryUploadCard({ country, status, active, onClick, onUploaded }) {
           >⬇️ 源文件</span>
         )}
       </div>
-      <div className="text-xs text-gray-500 mt-1 min-h-[32px]">
+      <div className="text-xs text-gray-500 mt-1 min-h-[40px]">
         {status?.uploaded_at ? (
           <>
             <div>{status.rows_count} 行 · 有库存 {status.in_stock_count}</div>
             <div>更新 {new Date(status.uploaded_at).toLocaleDateString()}</div>
           </>
         ) : (
-          <div className="text-gray-400">尚未上传</div>
+          <div className="text-gray-400">{hasCreds ? '尚未同步' : '尚未配置 API 凭据'}</div>
+        )}
+        {syncing && (
+          <div className="text-blue-600 mt-0.5">⏳ 已抓取 {syncProgress?.fetched || 0}{syncProgress?.total ? ` / ${syncProgress.total}` : ''}</div>
         )}
       </div>
-      <div className="mt-2">
+      <div className="mt-2 grid grid-cols-2 gap-1">
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
         <button
           type="button"
-          disabled={uploading}
-          onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}
-          className="btn btn-success text-xs justify-center py-1 w-full"
+          disabled={uploading || syncing || !hasCreds}
+          onClick={apiSync}
+          className="btn btn-success text-xs justify-center py-1 disabled:opacity-40"
+          title={hasCreds ? `用 ${country} 账户拉取商品库存` : `请在「系统设置 → DropXL 多国账户」配置 ${country} 凭据`}
         >
-          {uploading ? '上传中...' : '📤 上传 xlsx'}
+          {syncing ? '⏳ 同步中' : '🔄 API同步'}
+        </button>
+        <button
+          type="button"
+          disabled={uploading || syncing}
+          onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}
+          className="btn btn-ghost border text-xs justify-center py-1"
+        >
+          {uploading ? '上传中' : '📤 xlsx'}
         </button>
       </div>
     </div>

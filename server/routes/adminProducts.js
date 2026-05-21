@@ -81,11 +81,15 @@ async function runCountryApiSync(country, job) {
   const now = new Date().toISOString();
   try {
     while (true) {
-      // 传 country 给 DropXL listProducts。若 DropXL 不支持该参数，
-      // 各国会拿到相同数据 - 店主可对比不同国家的数据是否一致来判断
-      const data = await dropxl.listProducts({ country: job.countryCode, limit: PAGE_SIZE, offset });
-      const items = data?.data || [];
-      if (data?.pagination?.total != null) total = data.pagination.total;
+      // DropXL 商品 API 不支持 country 参数，但每个国家有独立 API 账户（独立 token）
+      // 用对应国家的 token 调用即可拿到该国可销售的商品（DropXL 按 token 权限过滤）
+      const data = await dropxl.listProducts({ limit: PAGE_SIZE, offset }, country);
+      // DropXL 响应格式：通常是数组 [{...}, ...]；少数情况会包成 { data: [...], pagination: { total } }
+      const items = Array.isArray(data) ? data : (data?.data || []);
+      const paginationTotal = Array.isArray(data)
+        ? Number(items[items.length - 1]?.pagination?.total) || null
+        : (data?.pagination?.total != null ? Number(data.pagination.total) : null);
+      if (paginationTotal != null) total = paginationTotal;
       const tx = db.transaction((arr) => {
         for (const p of arr) {
           if (!p.code) continue;
@@ -344,6 +348,65 @@ router.put('/country-markup/:country', (req, res) => {
     db.prepare('INSERT INTO country_markup (country, markup_pct) VALUES (?, ?)').run(country, v);
     setAudit(res, { target_name: country, summary: `新增 ${country} 加价规则: ${v}%` });
   }
+  res.json({ ok: true });
+});
+
+// ============ DropXL 多国账户凭据管理 ============
+const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+
+// 列出所有国家的账户状态（不返回明文 token，仅返回是否已配置）
+router.get('/dropxl-accounts', (req, res) => {
+  const rows = db.prepare(`
+    SELECT country, email, base_url, enabled, last_test_at, last_test_ok, last_test_error, updated_at,
+           CASE WHEN token IS NOT NULL AND length(token) > 0 THEN 1 ELSE 0 END AS has_token
+    FROM dropxl_accounts
+  `).all();
+  const byCountry = new Map(rows.map(r => [r.country, r]));
+  const result = COUNTRIES.map(c => byCountry.get(c) || { country: c, email: null, has_token: 0, enabled: 0 });
+  res.json(result);
+});
+
+// 更新某国账户凭据
+router.put('/dropxl-accounts/:country', (req, res) => {
+  const country = decodeURIComponent(req.params.country);
+  if (!COUNTRIES.includes(country)) return res.status(400).json({ error: '不支持的国家' });
+  const { email, token, base_url, enabled } = req.body || {};
+  if (!email || !token) return res.status(400).json({ error: '邮箱和 token 必填' });
+  const existing = db.prepare('SELECT country FROM dropxl_accounts WHERE country = ?').get(country);
+  if (existing) {
+    db.prepare(`
+      UPDATE dropxl_accounts
+      SET email = ?, token = ?, base_url = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE country = ?
+    `).run(email, token, base_url || null, enabled === false ? 0 : 1, country);
+  } else {
+    db.prepare(`
+      INSERT INTO dropxl_accounts (country, email, token, base_url, enabled)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(country, email, token, base_url || null, enabled === false ? 0 : 1);
+  }
+  setAudit(res, { target_name: country, summary: `更新 ${country} DropXL 账户凭据` });
+  res.json({ ok: true });
+});
+
+// 测试某国账户凭据：调一次 listProducts(limit=1) 看是否能拿到数据
+router.post('/dropxl-accounts/:country/test', async (req, res) => {
+  const country = decodeURIComponent(req.params.country);
+  if (!COUNTRIES.includes(country)) return res.status(400).json({ error: '不支持的国家' });
+  const r = await dropxl.testCredentials(country);
+  db.prepare(`
+    UPDATE dropxl_accounts
+    SET last_test_at = CURRENT_TIMESTAMP, last_test_ok = ?, last_test_error = ?
+    WHERE country = ?
+  `).run(r.ok ? 1 : 0, r.ok ? null : (r.error || '未知错误'), country);
+  res.json(r);
+});
+
+// 删除某国账户凭据
+router.delete('/dropxl-accounts/:country', (req, res) => {
+  const country = decodeURIComponent(req.params.country);
+  db.prepare('DELETE FROM dropxl_accounts WHERE country = ?').run(country);
+  setAudit(res, { target_name: country, summary: `删除 ${country} DropXL 账户凭据` });
   res.json({ ok: true });
 });
 

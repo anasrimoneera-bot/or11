@@ -196,6 +196,18 @@ CREATE TABLE IF NOT EXISTS country_markup (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS dropxl_accounts (
+  country TEXT PRIMARY KEY,
+  email TEXT,
+  token TEXT,
+  base_url TEXT,
+  enabled INTEGER DEFAULT 1,
+  last_test_at TEXT,
+  last_test_ok INTEGER DEFAULT 0,
+  last_test_error TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS aftersales_policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT UNIQUE NOT NULL,
@@ -244,6 +256,20 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   if (!cols.some(c => c.name === 'image_url')) {
     db.exec("ALTER TABLE dropxl_products ADD COLUMN image_url TEXT");
   }
+})();
+
+// 首次启动：把 .env 的 DROPXL_API_EMAIL / DROPXL_API_TOKEN 作为美国账户种子数据
+// （DropXL 每个国家独立账户独立 token，初版只配置了美国）
+(function seedUsDropxlAccount() {
+  const email = process.env.DROPXL_API_EMAIL;
+  const token = process.env.DROPXL_API_TOKEN;
+  if (!email || !token) return;
+  const existing = db.prepare('SELECT country FROM dropxl_accounts WHERE country = ?').get('美国');
+  if (existing) return;
+  db.prepare(`
+    INSERT INTO dropxl_accounts (country, email, token, base_url, enabled)
+    VALUES (?, ?, ?, ?, 1)
+  `).run('美国', email, token, process.env.DROPXL_API_BASE || 'https://b2b.dropxl.com/api_customer');
 })();
 
 function ensureDefaultUser() {
