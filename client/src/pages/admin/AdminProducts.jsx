@@ -121,6 +121,7 @@ export default function AdminProducts() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
               <tr>
+                <th className="px-3 py-2 text-left w-16">图片</th>
                 <th className="px-3 py-2 text-left">SKU (product_code)</th>
                 <th className="px-3 py-2 text-right">B2B 价 (USD)</th>
                 <th className="px-3 py-2 text-right">加价后 (USD)</th>
@@ -129,11 +130,11 @@ export default function AdminProducts() {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={5} className="p-6 text-center text-gray-400">加载中...</td></tr>}
+              {loading && <tr><td colSpan={6} className="p-6 text-center text-gray-400">加载中...</td></tr>}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={5} className="p-6 text-center text-gray-400">
+                <tr><td colSpan={6} className="p-6 text-center text-gray-400">
                   {activeStatus?.uploaded_at == null
-                    ? `${activeCountry} 还未上传库存，请在上方点击"上传库存"`
+                    ? `${activeCountry} 还未同步/上传库存，请在上方点击"API 同步"或"上传 xlsx"`
                     : '当前筛选条件无匹配商品'}
                 </td></tr>
               )}
@@ -142,6 +143,11 @@ export default function AdminProducts() {
                 const display = r.b2b_price * (1 + markupPct / 100);
                 return (
                   <tr key={r.code} className="border-t hover:bg-gray-50">
+                    <td className="px-3 py-2">
+                      {r.image_url
+                        ? <img src={r.image_url} alt="" className="w-12 h-12 object-cover rounded bg-gray-100" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                        : <div className="w-12 h-12 rounded bg-gray-100 flex items-center justify-center text-gray-300 text-lg">📦</div>}
+                    </td>
                     <td className="px-3 py-2 font-mono">{r.code}</td>
                     <td className="px-3 py-2 text-right">${r.b2b_price.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-green-700">${display.toFixed(2)}</td>

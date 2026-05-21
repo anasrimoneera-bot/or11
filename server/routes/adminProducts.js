@@ -57,13 +57,25 @@ async function runCountryApiSync(country, job) {
   const PAGE_SIZE = 500;
   const RATE_LIMIT_MS = 1100;
   const upsert = db.prepare(`
-    INSERT INTO dropxl_products (country, code, b2b_price, stock, uploaded_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO dropxl_products (country, code, b2b_price, stock, image_url, uploaded_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(country, code) DO UPDATE SET
       b2b_price = excluded.b2b_price,
       stock = excluded.stock,
+      image_url = COALESCE(excluded.image_url, dropxl_products.image_url),
       uploaded_at = excluded.uploaded_at
   `);
+  // DropXL listProducts 实际字段名未知，尝试多候选取主图链接
+  const extractImage = (p) => {
+    const candidates = [p.image, p.image_url, p.main_image, p.thumbnail, p.picture, p.img];
+    for (const v of candidates) if (v && typeof v === 'string') return v;
+    if (Array.isArray(p.images) && p.images.length > 0) {
+      const first = p.images[0];
+      if (typeof first === 'string') return first;
+      if (first && typeof first === 'object') return first.url || first.src || null;
+    }
+    return null;
+  };
   let offset = 0;
   let total = null;
   const now = new Date().toISOString();
@@ -82,6 +94,7 @@ async function runCountryApiSync(country, job) {
             String(p.code),
             Number(p.price) || 0,
             Number(p.quantity) || 0,
+            extractImage(p),
             now,
           );
           job.upserted++;
@@ -286,7 +299,7 @@ router.get('/', (req, res) => {
 
   const total = db.prepare(`SELECT COUNT(*) AS c FROM dropxl_products ${where}`).get(...args).c;
   const rows = db.prepare(`
-    SELECT country, code, b2b_price, stock, uploaded_at
+    SELECT country, code, b2b_price, stock, image_url, uploaded_at
     FROM dropxl_products
     ${where}
     ORDER BY CAST(code AS INTEGER) ASC, code ASC

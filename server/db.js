@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS dropxl_products (
   code TEXT NOT NULL,
   b2b_price REAL DEFAULT 0,
   stock INTEGER DEFAULT 0,
+  image_url TEXT,
   uploaded_at TEXT,
   PRIMARY KEY (country, code)
 );
@@ -221,6 +222,14 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   const cols = db.prepare("PRAGMA table_info(inventory_uploads)").all();
   if (!cols.some(c => c.name === 'source')) {
     db.exec("ALTER TABLE inventory_uploads ADD COLUMN source TEXT DEFAULT 'upload'");
+  }
+})();
+
+// 给 dropxl_products 加 image_url 列（API 同步可能返回；XLSX 上传无该字段）
+(function ensureProductImageColumn() {
+  const cols = db.prepare("PRAGMA table_info(dropxl_products)").all();
+  if (!cols.some(c => c.name === 'image_url')) {
+    db.exec("ALTER TABLE dropxl_products ADD COLUMN image_url TEXT");
   }
 })();
 
