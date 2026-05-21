@@ -512,23 +512,36 @@ router.post('/orders/import-from-dropxl', async (req, res) => {
 
 // ============ 售后管理 ============
 router.get('/aftersales', (req, res) => {
-  const { status, q, limit = 50, offset = 0 } = req.query;
+  const { status, q, shop_name, order_no, limit = 50, offset = 0 } = req.query;
   const conds = [];
   const args = [];
   if (status && status !== 'all') { conds.push('t.status = ?'); args.push(status); }
+  if (order_no) { conds.push('t.order_no LIKE ?'); args.push(`%${order_no.trim()}%`); }
+  if (shop_name) { conds.push('po.shop_name LIKE ?'); args.push(`%${shop_name.trim()}%`); }
   if (q) {
-    conds.push('(t.order_no LIKE ? OR t.title LIKE ? OR u.username LIKE ?)');
-    args.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    conds.push('(t.order_no LIKE ? OR t.title LIKE ? OR u.username LIKE ? OR po.shop_name LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const baseFrom = `
+    FROM aftersales_tickets t
+    JOIN users u ON u.id = t.user_id
+    LEFT JOIN purchase_orders po ON po.order_no = t.order_no AND po.user_id = t.user_id
+  `;
   const rows = db.prepare(`
-    SELECT t.*, u.username, u.display_name
-    FROM aftersales_tickets t JOIN users u ON u.id = t.user_id
+    SELECT t.*, u.username, u.display_name, po.shop_name
+    ${baseFrom}
     ${where}
     ORDER BY t.created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM aftersales_tickets t JOIN users u ON u.id = t.user_id ${where}`).get(...args).c;
-  res.json({ rows, total });
+  const total = db.prepare(`SELECT COUNT(*) AS c ${baseFrom} ${where}`).get(...args).c;
+  // 提供候选店铺名给前端筛选下拉
+  const shops = db.prepare(`
+    SELECT DISTINCT po.shop_name ${baseFrom}
+    WHERE po.shop_name IS NOT NULL AND po.shop_name != ''
+    ORDER BY po.shop_name
+  `).all().map(r => r.shop_name);
+  res.json({ rows, total, shops });
 });
 
 router.get('/aftersales/:id', (req, res) => {

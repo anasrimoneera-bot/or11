@@ -5,26 +5,60 @@ const statusLabel = { pending: '待处理', processing: '处理中', waiting_ref
 
 export default function AdminAfterSales() {
   const [rows, setRows] = useState([]);
+  const [shops, setShops] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [shopFilter, setShopFilter] = useState('');
+  const [orderNoFilter, setOrderNoFilter] = useState('');
+  const [q, setQ] = useState('');
   const [detailId, setDetailId] = useState(null);
 
   const load = () => {
     const params = {};
     if (statusFilter !== 'all') params.status = statusFilter;
-    api.get('/admin/aftersales', { params }).then(r => setRows(r.data.rows));
+    if (shopFilter) params.shop_name = shopFilter;
+    if (orderNoFilter.trim()) params.order_no = orderNoFilter.trim();
+    if (q.trim()) params.q = q.trim();
+    api.get('/admin/aftersales', { params }).then(r => {
+      setRows(r.data.rows);
+      setShops(r.data.shops || []);
+    });
   };
-  useEffect(load, [statusFilter]);
+  useEffect(load, [statusFilter, shopFilter]);
+  const onSearch = () => load();
+  const onReset = () => { setShopFilter(''); setOrderNoFilter(''); setQ(''); setStatusFilter('all'); };
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">🔧 售后工单管理</h1>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {['all', 'pending', 'processing', 'waiting_refund', 'completed', 'cancelled'].map(s => (
           <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1 rounded text-sm ${statusFilter === s ? 'bg-orange-500 text-white' : 'bg-white border'}`}>
             {s === 'all' ? '全部' : statusLabel[s]}
           </button>
         ))}
+      </div>
+
+      <div className="bg-white rounded-lg shadow border p-3 flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-[160px]">
+          <label className="text-xs text-gray-500 block">店铺</label>
+          <select className="field" value={shopFilter} onChange={e => setShopFilter(e.target.value)}>
+            <option value="">全部店铺</option>
+            {shops.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label className="text-xs text-gray-500 block">订单编号</label>
+          <input className="field" value={orderNoFilter} onChange={e => setOrderNoFilter(e.target.value)} placeholder="模糊匹配，如 114-7871" onKeyDown={e => e.key === 'Enter' && onSearch()} />
+        </div>
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-xs text-gray-500 block">关键词</label>
+          <input className="field" value={q} onChange={e => setQ(e.target.value)} placeholder="标题/用户名/订单号/店铺" onKeyDown={e => e.key === 'Enter' && onSearch()} />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onSearch} className="btn btn-primary">🔍 搜索</button>
+          <button onClick={onReset} className="btn btn-ghost border">重置</button>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -39,6 +73,7 @@ export default function AdminAfterSales() {
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   用户: <b>{t.display_name || t.username}</b> &nbsp;
+                  店铺: <b>{t.shop_name || '-'}</b> &nbsp;
                   订单: <span className="font-mono">{t.order_no}</span> &nbsp;
                   国家: {t.country || '-'}
                 </div>
