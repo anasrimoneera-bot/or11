@@ -84,6 +84,21 @@ router.get('/audit-logs/stats', ownerRequired, (req, res) => {
   res.json({ today, week, byUser, byAction });
 });
 
+// 按时间范围或全部清理审计日志（仅店主可执行）
+router.delete('/audit-logs', ownerRequired, (req, res) => {
+  const { before, mode } = req.body || {};
+  let r;
+  if (mode === 'all') {
+    r = db.prepare('DELETE FROM audit_logs').run();
+  } else if (before) {
+    r = db.prepare('DELETE FROM audit_logs WHERE created_at < ?').run(before);
+  } else {
+    return res.status(400).json({ error: '请指定 before 时间或 mode=all' });
+  }
+  try { db.prepare('VACUUM').run(); } catch (e) {}
+  res.json({ ok: true, deleted: r.changes });
+});
+
 // ============ 员工管理（仅店主可见） ============
 router.get('/staff', ownerRequired, (req, res) => {
   const rows = db.prepare(`

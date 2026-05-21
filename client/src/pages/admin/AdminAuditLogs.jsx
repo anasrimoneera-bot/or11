@@ -13,13 +13,49 @@ export default function AdminAuditLogs() {
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
     api.get('/admin/audit-logs', { params }).then(r => { setRows(r.data.rows); setTotal(r.data.total); });
   };
-  useEffect(() => { load(); api.get('/admin/audit-logs/stats').then(r => setStats(r.data)); }, []);
+  const reloadStats = () => api.get('/admin/audit-logs/stats').then(r => setStats(r.data));
+  useEffect(() => { load(); reloadStats(); }, []);
+
+  const cleanup = async () => {
+    const choice = prompt(
+      '清理审计日志：\n' +
+      '  1 = 删除 30 天前的记录（推荐）\n' +
+      '  2 = 删除 90 天前的记录\n' +
+      '  3 = 删除 180 天前的记录\n' +
+      '  all = 清空全部日志\n' +
+      '请输入 1 / 2 / 3 / all：',
+      '1'
+    );
+    if (!choice) return;
+    let body;
+    if (choice === 'all') {
+      if (!confirm('⚠️ 确认清空全部审计日志？此操作不可恢复！')) return;
+      body = { mode: 'all' };
+    } else {
+      const days = { '1': 30, '2': 90, '3': 180 }[choice];
+      if (!days) return alert('输入有误');
+      const d = new Date(Date.now() - days * 86400000);
+      body = { before: d.toISOString().slice(0, 10) };
+      if (!confirm(`确认删除 ${days} 天前的审计日志？`)) return;
+    }
+    try {
+      const { data } = await api.delete('/admin/audit-logs', { data: body });
+      alert(`✓ 已删除 ${data.deleted} 条记录`);
+      load();
+      reloadStats();
+    } catch (e) {
+      alert(e.response?.data?.error || '清理失败');
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">📜 操作审计日志</h1>
-        <p className="text-sm text-gray-500 mt-1">所有员工/店主在管理后台的写操作（增删改）都会记录在此</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">📜 操作审计日志</h1>
+          <p className="text-sm text-gray-500 mt-1">所有员工/店主在管理后台的写操作（增删改）都会记录在此</p>
+        </div>
+        <button onClick={cleanup} className="btn btn-warning">🗑️ 清理旧日志</button>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
