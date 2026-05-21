@@ -216,6 +216,14 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   `);
 })();
 
+// 给 inventory_uploads 加 source 列：'upload' = 店主上传 xlsx；'api' = DropXL API 同步
+(function ensureUploadSourceColumn() {
+  const cols = db.prepare("PRAGMA table_info(inventory_uploads)").all();
+  if (!cols.some(c => c.name === 'source')) {
+    db.exec("ALTER TABLE inventory_uploads ADD COLUMN source TEXT DEFAULT 'upload'");
+  }
+})();
+
 function ensureDefaultUser() {
   // 创建管理员账号
   const adminName = process.env.ADMIN_USERNAME || 'admin';

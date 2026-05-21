@@ -26,6 +26,8 @@ const ACTIONS = [
   { re: /^PUT \/settings$/, action: '修改系统设置', target: 'settings' },
   // 商品库存上传与国家加价
   { re: /^POST \/products\/inventory-upload\/[^/]+$/, action: '上传国家库存文件', target: 'inventory' },
+  { re: /^POST \/products\/sync-all$/, action: '一键同步全部国家库存', target: 'inventory' },
+  { re: /^POST \/products\/sync-country\/[^/]+$/, action: '从 DropXL API 同步国家库存', target: 'inventory' },
   { re: /^PUT \/products\/country-markup\/[^/]+$/, action: '修改国家加价百分比', target: 'country_markup' },
   // 售后政策
   { re: /^POST \/aftersales-policies$/, action: '新增售后政策章节', target: 'aftersales_policy' },
