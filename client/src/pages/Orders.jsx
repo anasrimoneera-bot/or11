@@ -35,7 +35,7 @@ export default function Orders() {
     api.get('/orders/stats').then(r => setStats(r.data));
   };
 
-  useEffect(() => { load(); api.get('/accounts/shops').then(r => setShops(r.data)); }, []);
+  useEffect(() => { load(); api.get('/orders/shop-names').then(r => setShops(r.data)); }, []);
   useEffect(load, [filters.status]);
 
   const reset = () => setFilters({ status: 'all', country: '', shop: '', q: '', start: '', end: '' });
@@ -71,7 +71,7 @@ export default function Orders() {
             <label className="text-sm">店铺</label>
             <select className="field" value={filters.shop} onChange={e => setFilters({ ...filters, shop: e.target.value })}>
               <option value="">全部店铺</option>
-              {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              {shops.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </div>
           <div>

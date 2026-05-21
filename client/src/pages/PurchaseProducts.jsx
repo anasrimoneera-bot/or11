@@ -14,7 +14,19 @@ export default function PurchaseProducts() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => { api.get('/accounts/shops').then(r => setShops(r.data)); }, []);
+  useEffect(() => { api.get('/orders/shop-names').then(r => setShops(r.data)); }, []);
+
+  const downloadTemplate = async () => {
+    try {
+      const r = await api.get('/orders/template', { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'amazon-order-template.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert('下载失败：' + (e.response?.data?.error || e.message)); }
+  };
 
   const purchaseUsd = form.items.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 1), 0);
   const purchaseCny = purchaseUsd * (Number(form.exchange_rate) || 0);
@@ -48,7 +60,7 @@ export default function PurchaseProducts() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">+ 新建采购订单</h1>
         <div className="flex gap-2">
-          <button className="btn btn-ghost">⬇️ 下载模板</button>
+          <button onClick={downloadTemplate} className="btn btn-ghost">⬇️ 下载模板</button>
           <button className="btn btn-ghost" onClick={() => history.back()}>← 返回列表</button>
         </div>
       </div>
@@ -87,10 +99,16 @@ export default function PurchaseProducts() {
               </div>
               <div>
                 <label className="text-sm">店铺名 *</label>
-                <select className="field" value={form.shop_name} onChange={e => setForm({ ...form, shop_name: e.target.value })}>
-                  <option value="">请选择店铺名</option>
-                  {shops.map(s => <option key={s.id}>{s.name}</option>)}
-                </select>
+                <input
+                  className="field"
+                  list="shop-name-options"
+                  value={form.shop_name}
+                  onChange={e => setForm({ ...form, shop_name: e.target.value })}
+                  placeholder="填写或选择店铺名 (来自亚马逊订单模板的 shop-name 列)"
+                />
+                <datalist id="shop-name-options">
+                  {shops.map(name => <option key={name} value={name} />)}
+                </datalist>
               </div>
               <div>
                 <label className="text-sm">亚马逊订单金额</label>

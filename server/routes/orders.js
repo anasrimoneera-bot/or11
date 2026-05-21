@@ -1,9 +1,26 @@
 const express = require('express');
+const path = require('path');
 const db = require('../db');
 const { authRequired } = require('../middleware/auth');
 const dropxl = require('../dropxl');
 
 const router = express.Router();
+
+// 下载亚马逊订单批量采购模板（任何登录用户都可下载）
+router.get('/template', authRequired, (req, res) => {
+  const file = path.join(__dirname, '..', 'templates', 'amazon-order-template.xlsx');
+  res.download(file, 'amazon-order-template.xlsx');
+});
+
+// 当前用户所有订单里出现过的 shop_name (去重，按字母排序)
+router.get('/shop-names', authRequired, (req, res) => {
+  const rows = db.prepare(`
+    SELECT DISTINCT shop_name FROM purchase_orders
+    WHERE user_id = ? AND shop_name IS NOT NULL AND shop_name != ''
+    ORDER BY shop_name ASC
+  `).all(req.user.id);
+  res.json(rows.map(r => r.shop_name));
+});
 
 router.get('/', authRequired, (req, res) => {
   const { status, country, shop, q, start, end, limit = 50, offset = 0 } = req.query;
