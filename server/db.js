@@ -272,6 +272,16 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   `).run('美国', email, token, process.env.DROPXL_API_BASE || 'https://b2b.dropxl.com/api_customer');
 })();
 
+// 给 purchase_orders 加 DropXL API 推送状态字段
+(function ensureDropxlPushColumns() {
+  const cols = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  const names = new Set(cols.map(c => c.name));
+  const add = (col, def) => { if (!names.has(col)) db.exec(`ALTER TABLE purchase_orders ADD COLUMN ${col} ${def}`); };
+  add('dropxl_push_status', 'TEXT');     // null / 'success' / 'failed'
+  add('dropxl_push_error', 'TEXT');
+  add('dropxl_pushed_at', 'TEXT');
+})();
+
 function ensureDefaultUser() {
   // 创建管理员账号
   const adminName = process.env.ADMIN_USERNAME || 'admin';

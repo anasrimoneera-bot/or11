@@ -72,7 +72,12 @@ export default function PurchaseProducts() {
     setBatchSubmitting(true);
     try {
       const r = await api.post('/orders/batch/submit', { rows: submittable });
-      alert(`提交完成：成功 ${r.data.summary.created} / 跳过(已存在) ${r.data.summary.skipped} / 失败 ${r.data.summary.failed}`);
+      const s = r.data.summary;
+      const dropxlMsg = s.dropxl_pushed != null
+        ? `\n\nDropXL API 推送：成功 ${s.dropxl_pushed} / 失败 ${s.dropxl_push_failed}` +
+          (s.dropxl_push_failed > 0 ? '\n失败订单可在订单管理页查看错误并由店主重试' : '\n请到 DropXL Unsubmitted Orders 完成支付')
+        : '';
+      alert(`本地入库：成功 ${s.created} / 跳过(已存在) ${s.skipped} / 失败 ${s.failed}${dropxlMsg}`);
       setShowConfirmModal(false);
       setPreview(null);
       setPickedFile(null);

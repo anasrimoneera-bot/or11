@@ -2,7 +2,48 @@ const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const db = require('../db');
+const dropxl = require('../dropxl');
 const { authRequired } = require('../middleware/auth');
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const DROPXL_RATE_LIMIT_MS = 1100; // DropXL 限速 1 请求/秒，加 100ms 缓冲
+
+// 把 address 截到 30 字符以内，溢出部分挪到 addr2 前面（DropXL 规则）
+function splitAddress(addr1, addr2) {
+  const a1 = String(addr1 || '').trim();
+  const a2 = String(addr2 || '').trim();
+  if (a1.length <= 30) return { address: a1, address2: a2 };
+  return {
+    address: a1.slice(0, 30).trim(),
+    address2: (a1.slice(30).trim() + (a2 ? ' ' + a2 : '')).slice(0, 100),
+  };
+}
+
+// 把本地订单组拼成 DropXL Create Order 请求体
+function buildDropxlPayload(orderNo, shipping, items) {
+  const { address, address2 } = splitAddress(shipping.address1, shipping.address2);
+  const productAddrbook = {
+    address,
+    address2,
+    city: shipping.city || '',
+    province: shipping.state || '',
+    postal_code: shipping.postal || '',
+    country: (shipping.country || '').toUpperCase(),
+    email: shipping.buyer_email || '',
+    name: shipping.name || '',
+    phone: shipping.phone || '',
+    comments: '',
+  };
+  return {
+    customer_order_reference: String(orderNo),
+    addressbook: { country: productAddrbook.country },
+    order_products: items.map(it => ({
+      product_code: String(it.sku),
+      quantity: Number(it.quantity) || 1,
+      addressbook: productAddrbook,
+    })),
+  };
+}
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -304,9 +345,52 @@ router.post('/submit', authRequired, (req, res) => {
     }
   });
   tx();
-  res.json({ ok: true, ...results, summary: {
-    created: results.created.length, skipped: results.skipped.length, failed: results.failed.length,
-  } });
+
+  // 本地落库成功后，逐订单推送到 DropXL（按对应国家 token）
+  // 限速 1 req/sec；推送结果存回 purchase_orders；失败的订单店主可后台重试
+  const updatePush = db.prepare(`
+    UPDATE purchase_orders
+    SET dropxl_order_id = ?, dropxl_push_status = ?, dropxl_push_error = ?, dropxl_pushed_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+  const dropxlPush = { success: 0, failed: 0, details: [] };
+  for (const created of results.created) {
+    // 重新查必要数据用于拼 payload
+    const order = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(created.id);
+    const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(created.id);
+    const itemRows = db.prepare('SELECT sku, quantity FROM purchase_order_items WHERE order_id = ?').all(created.id);
+    if (!order || !shipping) {
+      dropxlPush.failed++;
+      dropxlPush.details.push({ amazon_order_id: created.amazon_order_id, ok: false, error: '本地数据残缺' });
+      continue;
+    }
+    try {
+      const payload = buildDropxlPayload(order.order_no, shipping, itemRows);
+      const resp = await dropxl.createOrder(payload, order.country);
+      const dropxlOrderId = resp?.order?.id || resp?.id || null;
+      updatePush.run(dropxlOrderId ? String(dropxlOrderId) : null, 'success', null, created.id);
+      dropxlPush.success++;
+      dropxlPush.details.push({ amazon_order_id: created.amazon_order_id, ok: true, dropxl_order_id: dropxlOrderId });
+    } catch (e) {
+      updatePush.run(null, 'failed', String(e.message || e).slice(0, 500), created.id);
+      dropxlPush.failed++;
+      dropxlPush.details.push({ amazon_order_id: created.amazon_order_id, ok: false, error: e.message });
+    }
+    await sleep(DROPXL_RATE_LIMIT_MS);
+  }
+
+  res.json({
+    ok: true,
+    ...results,
+    dropxl_push: dropxlPush,
+    summary: {
+      created: results.created.length,
+      skipped: results.skipped.length,
+      failed: results.failed.length,
+      dropxl_pushed: dropxlPush.success,
+      dropxl_push_failed: dropxlPush.failed,
+    },
+  });
 });
 
 module.exports = router;
