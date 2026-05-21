@@ -24,6 +24,9 @@ const ACTIONS = [
   { re: /^POST \/test-dropxl$/, action: 'DropXL API 测试' },
   // 系统设置
   { re: /^PUT \/settings$/, action: '修改系统设置', target: 'settings' },
+  // 商品同步与国家加价
+  { re: /^POST \/products\/sync$/, action: '同步 DropXL 商品库' },
+  { re: /^PUT \/products\/country-markup\/[^/]+$/, action: '修改国家加价百分比', target: 'country_markup' },
   // 售后政策
   { re: /^POST \/aftersales-policies$/, action: '新增售后政策章节', target: 'aftersales_policy' },
   { re: /^PUT \/aftersales-policies\/(\d+)$/, action: '编辑售后政策草稿', target: 'aftersales_policy' },
@@ -107,6 +110,10 @@ function buildSummary(action, body, extra) {
 
 function audit(req, res, next) {
   if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
+  // 防止当一个请求被多个挂载在 /api/admin/* 上的子 router 重复触发 audit 时，
+  // 'finish' 监听器被装多次导致重复写入审计日志
+  if (res.locals.__auditInstalled) return next();
+  res.locals.__auditInstalled = true;
 
   res.on('finish', () => {
     if (!req.user) return;

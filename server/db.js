@@ -153,6 +153,28 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
+CREATE TABLE IF NOT EXISTS dropxl_products (
+  code TEXT PRIMARY KEY,
+  dropxl_id INTEGER,
+  name TEXT,
+  category_path TEXT,
+  quantity INTEGER DEFAULT 0,
+  price REAL DEFAULT 0,
+  currency TEXT,
+  country TEXT,
+  dropxl_updated_at TEXT,
+  synced_at TEXT,
+  sync_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_dropxl_products_country ON dropxl_products(country);
+CREATE INDEX IF NOT EXISTS idx_dropxl_products_name ON dropxl_products(name);
+
+CREATE TABLE IF NOT EXISTS country_markup (
+  country TEXT PRIMARY KEY,
+  markup_pct REAL DEFAULT 30,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS aftersales_policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT UNIQUE NOT NULL,
@@ -247,5 +269,13 @@ function ensureDefaultSettings() {
 }
 
 ensureDefaultSettings();
+
+function ensureDefaultCountryMarkup() {
+  const defaults = ['美国', '英国', '德国', '法国', '意大利', '荷兰', '西班牙', '波兰'];
+  const ins = db.prepare('INSERT OR IGNORE INTO country_markup (country, markup_pct) VALUES (?, 30)');
+  for (const c of defaults) ins.run(c);
+}
+
+ensureDefaultCountryMarkup();
 
 module.exports = db;
