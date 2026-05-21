@@ -355,12 +355,20 @@ router.post('/orders/:id/reject', (req, res) => {
 });
 
 router.put('/orders/:id', (req, res) => {
-  const { status, tracking_no } = req.body || {};
+  const { status, tracking_no, amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
+  const amazonAmt = amazon_amount === undefined ? null : Number(amazon_amount);
+  const amazonTax = amazon_tax_amount === undefined ? null : Number(amazon_tax_amount);
+  const shipFee = shipping_fee === undefined ? null : Number(shipping_fee);
   db.prepare(`
     UPDATE purchase_orders
-    SET status = COALESCE(?, status), tracking_no = COALESCE(?, tracking_no), updated_at = CURRENT_TIMESTAMP
+    SET status = COALESCE(?, status),
+        tracking_no = COALESCE(?, tracking_no),
+        amazon_amount = COALESCE(?, amazon_amount),
+        amazon_tax_amount = COALESCE(?, amazon_tax_amount),
+        shipping_fee = COALESCE(?, shipping_fee),
+        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(status, tracking_no, req.params.id);
+  `).run(status, tracking_no, amazonAmt, amazonTax, shipFee, req.params.id);
   res.json({ ok: true });
 });
 

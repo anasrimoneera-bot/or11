@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import api from '../../api';
 
 // 店主版确认弹窗 - 通过动态 import 隔离，员工不会下载此 chunk
@@ -104,7 +104,15 @@ export default function AdminOrders() {
                 <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
                 <td className="px-3 py-2">{o.display_name || o.username}</td>
                 <td className="px-3 py-2">{o.country} / {o.shop_name || '-'}</td>
-                <td className="px-3 py-2 text-right">${(o.amazon_amount || 0).toFixed(2)}</td>
+                <td className="px-3 py-2 text-right">
+                  <EditableAmount
+                    value={o.amazon_amount || 0}
+                    onSave={async (v) => {
+                      await api.put(`/admin/orders/${o.id}`, { amazon_amount: v });
+                      load();
+                    }}
+                  />
+                </td>
                 <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
                 {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
@@ -189,3 +197,50 @@ function StaffConfirmModal({ order, onClose, onDone }) {
   );
 }
 
+
+function EditableAmount({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => { if (editing) ref.current?.select(); }, [editing]);
+  useEffect(() => { setV(value); }, [value]);
+
+  const commit = async () => {
+    const num = Number(v);
+    if (!isFinite(num) || num < 0) { setV(value); setEditing(false); return; }
+    if (num === Number(value)) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(num); } catch (e) { alert(e.response?.data?.error || '保存失败'); setV(value); }
+    finally { setSaving(false); setEditing(false); }
+  };
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="hover:bg-blue-50 px-2 py-1 rounded text-right w-full cursor-pointer"
+        title="点击编辑"
+      >
+        ${Number(value).toFixed(2)}
+      </button>
+    );
+  }
+  return (
+    <input
+      ref={ref}
+      type="number"
+      step="0.01"
+      disabled={saving}
+      value={v}
+      onChange={e => setV(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') { setV(value); setEditing(false); }
+      }}
+      className="w-20 text-right border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
+    />
+  );
+}

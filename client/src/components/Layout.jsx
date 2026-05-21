@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import ErrorBoundary from './ErrorBoundary.jsx';
 
 const userMenu = [
   { to: '/dashboard', icon: '📊', label: '仪表板' },
@@ -26,6 +27,7 @@ const adminMenu = [
 
 export default function Layout({ user, setUser }) {
   const nav = useNavigate();
+  const location = useLocation();
   const menu = (user?.is_admin ? adminMenu : userMenu).filter(m => !m.ownerOnly || user?.is_owner);
   const logout = () => {
     localStorage.removeItem('token');
@@ -83,7 +85,9 @@ export default function Layout({ user, setUser }) {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>
