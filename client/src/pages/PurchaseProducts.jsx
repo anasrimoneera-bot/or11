@@ -302,11 +302,10 @@ function BatchPreviewPanel({ preview, onCancel, onSubmit, submitting }) {
               <th className="px-2 py-2 text-left">sku</th>
               <th className="px-2 py-2 text-right">数量</th>
               <th className="px-2 py-2 text-left">Amazon 商品名</th>
-              <th className="px-2 py-2 text-right">B2B (USD)</th>
               <th className="px-2 py-2 text-right">库存</th>
               <th className="px-2 py-2 text-left">国家</th>
-              <th className="px-2 py-2 text-right">加价%</th>
-              <th className="px-2 py-2 text-right">加价后(USD)</th>
+              <th className="px-2 py-2 text-right">B2B_Price (USD)</th>
+              <th className="px-2 py-2 text-right">小计(USD)</th>
               <th className="px-2 py-2 text-left">状态</th>
             </tr>
           </thead>
@@ -315,6 +314,7 @@ function BatchPreviewPanel({ preview, onCancel, onSubmit, submitting }) {
               const ok = r.matched && r.errors.length === 0;
               const hasWarning = (r.warnings && r.warnings.length > 0);
               const rowCls = !ok ? 'bg-red-50' : (hasWarning ? 'bg-yellow-50' : '');
+              const subtotal = r.unit_price_usd != null ? r.unit_price_usd * (Number(r.quantity) || 0) : null;
               return (
                 <tr key={r.row_no} className={`border-t ${rowCls}`}>
                   <td className="px-2 py-1">{r.row_no}</td>
@@ -322,13 +322,12 @@ function BatchPreviewPanel({ preview, onCancel, onSubmit, submitting }) {
                   <td className="px-2 py-1 font-mono">{r.sku}</td>
                   <td className="px-2 py-1 text-right">{r.quantity}</td>
                   <td className="px-2 py-1 max-w-xs truncate" title={r.product_name}>{r.product_name || '—'}</td>
-                  <td className="px-2 py-1 text-right">{r.dropxl_product?.b2b_price != null ? `$${Number(r.dropxl_product.b2b_price).toFixed(2)}` : '—'}</td>
                   <td className={`px-2 py-1 text-right ${r.dropxl_product && r.dropxl_product.stock <= 0 ? 'text-red-500' : ''}`}>
                     {r.dropxl_product ? r.dropxl_product.stock : '—'}
                   </td>
                   <td className="px-2 py-1">{r.country_name || <span className="text-red-500">{r.ship_country}?</span>}</td>
-                  <td className="px-2 py-1 text-right">{r.markup_pct != null ? `${r.markup_pct}%` : '—'}</td>
-                  <td className="px-2 py-1 text-right font-semibold">{r.display_price_usd != null ? `$${Number(r.display_price_usd).toFixed(2)}` : '—'}</td>
+                  <td className="px-2 py-1 text-right font-semibold">{r.unit_price_usd != null ? `$${Number(r.unit_price_usd).toFixed(2)}` : '—'}</td>
+                  <td className="px-2 py-1 text-right">{subtotal != null ? `$${subtotal.toFixed(2)}` : '—'}</td>
                   <td className="px-2 py-1">
                     {!ok
                       ? <span className="badge bg-red-100 text-red-700" title={r.errors.join('\n')}>{r.errors[0] || '未匹配'}</span>

@@ -92,20 +92,18 @@ function enrichRow(row) {
     markupPct = m ? Number(m.markup_pct) : null;
   }
 
-  let displayUsd = null;
+  let unitPriceUsd = null;
   if (product && markupPct != null) {
-    displayUsd = Number(product.b2b_price) * (1 + markupPct / 100);
+    unitPriceUsd = Number(product.b2b_price) * (1 + markupPct / 100);
   }
 
+  // 注意：响应中绝对不含 raw b2b_price 和 markup_pct，分销商/员工只看加价后单价
   return {
     ...row,
     country_name: country,
     matched: !!product,
-    dropxl_product: product
-      ? { code: product.code, b2b_price: product.b2b_price, stock: product.stock }
-      : null,
-    markup_pct: markupPct,
-    display_price_usd: displayUsd,
+    dropxl_product: product ? { code: product.code, stock: product.stock } : null,
+    unit_price_usd: unitPriceUsd,
     errors: errors.concat(
       !country && row.ship_country ? [`国家代码 ${row.ship_country} 无法识别`] : [],
       country && !product && sku ? [`${country} 库存中未找到 SKU=${sku}（请确认对应国家库存文件已上传）`] : [],
@@ -185,17 +183,44 @@ router.post('/submit', authRequired, (req, res) => {
         continue;
       }
       const first = items[0];
-      // 真实采购价 = 各 SKU 的 DropXL B2B 单价 × 数量 累加
-      const realUsd = items.reduce((s, x) => s + Number(x.dropxl_product?.b2b_price || 0) * Number(x.quantity || 0), 0);
-      const markupPct = first.markup_pct || 0;
-      const displayUsd = realUsd * (1 + markupPct / 100);
+      const country = first.country_name || inferCountryName(first.ship_country);
+      if (!country) {
+        results.failed.push({ amazon_order_id: orderId, reason: '无法识别国家' });
+        continue;
+      }
+      // 不信任客户端传的价格，服务端按 (country, sku) 重新查 DropXL 库 + country_markup
+      const markupRow = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
+      const markupPct = Number(markupRow?.markup_pct) || 0;
+
+      let realUsd = 0;
+      const resolvedItems = [];
+      let resolveError = null;
+      const factor = 1 + markupPct / 100;
+      for (const it of items) {
+        const p = db.prepare('SELECT b2b_price FROM dropxl_products WHERE country = ? AND code = ?').get(country, String(it.sku).trim());
+        if (!p) { resolveError = `${country} 库存中未找到 SKU=${it.sku}`; break; }
+        const qty = Number(it.quantity) || 1;
+        const rawUnit = Number(p.b2b_price) || 0;
+        realUsd += rawUnit * qty;
+        resolvedItems.push({
+          sku: it.sku,
+          product_name: it.product_name || '',
+          quantity: qty,
+          unit_marked_up: rawUnit * factor,
+        });
+      }
+      if (resolveError) {
+        results.failed.push({ amazon_order_id: orderId, reason: resolveError });
+        continue;
+      }
+      const displayUsd = realUsd * factor;
       const displayCny = displayUsd * exchangeRate;
 
       try {
         const info = insOrder.run(
           req.user.id, orderId, orderId,
           first.shop_name || null,
-          first.country_name || null,
+          country,
           realUsd, displayUsd, displayCny, exchangeRate, markupPct,
         );
         const id = info.lastInsertRowid;
@@ -204,10 +229,12 @@ router.post('/submit', authRequired, (req, res) => {
           first.ship_city, first.ship_state, first.ship_postal, first.ship_country,
           first.ship_phone, first.buyer_email,
         );
-        for (const it of items) {
-          insItem.run(id, it.sku, it.product_name || '', Number(it.quantity) || 1, Number(it.dropxl_product?.b2b_price) || 0);
+        for (const it of resolvedItems) {
+          // unit_price 存加价后的单价 - 分销商查看订单详情时看到的就是他们支付的单价
+          // 不暴露 raw b2b_price（避免泄露真实成本）。总成本通过 purchase_orders.real_amount_usd 记录
+          insItem.run(id, it.sku, it.product_name, it.quantity, it.unit_marked_up);
         }
-        results.created.push({ amazon_order_id: orderId, id, lines: items.length });
+        results.created.push({ amazon_order_id: orderId, id, lines: resolvedItems.length });
       } catch (e) {
         results.failed.push({ amazon_order_id: orderId, reason: e.message });
       }
