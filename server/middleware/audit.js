@@ -22,6 +22,11 @@ const ACTIONS = [
   { re: /^POST \/staff\/(\d+)\/reset-password$/, action: '重置员工密码', target: 'staff' },
   // 测试
   { re: /^POST \/test-dropxl$/, action: 'DropXL API 测试' },
+  // 售后政策
+  { re: /^POST \/aftersales-policies$/, action: '新增售后政策章节', target: 'aftersales_policy' },
+  { re: /^PUT \/aftersales-policies\/(\d+)$/, action: '编辑售后政策草稿', target: 'aftersales_policy' },
+  { re: /^DELETE \/aftersales-policies\/(\d+)$/, action: '删除售后政策章节', target: 'aftersales_policy' },
+  { re: /^POST \/aftersales-policies\/publish-all$/, action: '发布售后政策', target: 'aftersales_policy' },
 ];
 
 function describe(method, path) {

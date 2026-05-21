@@ -591,4 +591,72 @@ router.post('/aftersales/:id/refund', (req, res) => {
   res.json({ ok: true });
 });
 
+// ============ 售后政策维护（仅店主） ============
+router.get('/aftersales-policies', ownerRequired, (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, slug, title, body, published_title, published_body, sort_order, updated_at, published_at,
+           CASE WHEN COALESCE(body, '') = COALESCE(published_body, '')
+                 AND COALESCE(title, '') = COALESCE(published_title, '')
+                THEN 0 ELSE 1 END AS is_dirty
+    FROM aftersales_policies
+    ORDER BY sort_order ASC, id ASC
+  `).all();
+  res.json(rows);
+});
+
+router.post('/aftersales-policies', ownerRequired, (req, res) => {
+  const { slug, title, body, sort_order } = req.body || {};
+  if (!slug || !title) return res.status(400).json({ error: 'slug 与 title 必填' });
+  if (db.prepare('SELECT id FROM aftersales_policies WHERE slug = ?').get(slug)) {
+    return res.status(400).json({ error: 'slug 已存在' });
+  }
+  const order = Number.isFinite(Number(sort_order)) ? Number(sort_order)
+    : (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM aftersales_policies').get().n);
+  const info = db.prepare(`
+    INSERT INTO aftersales_policies (slug, title, body, sort_order, updated_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(slug, title, body || '', order);
+  setAudit(res, { target_id: info.lastInsertRowid, target_name: title, summary: `新增售后政策章节: ${title} (${slug})` });
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+
+router.put('/aftersales-policies/:id', ownerRequired, (req, res) => {
+  const id = Number(req.params.id);
+  const cur = db.prepare('SELECT * FROM aftersales_policies WHERE id = ?').get(id);
+  if (!cur) return res.status(404).json({ error: '章节不存在' });
+  const { title, body, sort_order } = req.body || {};
+  const nextTitle = title != null ? title : cur.title;
+  const nextBody = body != null ? body : cur.body;
+  const nextOrder = Number.isFinite(Number(sort_order)) ? Number(sort_order) : cur.sort_order;
+  db.prepare(`
+    UPDATE aftersales_policies
+    SET title = ?, body = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(nextTitle, nextBody, nextOrder, id);
+  setAudit(res, { target_id: id, target_name: nextTitle, summary: `编辑售后政策草稿: ${nextTitle}` });
+  res.json({ ok: true });
+});
+
+router.delete('/aftersales-policies/:id', ownerRequired, (req, res) => {
+  const id = Number(req.params.id);
+  const cur = db.prepare('SELECT title FROM aftersales_policies WHERE id = ?').get(id);
+  if (!cur) return res.status(404).json({ error: '章节不存在' });
+  db.prepare('DELETE FROM aftersales_policies WHERE id = ?').run(id);
+  setAudit(res, { target_id: id, target_name: cur.title, summary: `删除售后政策章节: ${cur.title}` });
+  res.json({ ok: true });
+});
+
+router.post('/aftersales-policies/publish-all', ownerRequired, (req, res) => {
+  const result = db.prepare(`
+    UPDATE aftersales_policies
+    SET published_title = title,
+        published_body = body,
+        published_at = CURRENT_TIMESTAMP
+    WHERE COALESCE(body, '') != COALESCE(published_body, '')
+       OR COALESCE(title, '') != COALESCE(published_title, '')
+  `).run();
+  setAudit(res, { summary: `一键发布售后政策（${result.changes} 个章节更新）` });
+  res.json({ ok: true, updated: result.changes });
+});
+
 module.exports = router;

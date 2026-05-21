@@ -152,6 +152,18 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS aftersales_policies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT UNIQUE NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT DEFAULT '',
+  published_title TEXT,
+  published_body TEXT,
+  sort_order INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  published_at TEXT
+);
 `);
 
 function ensureDefaultUser() {
@@ -181,5 +193,49 @@ function ensureDefaultUser() {
 }
 
 ensureDefaultUser();
+
+function ensureDefaultPolicies() {
+  const count = db.prepare('SELECT COUNT(*) AS c FROM aftersales_policies').get().c;
+  if (count > 0) return;
+  const seed = [
+    {
+      slug: 'general',
+      title: '售后政策',
+      body: `1. 客户收到商品后 30 天内可申请售后。
+2. 售后申请需提供订单号、商品照片或视频证据。
+3. 因物流损坏需要保留原始包装。
+4. 退款将原路返回至账户余额。`,
+    },
+    {
+      slug: 'us',
+      title: '美国售后政策指南',
+      body: `美国订单售后处理时效为 3-5 个工作日。
+退货地址由 DropXL 平台分配，需提供有效的 tracking number。
+亚马逊 A-to-Z 申诉单需在 24 小时内同步告知。`,
+    },
+    {
+      slug: 'de',
+      title: '德国售后政策指南',
+      body: `德国订单按欧盟消费者保护法处理。
+14 天无理由退货，运费可由分销商承担。
+请保留与买家的所有沟通记录。`,
+    },
+    {
+      slug: 'it_nl_fr',
+      title: '意大利、荷兰、法国售后政策指南',
+      body: `按欧盟通用消费者权益保护处理。
+请通过 DropXL 平台的工单系统沟通。
+退款金额以欧元结算并按当日汇率折算人民币。`,
+    },
+  ];
+  const now = new Date().toISOString();
+  const ins = db.prepare(`
+    INSERT INTO aftersales_policies (slug, title, body, published_title, published_body, sort_order, updated_at, published_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  seed.forEach((s, i) => ins.run(s.slug, s.title, s.body, s.title, s.body, i, now, now));
+}
+
+ensureDefaultPolicies();
 
 module.exports = db;
