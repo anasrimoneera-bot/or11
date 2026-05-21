@@ -40,38 +40,22 @@ export default function AdminProducts() {
   const activeStatus = status.find(s => s.country === activeCountry);
   const activeMarkup = markup.find(m => m.country === activeCountry);
 
-  const syncAll = async () => {
-    if (!confirm('确认从 DropXL API 同步全部 8 个国家的 SKU/B2B 价格/库存？\n约耗时 5-30 分钟（按国家串行运行，避免限速）。\n完成后分销商端"下载支持"会立即拿到最新数据（已加价）。')) return;
-    try {
-      await api.post('/admin/products/sync-all');
-      alert('已启动！可在每个国家卡片上看实时进度。');
-      loadStatus();
-    } catch (e) {
-      alert(e.response?.data?.error || '启动失败');
-    }
-  };
-  const anySyncing = status.some(s => s.api_sync_status === 'running' || s.api_sync_status === 'pending');
-
-  // 同步运行中时每 3 秒刷新状态
-  useEffect(() => {
-    if (!anySyncing) return;
-    const t = setInterval(() => { loadStatus(); }, 3000);
-    return () => clearInterval(t);
-  }, [anySyncing]);
-
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">📦 商品库存价格管理</h1>
           <p className="text-gray-500 text-sm mt-1">
-            DropXL API 同步各国 SKU/B2B/库存（仅店主可见原价 + 加价比例）。
-            分销商"下载支持"页拿到的是加价后的 B2B 价格。
+            按国家上传 DropXL 库存 xlsx（SKU/B2B 价/库存）。仅店主可见原价 + 加价比例；
+            分销商"下载支持"页拿到的是加价后的 B2B 价。
           </p>
         </div>
-        <button onClick={syncAll} disabled={anySyncing} className="btn btn-success whitespace-nowrap">
-          {anySyncing ? '⏳ 全量同步中...' : '🚀 一键同步全部国家'}
-        </button>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded p-3">
+        ℹ️ <b>说明</b>：DropXL 商品 API 不支持按国家筛选（返回全球 55 万条统一目录、统一库存），
+        所以不能用 API 自动按国家同步。请在各国卡片上手动上传你从 DropXL 后台下载的对应国家 inventory xlsx 文件，
+        每次上传会全量覆盖该国数据。
       </div>
 
       <CountryUploadGrid status={status} onChange={() => { loadStatus(); loadProducts(); }} activeCountry={activeCountry} setActiveCountry={setActiveCountry} />
@@ -203,45 +187,6 @@ function CountryUploadGrid({ status, onChange, activeCountry, setActiveCountry }
 function CountryUploadCard({ country, status, active, onClick, onUploaded }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
-  const [syncing, setSyncing] = useState(status?.api_sync_status === 'running');
-  const [syncProgress, setSyncProgress] = useState(status?.api_sync_progress || null);
-
-  useEffect(() => {
-    setSyncing(status?.api_sync_status === 'running');
-    setSyncProgress(status?.api_sync_progress || null);
-  }, [status?.api_sync_status, status?.api_sync_progress]);
-
-  useEffect(() => {
-    if (!syncing) return;
-    const t = setInterval(async () => {
-      try {
-        const r = await api.get(`/admin/products/sync-country/${encodeURIComponent(country)}`);
-        setSyncProgress({ fetched: r.data.fetched, total: r.data.progress?.total });
-        if (r.data.status !== 'running') {
-          clearInterval(t);
-          setSyncing(false);
-          if (r.data.status === 'done') {
-            alert(`${country} API 同步完成：总数 ${r.data.total} / 有库存 ${r.data.in_stock}`);
-          } else if (r.data.status === 'failed') {
-            alert(`${country} API 同步失败：${r.data.error}`);
-          }
-          onUploaded();
-        }
-      } catch {}
-    }, 2000);
-    return () => clearInterval(t);
-  }, [syncing, country]);
-
-  const apiSync = async (e) => {
-    e.stopPropagation();
-    if (!confirm(`确认从 DropXL API 同步 ${country} 全量库存？\n依赖 DropXL listProducts 支持 country 参数；如不支持各国数据可能相同。`)) return;
-    try {
-      await api.post(`/admin/products/sync-country/${encodeURIComponent(country)}`);
-      setSyncing(true);
-    } catch (err) {
-      alert(err.response?.data?.error || '启动失败');
-    }
-  };
 
   const onPick = async (e) => {
     const file = e.target.files?.[0];
@@ -306,41 +251,22 @@ function CountryUploadCard({ country, status, active, onClick, onUploaded }) {
       <div className="text-xs text-gray-500 mt-1 min-h-[32px]">
         {status?.uploaded_at ? (
           <>
-            <div>
-              {status.rows_count} 行 · 有库存 {status.in_stock_count}
-              {status.source && (
-                <span className="ml-1 text-[10px] px-1 rounded bg-gray-100 text-gray-600">
-                  {status.source === 'api' ? 'API' : '上传'}
-                </span>
-              )}
-            </div>
+            <div>{status.rows_count} 行 · 有库存 {status.in_stock_count}</div>
             <div>更新 {new Date(status.uploaded_at).toLocaleDateString()}</div>
           </>
         ) : (
-          <div className="text-gray-400">尚未同步</div>
-        )}
-        {syncing && syncProgress && (
-          <div className="text-blue-600">⏳ 已抓取 {syncProgress.fetched}{syncProgress.total ? ` / ${syncProgress.total}` : ''}</div>
+          <div className="text-gray-400">尚未上传</div>
         )}
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-1">
+      <div className="mt-2">
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
         <button
           type="button"
-          disabled={uploading || syncing}
-          onClick={apiSync}
-          className="btn btn-success text-xs justify-center py-1"
-          title="从 DropXL API 实时同步该国库存与价格"
-        >
-          {syncing ? '⏳ 同步中' : '🔄 API同步'}
-        </button>
-        <button
-          type="button"
-          disabled={uploading || syncing}
+          disabled={uploading}
           onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}
-          className="btn btn-ghost border text-xs justify-center py-1"
+          className="btn btn-success text-xs justify-center py-1 w-full"
         >
-          {uploading ? '上传中...' : '📤 上传xlsx'}
+          {uploading ? '上传中...' : '📤 上传 xlsx'}
         </button>
       </div>
     </div>
