@@ -41,11 +41,28 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '同步失败'); }
   };
 
+  const importHistory = async () => {
+    const since = prompt('导入从哪一天起的历史订单？格式 YYYY-MM-DD', '2020-01-01');
+    if (!since) return;
+    if (!confirm(`确认从 DropXL 拉取 ${since} 之后的所有订单导入本地？已存在的不会重复导入。`)) return;
+    try {
+      const { data } = await api.post('/admin/orders/import-from-dropxl', { since });
+      let msg = `共拉取 ${data.total} 单：\n  ✓ 新导入 ${data.imported} 单\n  · 已存在跳过 ${data.skipped} 单`;
+      if (data.failed) msg += `\n  ✗ 失败 ${data.failed} 单`;
+      if (data.errors?.length) msg += `\n\n错误样例：\n${data.errors.join('\n')}`;
+      alert(msg);
+      load();
+    } catch (e) { alert(e.response?.data?.error || '导入失败'); }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">📋 订单审核与发货</h1>
-        <button onClick={sync} className="btn btn-primary">🔄 从DropXL同步跟踪号/状态</button>
+        <div className="flex gap-2">
+          <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
+          <button onClick={sync} className="btn btn-primary">🔄 从DropXL同步跟踪号/状态</button>
+        </div>
       </div>
 
       <div className="flex gap-2">

@@ -20,6 +20,7 @@ const adminMenu = [
   { to: '/admin/staff', icon: '🛡️', label: '员工管理', ownerOnly: true },
   { to: '/admin/audit-logs', icon: '📜', label: '操作审计日志', ownerOnly: true },
   { to: '/admin/api-test', icon: '🧪', label: 'DropXL API测试', ownerOnly: true },
+  { to: '/admin/products-export', icon: '📦', label: '商品全量导出', ownerOnly: true },
   { to: '/profile', icon: '👤', label: '个人资料' },
 ];
 

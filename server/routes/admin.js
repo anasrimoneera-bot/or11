@@ -391,12 +391,100 @@ router.post('/orders/sync', async (req, res) => {
 function mapStatus(s) {
   if (!s) return 'pending_shipment';
   const v = String(s).toLowerCase();
-  if (v.includes('ship')) return 'shipped';
+  if (v.includes('ship') || v.includes('sent')) return 'shipped';
   if (v.includes('cancel')) return 'cancelled';
   if (v.includes('refund')) return 'refunded';
   if (v.includes('complete') || v.includes('delivered')) return 'completed';
+  if (v.includes('temporary') || v.includes('draft')) return 'pending_purchase';
   return 'pending_shipment';
 }
+
+// 从 DropXL 导入历史订单（INSERT，不更新已存在的）
+router.post('/orders/import-from-dropxl', async (req, res) => {
+  try {
+    const adminUser = db.prepare("SELECT id FROM users WHERE is_owner = 1 ORDER BY id LIMIT 1").get();
+    if (!adminUser) return res.status(500).json({ error: '未找到店主账号' });
+    const ownerId = adminUser.id;
+
+    const since = req.body?.since || '2020-01-01';
+    const data = await dropxl.listOrders({ submitted_at_gteq: since });
+    const items = Array.isArray(data) ? data : (data?.orders || data?.items || []);
+
+    let imported = 0, skipped = 0, failed = 0;
+    const errors = [];
+
+    const insertOrder = db.prepare(`
+      INSERT INTO purchase_orders (
+        user_id, order_no, customer_ref, shop_name, country,
+        amazon_amount, amazon_tax_amount, shipping_fee,
+        real_amount_usd, purchase_amount_usd, purchase_amount_cny,
+        exchange_rate, markup_pct, distributor_refund,
+        tracking_no, status, dropxl_order_id, raw_response, created_at
+      ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?)
+    `);
+    const insertItem = db.prepare(`
+      INSERT INTO purchase_order_items (order_id, sku, product_name, quantity, unit_price)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    for (const wrap of items) {
+      const o = wrap?.order || wrap;
+      if (!o) continue;
+      const dropxlId = String(o.id || '');
+      if (!dropxlId) { failed++; continue; }
+
+      const existing = db.prepare('SELECT id FROM purchase_orders WHERE dropxl_order_id = ?').get(dropxlId);
+      if (existing) { skipped++; continue; }
+
+      const orderNo = o.customer_order_reference || `DROPXL-${dropxlId}`;
+      const noConflict = db.prepare('SELECT id FROM purchase_orders WHERE order_no = ?').get(orderNo);
+      const finalOrderNo = noConflict ? `${orderNo}-${dropxlId}` : orderNo;
+
+      const grossTotal = Number(o.gross_total) || Number(o.total_products_after_vat) || 0;
+      const tracking = o.shipping_tracking || '';
+      const status = mapStatus(o.status_order_name);
+      const createdAt = o.submitted_at || new Date().toISOString();
+
+      try {
+        const r = insertOrder.run(
+          ownerId, finalOrderNo, o.customer_order_reference || null,
+          o.customer_company || null, o.country || null,
+          grossTotal, grossTotal,
+          tracking, status, dropxlId,
+          JSON.stringify(o), createdAt,
+        );
+        const newId = r.lastInsertRowid;
+        const products = o.order_products || [];
+        for (const wp of products) {
+          const p = wp?.order_product || wp;
+          if (!p) continue;
+          insertItem.run(
+            newId,
+            p.product_code || String(p.product_id || ''),
+            p.product_name || '',
+            Math.round(Number(p.quantity) || 1),
+            Number(p.price) || 0,
+          );
+        }
+        imported++;
+      } catch (e) {
+        failed++;
+        errors.push(`${dropxlId}: ${e.message}`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      total: items.length,
+      imported,
+      skipped,
+      failed,
+      errors: errors.slice(0, 10),
+    });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 
 // ============ 售后管理 ============
 router.get('/aftersales', (req, res) => {
