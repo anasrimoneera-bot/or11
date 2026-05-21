@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import api from '../../api';
+import EditableAmount from '../../components/EditableAmount.jsx';
 
 // 店主版确认弹窗 - 通过动态 import 隔离，员工不会下载此 chunk
 const OwnerConfirmModal = lazy(() => import('./OwnerConfirmModal.jsx'));
@@ -88,8 +89,10 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-left">用户</th>
               <th className="px-3 py-2 text-left">国家/店铺</th>
               <th className="px-3 py-2 text-right">亚马逊金额</th>
+              <th className="px-3 py-2 text-right">税后金额</th>
               <th className="px-3 py-2 text-right">采购(USD)</th>
               <th className="px-3 py-2 text-right">采购(¥)</th>
+              <th className="px-3 py-2 text-right">利润 (USD)</th>
               {isOwner && <Suspense fallback={<><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
               <th className="px-3 py-2 text-left">DropXL ID</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
@@ -99,7 +102,12 @@ export default function AdminOrders() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(o => (
+            {rows.map(o => {
+              const tax = Number(o.amazon_tax_amount) || 0;
+              const purchase = Number(o.purchase_amount_usd) || 0;
+              const ship = Number(o.shipping_fee) || 0;
+              const profit = tax > 0 ? tax - purchase - ship : 0;
+              return (
               <tr key={o.id} className="border-t hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
                 <td className="px-3 py-2">{o.display_name || o.username}</td>
@@ -107,14 +115,20 @@ export default function AdminOrders() {
                 <td className="px-3 py-2 text-right">
                   <EditableAmount
                     value={o.amazon_amount || 0}
-                    onSave={async (v) => {
-                      await api.put(`/admin/orders/${o.id}`, { amazon_amount: v });
-                      load();
-                    }}
+                    onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { amazon_amount: v }); load(); }}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <EditableAmount
+                    value={o.amazon_tax_amount || 0}
+                    onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { amazon_tax_amount: v }); load(); }}
                   />
                 </td>
                 <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
+                <td className={`px-3 py-2 text-right font-semibold ${tax === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {tax === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                </td>
                 {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
                 <td className="px-3 py-2 text-xs">{
@@ -130,8 +144,8 @@ export default function AdminOrders() {
                   )}
                 </td>
               </tr>
-            ))}
-            {rows.length === 0 && <tr><td colSpan={isOwner ? 13 : 11} className="p-6 text-center text-gray-400">
+            );})}
+            {rows.length === 0 && <tr><td colSpan={isOwner ? 15 : 13} className="p-6 text-center text-gray-400">
               {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
@@ -194,53 +208,5 @@ function StaffConfirmModal({ order, onClose, onDone }) {
         </div>
       </div>
     </div>
-  );
-}
-
-
-function EditableAmount({ value, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [v, setV] = useState(value);
-  const [saving, setSaving] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => { if (editing) ref.current?.select(); }, [editing]);
-  useEffect(() => { setV(value); }, [value]);
-
-  const commit = async () => {
-    const num = Number(v);
-    if (!isFinite(num) || num < 0) { setV(value); setEditing(false); return; }
-    if (num === Number(value)) { setEditing(false); return; }
-    setSaving(true);
-    try { await onSave(num); } catch (e) { alert(e.response?.data?.error || '保存失败'); setV(value); }
-    finally { setSaving(false); setEditing(false); }
-  };
-
-  if (!editing) {
-    return (
-      <button
-        onClick={() => setEditing(true)}
-        className="hover:bg-blue-50 px-2 py-1 rounded text-right w-full cursor-pointer"
-        title="点击编辑"
-      >
-        ${Number(value).toFixed(2)}
-      </button>
-    );
-  }
-  return (
-    <input
-      ref={ref}
-      type="number"
-      step="0.01"
-      disabled={saving}
-      value={v}
-      onChange={e => setV(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === 'Enter') commit();
-        else if (e.key === 'Escape') { setV(value); setEditing(false); }
-      }}
-      className="w-20 text-right border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
-    />
   );
 }

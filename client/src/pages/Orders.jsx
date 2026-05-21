@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
+import EditableAmount from '../components/EditableAmount.jsx';
 
 const statusColor = {
   pending_purchase: 'bg-orange-100 text-orange-700',
@@ -119,6 +120,7 @@ export default function Orders() {
                 <th className="px-3 py-2 text-right">税后金额</th>
                 <th className="px-3 py-2 text-right">采购(USD)</th>
                 <th className="px-3 py-2 text-right">采购(¥)</th>
+                <th className="px-3 py-2 text-right">利润 (USD)</th>
                 <th className="px-3 py-2 text-left">物流跟踪号</th>
                 <th className="px-3 py-2 text-left">状态</th>
                 <th className="px-3 py-2 text-left">创建时间</th>
@@ -126,14 +128,26 @@ export default function Orders() {
               </tr>
             </thead>
             <tbody>
-              {orders.map(o => (
+              {orders.map(o => {
+                const tax = Number(o.amazon_tax_amount) || 0;
+                const purchase = Number(o.purchase_amount_usd) || 0;
+                const ship = Number(o.shipping_fee) || 0;
+                const profit = tax > 0 ? tax - purchase - ship : 0;
+                return (
                 <tr key={o.id} className="border-t hover:bg-gray-50">
                   <td className="px-3 py-2 font-mono">{o.order_no}</td>
                   <td className="px-3 py-2">{o.shop_name || '-'}</td>
-                  <td className="px-3 py-2 text-right">${(o.amazon_amount || 0).toFixed(2)}</td>
-                  <td className="px-3 py-2 text-right">${(o.amazon_tax_amount || 0).toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <EditableAmount value={o.amazon_amount || 0} onSave={async (v) => { await api.put(`/orders/${o.id}`, { amazon_amount: v }); load(); }} />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <EditableAmount value={o.amazon_tax_amount || 0} onSave={async (v) => { await api.put(`/orders/${o.id}`, { amazon_tax_amount: v }); load(); }} />
+                  </td>
                   <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(4)}</td>
                   <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
+                  <td className={`px-3 py-2 text-right font-semibold ${tax === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {tax === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                  </td>
                   <td className="px-3 py-2">{o.tracking_no || '-'}</td>
                   <td className="px-3 py-2">
                     <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
@@ -143,8 +157,8 @@ export default function Orders() {
                     <button className="text-blue-600 hover:underline text-xs mr-2">查看</button>
                   </td>
                 </tr>
-              ))}
-              {orders.length === 0 && <tr><td colSpan="10" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
+              );})}
+              {orders.length === 0 && <tr><td colSpan="11" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
           </table>
         </div>

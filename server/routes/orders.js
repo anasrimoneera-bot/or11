@@ -118,6 +118,25 @@ router.post('/', authRequired, async (req, res) => {
   res.json({ ok: true, id, dropxl_order_id: dropxlOrderId, message: 'DropXL订单创建成功，等待管理员确认采购金额' });
 });
 
+// 用户只允许更新本地销售/费用字段，不会推回 DropXL，不影响订单状态/跟踪号/采购价
+router.put('/:id', authRequired, (req, res) => {
+  const { amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
+  const own = db.prepare('SELECT id FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!own) return res.status(404).json({ error: '订单不存在或不属于你' });
+  const amt = amazon_amount === undefined ? null : Number(amazon_amount);
+  const tax = amazon_tax_amount === undefined ? null : Number(amazon_tax_amount);
+  const ship = shipping_fee === undefined ? null : Number(shipping_fee);
+  db.prepare(`
+    UPDATE purchase_orders
+    SET amazon_amount = COALESCE(?, amazon_amount),
+        amazon_tax_amount = COALESCE(?, amazon_tax_amount),
+        shipping_fee = COALESCE(?, shipping_fee),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND user_id = ?
+  `).run(amt, tax, ship, req.params.id, req.user.id);
+  res.json({ ok: true });
+});
+
 router.post('/sync', authRequired, async (req, res) => {
   try {
     const data = await dropxl.listOrders({ limit: 100 });
