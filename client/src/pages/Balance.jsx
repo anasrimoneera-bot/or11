@@ -12,7 +12,6 @@ const typeColor = {
 export default function Balance() {
   const [data, setData] = useState({ rows: [], balance: 0 });
   const [user, setUser] = useState(null);
-  const [showRecharge, setShowRecharge] = useState(false);
 
   const load = () => {
     api.get('/balance').then(r => setData(r.data));
@@ -24,14 +23,12 @@ export default function Balance() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">💼 我的余额记录</h1>
-        <button onClick={() => setShowRecharge(true)} className="btn btn-primary">+ 充值/调整</button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <BigStat title="人民币余额" value={`¥${(data.balance || 0).toFixed(2)}`} icon="¥" bg="bg-red-500" />
         <BigStat title="会员等级" value={user?.member_level || '一级分销'} icon="V" bg="bg-orange-500" />
         <BigStat title="会员天数" value={`${user?.member_days || 0} 天`} icon="D" bg="bg-indigo-500" />
-        <BigStat title="SKU数量限制" value={user?.sku_limit || 0} icon="S" bg="bg-pink-500" />
       </div>
 
       <div className="rounded-xl shadow overflow-hidden">
@@ -71,7 +68,6 @@ export default function Balance() {
         </div>
       </div>
 
-      {showRecharge && <RechargeModal onClose={() => setShowRecharge(false)} onDone={() => { setShowRecharge(false); load(); }} />}
     </div>
   );
 }
@@ -83,34 +79,6 @@ function BigStat({ title, value, icon, bg }) {
       <div>
         <div className="text-sm opacity-90">{title}</div>
         <div className="text-2xl font-bold">{value}</div>
-      </div>
-    </div>
-  );
-}
-
-function RechargeModal({ onClose, onDone }) {
-  const [amount, setAmount] = useState('');
-  const [desc, setDesc] = useState('');
-  const submit = async () => {
-    try {
-      await api.post('/balance/recharge', { amount: Number(amount), description: desc });
-      onDone();
-    } catch (e) {
-      alert(e.response?.data?.error || '提交失败');
-    }
-  };
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-96">
-        <div className="font-semibold text-lg mb-4">充值/余额调整</div>
-        <label className="text-sm">金额 (人民币, 可为负数代表扣除)</label>
-        <input type="number" className="field mb-3" value={amount} onChange={e => setAmount(e.target.value)} />
-        <label className="text-sm">描述</label>
-        <input className="field mb-4" value={desc} onChange={e => setDesc(e.target.value)} placeholder="例：线下转账充值" />
-        <div className="flex justify-end gap-2">
-          <button className="btn btn-ghost" onClick={onClose}>取消</button>
-          <button className="btn btn-primary" onClick={submit}>提交</button>
-        </div>
       </div>
     </div>
   );
