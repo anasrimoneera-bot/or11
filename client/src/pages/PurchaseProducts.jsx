@@ -380,9 +380,7 @@ function OrderGroupCard({ group, exchangeRate }) {
               <th className="px-2 py-1.5 text-left">SKU</th>
               <th className="px-2 py-1.5 text-left">产品名称</th>
               <th className="px-2 py-1.5 text-right">数量</th>
-              <th className="px-2 py-1.5 text-right">单价</th>
-              <th className="px-2 py-1.5 text-right">订单金额</th>
-              <th className="px-2 py-1.5 text-right">税后金额</th>
+              <th className="px-2 py-1.5 text-right">采购单价</th>
               <th className="px-2 py-1.5 text-right">小计</th>
               <th className="px-2 py-1.5 text-right">小计(CNY)</th>
             </tr>
@@ -399,8 +397,6 @@ function OrderGroupCard({ group, exchangeRate }) {
                 <td className="px-2 py-1 max-w-xs truncate" title={it.product_name}>{it.product_name || '—'}</td>
                 <td className="px-2 py-1 text-right">{it.quantity}</td>
                 <td className="px-2 py-1 text-right">{it.unit_price_usd != null ? Number(it.unit_price_usd).toFixed(2) : '—'}</td>
-                <td className="px-2 py-1 text-right">{Number(it.item_price || 0).toFixed(2)}</td>
-                <td className="px-2 py-1 text-right">{Number(it.after_tax_amount || 0).toFixed(2)}</td>
                 <td className="px-2 py-1 text-right">{Number(it.subtotal_usd || 0).toFixed(2)}</td>
                 <td className="px-2 py-1 text-right text-red-600">{Number(it.subtotal_cny || 0).toFixed(2)}</td>
               </tr>
@@ -408,7 +404,7 @@ function OrderGroupCard({ group, exchangeRate }) {
           </tbody>
           <tfoot>
             <tr className="border-t bg-gray-50">
-              <td colSpan="7" className="px-2 py-2 text-right text-gray-600">订单组总金额:</td>
+              <td colSpan="5" className="px-2 py-2 text-right text-gray-600">订单组总金额:</td>
               <td className="px-2 py-2 text-right font-bold">{group.total_usd.toFixed(2)}</td>
               <td className="px-2 py-2 text-right font-bold text-red-600">{group.total_cny.toFixed(2)} CNY</td>
             </tr>
