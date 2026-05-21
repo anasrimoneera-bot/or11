@@ -15,8 +15,9 @@ export default function PurchaseProducts() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [pickedFile, setPickedFile] = useState(null);
-  const [preview, setPreview] = useState(null);   // { rows, summary, exchange_rate }
+  const [preview, setPreview] = useState(null);   // { rows, groups, summary, exchange_rate }
   const [previewing, setPreviewing] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -41,33 +42,38 @@ export default function PurchaseProducts() {
   const purchaseCny = purchaseUsd * (Number(exchangeRate) || 0);
 
   const triggerFilePicker = () => fileInputRef.current?.click();
-  const onFilePicked = (e) => {
-    setPickedFile(e.target.files?.[0] || null);
+  // 选完文件立刻自动解析 + 匹配
+  const onFilePicked = async (e) => {
+    const f = e.target.files?.[0] || null;
+    setPickedFile(f);
     setPreview(null);
-  };
-  const batchPurchase = async () => {
-    if (!pickedFile) return alert('请先选择亚马逊订单模板文件');
+    if (!f) return;
     setPreviewing(true);
     try {
       const fd = new FormData();
-      fd.append('file', pickedFile);
+      fd.append('file', f);
       const r = await api.post('/orders/batch/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setPreview(r.data);
-    } catch (e) {
-      alert(e.response?.data?.error || '解析失败：' + e.message);
+    } catch (err) {
+      alert(err.response?.data?.error || '解析失败：' + err.message);
     } finally {
       setPreviewing(false);
     }
+  };
+  // 批量采购按钮 -> 打开确认模态
+  const batchPurchase = () => {
+    if (!preview) return alert('请先选择文件等待解析完成');
+    setShowConfirmModal(true);
   };
   const submitBatch = async () => {
     if (!preview) return;
     const submittable = preview.rows.filter(r => r.matched && r.errors.length === 0);
     if (submittable.length === 0) return alert('没有可提交的行');
-    if (!confirm(`确认提交 ${submittable.length} 条匹配成功的行？\n（同一 Amazon 订单的多条 SKU 会合并为一个采购订单）`)) return;
     setBatchSubmitting(true);
     try {
       const r = await api.post('/orders/batch/submit', { rows: submittable });
       alert(`提交完成：成功 ${r.data.summary.created} / 跳过(已存在) ${r.data.summary.skipped} / 失败 ${r.data.summary.failed}`);
+      setShowConfirmModal(false);
       setPreview(null);
       setPickedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -120,7 +126,7 @@ export default function PurchaseProducts() {
         <div className="col-span-2 space-y-4">
           <div className="bg-white rounded-xl shadow border border-dashed border-orange-300 p-4">
             <h3 className="font-semibold mb-2">📋 批量采购</h3>
-            <div className="text-sm mb-1">上传亚马逊订单模板（.xlsx / .csv）</div>
+            <div className="text-sm mb-1">上传采购订单CSV文件</div>
             <div className="flex gap-2 items-center">
               <input
                 ref={fileInputRef}
@@ -133,23 +139,33 @@ export default function PurchaseProducts() {
                 {pickedFile ? pickedFile.name : '未选择任何文件'}
               </div>
               <button type="button" onClick={triggerFilePicker} className="btn btn-warning">选择文件</button>
-              <button type="button" onClick={batchPurchase} disabled={!pickedFile || previewing} className="btn btn-success">
-                {previewing ? '解析中...' : '解析并预览'}
+              <button
+                type="button"
+                onClick={batchPurchase}
+                disabled={!preview || previewing || (preview && preview.summary.ready_to_submit_groups === 0)}
+                className="btn btn-success"
+              >
+                批量采购
               </button>
             </div>
-            <div className="text-xs text-gray-500 mt-2">
-              系统会按表格中 <b>sku</b> 列自动匹配店主商品库，按收件国家自动应用加价规则。匹配通过后点击下方"提交"。
-            </div>
+            {previewing && (
+              <div className="text-sm text-blue-600 mt-3 bg-blue-50 border border-blue-200 rounded p-2">
+                ⏳ 正在解析并匹配商品库存价格...
+              </div>
+            )}
+            {!previewing && preview && (
+              <div className="text-sm text-blue-700 mt-3 bg-blue-50 border border-blue-200 rounded p-2">
+                已解析 <b>{preview.summary.total_items}</b> 个商品，
+                分为 <b>{preview.summary.total_groups}</b> 个订单组，
+                {preview.summary.ready_to_submit_groups < preview.summary.total_groups && (
+                  <span className="text-red-600">
+                    其中 {preview.summary.total_groups - preview.summary.ready_to_submit_groups} 组未完全匹配，
+                  </span>
+                )}
+                准备确认
+              </div>
+            )}
           </div>
-
-          {preview && (
-            <BatchPreviewPanel
-              preview={preview}
-              onCancel={() => setPreview(null)}
-              onSubmit={submitBatch}
-              submitting={batchSubmitting}
-            />
-          )}
 
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold mb-3">📝 基本信息</h3>
@@ -260,6 +276,15 @@ export default function PurchaseProducts() {
           </div>
         </div>
       </div>
+
+      {showConfirmModal && preview && (
+        <BatchConfirmModal
+          preview={preview}
+          onClose={() => setShowConfirmModal(false)}
+          onSubmit={submitBatch}
+          submitting={batchSubmitting}
+        />
+      )}
     </div>
   );
 }
@@ -273,74 +298,126 @@ function Row({ label, children }) {
   );
 }
 
-function BatchPreviewPanel({ preview, onCancel, onSubmit, submitting }) {
-  const { rows, summary, exchange_rate } = preview;
+function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
+  const { groups = [], summary, exchange_rate } = preview;
   return (
-    <div className="bg-white rounded-xl shadow border">
-      <div className="border-b px-4 py-3 flex items-center justify-between flex-wrap gap-2">
-        <div className="font-semibold">📊 预览结果</div>
-        <div className="text-sm flex gap-4 items-center">
-          <span>总行数 <b>{summary.total}</b></span>
-          <span className="text-green-600">匹配 <b>{summary.matched}</b></span>
-          <span className="text-red-600">未匹配 <b>{summary.unmatched}</b></span>
-          <span className="text-blue-600">可提交 <b>{summary.ready_to_submit}</b></span>
-          <span className="text-gray-500">汇率 {exchange_rate}</span>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl my-4 flex flex-col" style={{ maxHeight: 'calc(100vh - 32px)' }}>
+        <div className="flex justify-between items-center p-4 border-b">
+          <div className="font-bold text-lg">批量采购确认</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="btn btn-ghost border">取消</button>
-          <button onClick={onSubmit} disabled={submitting || summary.ready_to_submit === 0} className="btn btn-primary">
-            {submitting ? '提交中...' : `✓ 提交 ${summary.ready_to_submit} 条`}
+
+        <div className="p-5 grid grid-cols-3 gap-3 border-b">
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+            <div className="text-xs text-blue-600">商品总数</div>
+            <div className="text-2xl font-bold mt-1">{summary.total_items}</div>
+          </div>
+          <div className="rounded-lg bg-green-50 border border-green-100 p-3">
+            <div className="text-xs text-green-700">订单组数</div>
+            <div className="text-2xl font-bold mt-1">{summary.total_groups}</div>
+          </div>
+          <div className="rounded-lg bg-yellow-50 border border-yellow-100 p-3">
+            <div className="text-xs text-yellow-700">当前汇率</div>
+            <div className="text-2xl font-bold mt-1">1: {exchange_rate} CNY</div>
+          </div>
+        </div>
+
+        <div className="px-5 pt-4 font-semibold">订单组详情</div>
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+          {groups.map(g => <OrderGroupCard key={g.amazon_order_id} group={g} exchangeRate={exchange_rate} />)}
+        </div>
+
+        <div className="border-t p-4 flex items-center justify-between gap-4 bg-gray-50">
+          <div className="text-sm text-gray-600">
+            <div>所有订单总金额：<b className="text-xl text-gray-900 ml-1">{summary.total_usd.toFixed(2)}</b></div>
+          </div>
+          <div className="text-sm text-gray-600">
+            <div>所需人民币：<b className="text-xl text-red-600 ml-1">{summary.total_cny.toFixed(2)} CNY</b></div>
+          </div>
+          <button
+            onClick={onSubmit}
+            disabled={submitting || summary.ready_to_submit_groups === 0}
+            className="btn btn-success"
+          >
+            {submitting ? '提交中...' : `✓ 确认提交 ${summary.ready_to_submit_groups} 组`}
           </button>
         </div>
       </div>
-      <div className="overflow-auto" style={{ maxHeight: 480 }}>
+    </div>
+  );
+}
+
+function OrderGroupCard({ group, exchangeRate }) {
+  const allOk = group.all_matched && group.errors.length === 0;
+  return (
+    <div className={`rounded-lg border ${allOk ? 'border-gray-200' : 'border-red-300 bg-red-50'} p-4 text-sm`}>
+      <div className="flex justify-between items-start mb-2">
+        <div className="font-semibold">订单组: <span className="font-mono">{group.order_id}</span></div>
+        <div className="text-xs text-gray-500">商品数量: {group.items.length}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+        <div>国家: <b>{group.country_code || '-'}</b></div>
+        <div>订单号: <span className="font-mono">{group.amazon_order_id}</span></div>
+      </div>
+      <div className="font-medium mb-2">订单详情：</div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+        <div>店铺名称: <b>{group.shop_name || '-'}</b></div>
+        <div>客户名称: <b>{group.shipping.name || '-'}</b></div>
+        <div>客户电话: {group.shipping.phone || '-'}</div>
+        <div>地址1: {group.shipping.address1 || '-'}<br/>地址2: {group.shipping.address2 || ''}</div>
+        <div>城市: {group.shipping.city || '-'}</div>
+        <div>州/省: {group.shipping.state || '-'}</div>
+        <div>邮编: {group.shipping.postal || '-'}</div>
+        <div></div>
+      </div>
+      <div className="font-medium mb-2">商品列表：</div>
+      <div className="overflow-x-auto">
         <table className="w-full text-xs">
-          <thead className="bg-gray-50 text-gray-500 sticky top-0">
+          <thead className="text-gray-500 bg-gray-50">
             <tr>
-              <th className="px-2 py-2 text-left">行</th>
-              <th className="px-2 py-2 text-left">order-id</th>
-              <th className="px-2 py-2 text-left">sku</th>
-              <th className="px-2 py-2 text-right">数量</th>
-              <th className="px-2 py-2 text-left">Amazon 商品名</th>
-              <th className="px-2 py-2 text-right">库存</th>
-              <th className="px-2 py-2 text-left">国家</th>
-              <th className="px-2 py-2 text-right">B2B_Price (USD)</th>
-              <th className="px-2 py-2 text-right">小计(USD)</th>
-              <th className="px-2 py-2 text-left">状态</th>
+              <th className="px-2 py-1.5 text-left">产品图片</th>
+              <th className="px-2 py-1.5 text-left">SKU</th>
+              <th className="px-2 py-1.5 text-left">产品名称</th>
+              <th className="px-2 py-1.5 text-right">数量</th>
+              <th className="px-2 py-1.5 text-right">单价</th>
+              <th className="px-2 py-1.5 text-right">订单金额</th>
+              <th className="px-2 py-1.5 text-right">税后金额</th>
+              <th className="px-2 py-1.5 text-right">小计</th>
+              <th className="px-2 py-1.5 text-right">小计(CNY)</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => {
-              const ok = r.matched && r.errors.length === 0;
-              const hasWarning = (r.warnings && r.warnings.length > 0);
-              const rowCls = !ok ? 'bg-red-50' : (hasWarning ? 'bg-yellow-50' : '');
-              const subtotal = r.unit_price_usd != null ? r.unit_price_usd * (Number(r.quantity) || 0) : null;
-              return (
-                <tr key={r.row_no} className={`border-t ${rowCls}`}>
-                  <td className="px-2 py-1">{r.row_no}</td>
-                  <td className="px-2 py-1 font-mono">{r.amazon_order_id}</td>
-                  <td className="px-2 py-1 font-mono">{r.sku}</td>
-                  <td className="px-2 py-1 text-right">{r.quantity}</td>
-                  <td className="px-2 py-1 max-w-xs truncate" title={r.product_name}>{r.product_name || '—'}</td>
-                  <td className={`px-2 py-1 text-right ${r.dropxl_product && r.dropxl_product.stock <= 0 ? 'text-red-500' : ''}`}>
-                    {r.dropxl_product ? r.dropxl_product.stock : '—'}
-                  </td>
-                  <td className="px-2 py-1">{r.country_name || <span className="text-red-500">{r.ship_country}?</span>}</td>
-                  <td className="px-2 py-1 text-right font-semibold">{r.unit_price_usd != null ? `$${Number(r.unit_price_usd).toFixed(2)}` : '—'}</td>
-                  <td className="px-2 py-1 text-right">{subtotal != null ? `$${subtotal.toFixed(2)}` : '—'}</td>
-                  <td className="px-2 py-1">
-                    {!ok
-                      ? <span className="badge bg-red-100 text-red-700" title={r.errors.join('\n')}>{r.errors[0] || '未匹配'}</span>
-                      : hasWarning
-                      ? <span className="badge bg-yellow-100 text-yellow-700" title={r.warnings.join('\n')}>⚠ 无库存</span>
-                      : <span className="badge bg-green-100 text-green-700">就绪</span>}
-                  </td>
-                </tr>
-              );
-            })}
+            {group.items.map(it => (
+              <tr key={it.row_no} className="border-t align-top">
+                <td className="px-2 py-1">
+                  <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300 text-lg">📦</div>
+                </td>
+                <td className="px-2 py-1 font-mono">{it.sku}</td>
+                <td className="px-2 py-1 max-w-xs truncate" title={it.product_name}>{it.product_name || '—'}</td>
+                <td className="px-2 py-1 text-right">{it.quantity}</td>
+                <td className="px-2 py-1 text-right">{it.unit_price_usd != null ? Number(it.unit_price_usd).toFixed(2) : '—'}</td>
+                <td className="px-2 py-1 text-right">{Number(it.item_price || 0).toFixed(2)}</td>
+                <td className="px-2 py-1 text-right">{Number(it.after_tax_amount || 0).toFixed(2)}</td>
+                <td className="px-2 py-1 text-right">{Number(it.subtotal_usd || 0).toFixed(2)}</td>
+                <td className="px-2 py-1 text-right text-red-600">{Number(it.subtotal_cny || 0).toFixed(2)}</td>
+              </tr>
+            ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t bg-gray-50">
+              <td colSpan="7" className="px-2 py-2 text-right text-gray-600">订单组总金额:</td>
+              <td className="px-2 py-2 text-right font-bold">{group.total_usd.toFixed(2)}</td>
+              <td className="px-2 py-2 text-right font-bold text-red-600">{group.total_cny.toFixed(2)} CNY</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
+      {!allOk && (
+        <div className="mt-2 text-xs text-red-600 bg-red-100 rounded p-2">
+          ⚠ {group.errors.join('；') || '订单组中有未匹配的商品，提交时会跳过'}
+        </div>
+      )}
     </div>
   );
 }

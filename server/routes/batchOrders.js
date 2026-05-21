@@ -58,6 +58,9 @@ function parseAmazonTemplate(buffer) {
       shop_name: get(AMAZON_COLS.shop_name),
       product_name: get(AMAZON_COLS.product_name),
       item_price: Number(get(AMAZON_COLS.item_price)) || 0,
+      item_tax: Number(get(AMAZON_COLS.item_tax)) || 0,
+      shipping_price: Number(get(AMAZON_COLS.shipping_price)) || 0,
+      shipping_tax: Number(get(AMAZON_COLS.shipping_tax)) || 0,
     };
   }).filter(r => r.amazon_order_id || r.sku);
 }
@@ -127,13 +130,72 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
   const enriched = rows.map(enrichRow);
   const exchangeRate = require('../settings').getExchangeRate();
 
+  // 按 amazon_order_id 分组为 order_group（同一亚马逊订单的多个 SKU 合并）
+  const groupsMap = new Map();
+  for (const r of enriched) {
+    if (!r.amazon_order_id) continue;
+    if (!groupsMap.has(r.amazon_order_id)) {
+      const cc = (r.ship_country || '').toLowerCase();
+      groupsMap.set(r.amazon_order_id, {
+        order_id: `${cc || 'xx'}-${r.amazon_order_id}`,
+        amazon_order_id: r.amazon_order_id,
+        country_code: cc,
+        country_name: r.country_name,
+        shop_name: r.shop_name,
+        shipping: {
+          name: r.recipient_name,
+          phone: r.ship_phone,
+          email: r.buyer_email,
+          address1: r.ship_address1,
+          address2: r.ship_address2,
+          city: r.ship_city,
+          state: r.ship_state,
+          postal: r.ship_postal,
+        },
+        items: [],
+        total_usd: 0,
+        total_cny: 0,
+        all_matched: true,
+        errors: [],
+      });
+    }
+    const g = groupsMap.get(r.amazon_order_id);
+    const subtotalUsd = (r.unit_price_usd || 0) * (Number(r.quantity) || 0);
+    const subtotalCny = subtotalUsd * exchangeRate;
+    g.items.push({
+      row_no: r.row_no,
+      sku: r.sku,
+      product_name: r.product_name,
+      quantity: Number(r.quantity) || 0,
+      unit_price_usd: r.unit_price_usd,
+      item_price: r.item_price,
+      item_tax: r.item_tax,
+      after_tax_amount: Math.max(0, Number(r.item_price) - Number(r.item_tax)),
+      subtotal_usd: subtotalUsd,
+      subtotal_cny: subtotalCny,
+      stock: r.dropxl_product?.stock,
+      matched: r.matched,
+      errors: r.errors,
+      warnings: r.warnings,
+    });
+    g.total_usd += subtotalUsd;
+    g.total_cny += subtotalCny;
+    if (!r.matched || r.errors.length > 0) g.all_matched = false;
+    for (const e of r.errors) if (!g.errors.includes(e)) g.errors.push(e);
+  }
+  const groups = Array.from(groupsMap.values());
+  const grandTotalUsd = groups.filter(g => g.all_matched).reduce((s, g) => s + g.total_usd, 0);
+  const grandTotalCny = grandTotalUsd * exchangeRate;
+
   res.json({
     rows: enriched,
+    groups,
     summary: {
-      total: enriched.length,
-      matched: enriched.filter(r => r.matched).length,
-      unmatched: enriched.filter(r => !r.matched).length,
-      ready_to_submit: enriched.filter(r => r.matched && r.errors.length === 0).length,
+      total_items: enriched.length,
+      total_groups: groups.length,
+      ready_to_submit_groups: groups.filter(g => g.all_matched).length,
+      total_usd: grandTotalUsd,
+      total_cny: grandTotalCny,
     },
     exchange_rate: exchangeRate,
   });
