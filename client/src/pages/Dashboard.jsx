@@ -38,9 +38,8 @@ export default function Dashboard() {
         <span className="badge bg-cyan-100 text-cyan-700 font-medium">DISTRIBUTOR</span>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" />
-        <Stat title="SKU数量限制" value={d.sku_limit} bg="bg-orange-500" icon="📦" />
         <Stat title="我的订单" value={d.orders_total} bg="bg-blue-500" icon="🛒" />
         <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" />
       </div>
