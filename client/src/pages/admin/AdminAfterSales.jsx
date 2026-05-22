@@ -11,6 +11,19 @@ export default function AdminAfterSales() {
   const [orderNoFilter, setOrderNoFilter] = useState('');
   const [q, setQ] = useState('');
   const [detailId, setDetailId] = useState(null);
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => { api.get('/auth/me').then(r => setIsOwner(!!r.data?.is_owner)).catch(() => {}); }, []);
+
+  const onDelete = async (t) => {
+    if (!confirm(`确认删除工单 #${t.id}「${t.title || '(无标题)'}」？\n该操作不可恢复，沟通记录与附件记录会一并清除。`)) return;
+    try {
+      await api.delete(`/admin/aftersales/${t.id}`);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.error || '删除失败');
+    }
+  };
 
   const load = () => {
     const params = {};
@@ -80,7 +93,12 @@ export default function AdminAfterSales() {
                 <div className="text-sm text-gray-700 mt-1 line-clamp-2">{t.description}</div>
                 <div className="text-xs text-gray-400 mt-1">{t.created_at}</div>
               </div>
-              <button onClick={() => setDetailId(t.id)} className="btn btn-primary text-sm self-start">处理工单</button>
+              <div className="flex flex-col gap-2 self-start">
+                <button onClick={() => setDetailId(t.id)} className="btn btn-primary text-sm">处理工单</button>
+                {isOwner && (
+                  <button onClick={() => onDelete(t)} className="text-xs text-red-600 border border-red-200 rounded px-2 py-1 hover:bg-red-50">🗑️ 删除</button>
+                )}
+              </div>
             </div>
           </div>
         ))}

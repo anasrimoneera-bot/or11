@@ -310,8 +310,9 @@ router.post('/submit', authRequired, async (req, res) => {
     INSERT INTO purchase_orders
       (user_id, order_no, customer_ref, shop_name, country,
        real_amount_usd, purchase_amount_usd, purchase_amount_cny, exchange_rate, markup_pct,
+       amazon_amount, amazon_rate_locked,
        status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_purchase')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_purchase')
   `);
   const insItem = db.prepare(`
     INSERT INTO purchase_order_items (order_id, sku, product_name, quantity, unit_price)
@@ -364,12 +365,20 @@ router.post('/submit', authRequired, async (req, res) => {
       const displayUsd = realUsd * factor;
       const displayCny = displayUsd * exchangeRate;
 
+      // 亚马逊到账金额预填: 全单 item-price 合计 × 0.85（剔除平台 commission/税估算）
+      // 仅在导入时一次性填充，店主之后可在订单管理页手动覆写
+      const amazonAmount = items.reduce((s, it) => s + (Number(it.item_price) || 0), 0) * 0.85;
+      // 当前国家亚马逊汇率锁到订单，避免后续改汇率影响历史利润
+      const amazonRateRow = db.prepare('SELECT rate FROM country_amazon_rate WHERE country = ?').get(country);
+      const amazonRateLocked = Number(amazonRateRow?.rate) || null;
+
       try {
         const info = insOrder.run(
           req.user.id, orderId, orderId,
           first.shop_name || null,
           country,
           realUsd, displayUsd, displayCny, exchangeRate, markupPct,
+          amazonAmount, amazonRateLocked,
         );
         const id = info.lastInsertRowid;
         insShip.run(

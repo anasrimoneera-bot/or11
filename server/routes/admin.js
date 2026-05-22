@@ -638,6 +638,19 @@ router.put('/aftersales/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 店主删除售后工单（连带消息/附件物理记录一起清掉；附件文件本身不动避免误删别的）
+router.delete('/aftersales/:id', ownerRequired, (req, res) => {
+  const t = db.prepare('SELECT id FROM aftersales_tickets WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '工单不存在' });
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM aftersales_messages WHERE ticket_id = ?').run(t.id);
+    db.prepare('DELETE FROM aftersales_attachments WHERE ticket_id = ?').run(t.id);
+    db.prepare('DELETE FROM aftersales_tickets WHERE id = ?').run(t.id);
+  });
+  tx();
+  res.json({ ok: true });
+});
+
 router.post('/aftersales/:id/reply', (req, res) => {
   const { content } = req.body || {};
   const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ?').get(req.params.id);
