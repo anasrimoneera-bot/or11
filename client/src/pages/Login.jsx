@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 
 export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const nav = useNavigate();
@@ -37,13 +37,12 @@ export default function Login({ onLogin }) {
         </div>
         {err && <div className="bg-red-50 text-red-600 text-sm p-2 rounded mb-3">{err}</div>}
         <label className="block text-sm font-medium mb-1">用户名</label>
-        <input className="field mb-3" value={username} onChange={e => setUsername(e.target.value)} />
+        <input className="field mb-3" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" />
         <label className="block text-sm font-medium mb-1">密码</label>
-        <input className="field mb-4" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+        <input className="field mb-4" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
         <button disabled={loading} className="btn btn-primary w-full justify-center">
           {loading ? '登录中...' : '登录'}
         </button>
-        <div className="text-xs text-gray-400 mt-4 text-center">默认账号 admin / admin123</div>
       </form>
     </div>
   );
