@@ -65,9 +65,12 @@ export default function PurchaseProducts() {
     if (!preview) return alert('请先选择文件等待解析完成');
     setShowConfirmModal(true);
   };
-  const submitBatch = async () => {
+  const submitBatch = async (excluded) => {
     if (!preview) return;
-    const submittable = preview.rows.filter(r => r.matched && r.errors.length === 0);
+    const excludedSet = excluded instanceof Set ? excluded : new Set();
+    const submittable = preview.rows.filter(r =>
+      r.matched && r.errors.length === 0 && !excludedSet.has(r.amazon_order_id)
+    );
     if (submittable.length === 0) return alert('没有可提交的行');
     setBatchSubmitting(true);
     try {
@@ -305,6 +308,23 @@ function Row({ label, children }) {
 
 function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
   const { groups = [], summary, exchange_rate } = preview;
+  // 被用户手动删除的订单组 amazon_order_id 集合（不传给后端）
+  const [excluded, setExcluded] = useState(() => new Set());
+  const toggleExclude = (id) => {
+    setExcluded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const visibleGroups = groups.filter(g => !excluded.has(g.amazon_order_id));
+  const submittableGroups = visibleGroups.filter(g => g.all_matched);
+  const liveTotalUsd = submittableGroups.reduce((s, g) => s + (g.total_usd || 0), 0);
+  const liveTotalCny = submittableGroups.reduce((s, g) => s + (g.total_cny || 0), 0);
+
+  const handleSubmit = () => onSubmit(excluded);
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl my-4 flex flex-col" style={{ maxHeight: 'calc(100vh - 32px)' }}>
@@ -319,8 +339,8 @@ function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
             <div className="text-2xl font-bold mt-1">{summary.total_items}</div>
           </div>
           <div className="rounded-lg bg-green-50 border border-green-100 p-3">
-            <div className="text-xs text-green-700">订单组数</div>
-            <div className="text-2xl font-bold mt-1">{summary.total_groups}</div>
+            <div className="text-xs text-green-700">订单组数 {excluded.size > 0 && <span className="text-xs text-gray-500">(已剔除 {excluded.size})</span>}</div>
+            <div className="text-2xl font-bold mt-1">{visibleGroups.length}</div>
           </div>
           <div className="rounded-lg bg-yellow-50 border border-yellow-100 p-3">
             <div className="text-xs text-yellow-700">当前汇率</div>
@@ -330,22 +350,32 @@ function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
 
         <div className="px-5 pt-4 font-semibold">订单组详情</div>
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
-          {groups.map(g => <OrderGroupCard key={g.amazon_order_id} group={g} exchangeRate={exchange_rate} />)}
+          {visibleGroups.map(g => (
+            <OrderGroupCard
+              key={g.amazon_order_id}
+              group={g}
+              exchangeRate={exchange_rate}
+              onRemove={() => {
+                if (confirm(`从本次批量中移除订单 ${g.amazon_order_id}？（不影响文件本身）`)) toggleExclude(g.amazon_order_id);
+              }}
+            />
+          ))}
+          {visibleGroups.length === 0 && <div className="text-center text-gray-400 py-12">所有订单都被移除了</div>}
         </div>
 
         <div className="border-t p-4 flex items-center justify-between gap-4 bg-gray-50">
           <div className="text-sm text-gray-600">
-            <div>所有订单总金额：<b className="text-xl text-gray-900 ml-1">{summary.total_usd.toFixed(2)}</b></div>
+            <div>所有订单总金额：<b className="text-xl text-gray-900 ml-1">{liveTotalUsd.toFixed(2)}</b></div>
           </div>
           <div className="text-sm text-gray-600">
-            <div>所需人民币：<b className="text-xl text-red-600 ml-1">{summary.total_cny.toFixed(2)} CNY</b></div>
+            <div>所需人民币：<b className="text-xl text-red-600 ml-1">{liveTotalCny.toFixed(2)} CNY</b></div>
           </div>
           <button
-            onClick={onSubmit}
-            disabled={submitting || summary.ready_to_submit_groups === 0}
+            onClick={handleSubmit}
+            disabled={submitting || submittableGroups.length === 0}
             className="btn btn-success"
           >
-            {submitting ? '提交中...' : `✓ 确认提交 ${summary.ready_to_submit_groups} 组`}
+            {submitting ? '提交中...' : `✓ 确认提交 ${submittableGroups.length} 组`}
           </button>
         </div>
       </div>
@@ -353,13 +383,25 @@ function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
   );
 }
 
-function OrderGroupCard({ group, exchangeRate }) {
+function OrderGroupCard({ group, exchangeRate, onRemove }) {
   const allOk = group.all_matched && group.errors.length === 0;
   return (
     <div className={`rounded-lg border ${allOk ? 'border-gray-200' : 'border-red-300 bg-red-50'} p-4 text-sm`}>
       <div className="flex justify-between items-start mb-2">
         <div className="font-semibold">订单组: <span className="font-mono">{group.order_id}</span></div>
-        <div className="text-xs text-gray-500">商品数量: {group.items.length}</div>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-gray-500">商品数量: {group.items.length}</div>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-xs text-red-600 border border-red-200 hover:bg-red-50 rounded px-2 py-0.5"
+              title="从本次批量中移除该订单"
+            >
+              🗑️ 移除
+            </button>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
         <div>国家: <b>{group.country_code || '-'}</b></div>

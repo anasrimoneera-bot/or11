@@ -185,6 +185,12 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
   const enriched = rows.map(enrichRow);
   const exchangeRate = require('../settings').getExchangeRate();
 
+  // 检测当前用户已经下过的 Amazon 订单号，预览阶段就标红屏蔽
+  const existingOrderNos = new Set(
+    db.prepare('SELECT order_no FROM purchase_orders WHERE user_id = ?')
+      .all(req.user.id).map(r => r.order_no)
+  );
+
   // 按 amazon_order_id 分组为 order_group（同一亚马逊订单的多个 SKU 合并）
   const groupsMap = new Map();
   for (const r of enriched) {
@@ -240,6 +246,30 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
     for (const e of r.errors) if (!g.errors.includes(e)) g.errors.push(e);
   }
   const groups = Array.from(groupsMap.values());
+  // 标记重复下单：本用户已经下过同 amazon_order_id
+  for (const g of groups) {
+    if (existingOrderNos.has(g.amazon_order_id)) {
+      g.already_exists = true;
+      g.all_matched = false;
+      const msg = `订单 ${g.amazon_order_id} 已下过单，不能重复提交`;
+      if (!g.errors.includes(msg)) g.errors.push(msg);
+      // 把每行也标 errors，submit 时过滤掉
+      for (const it of g.items) {
+        it.matched = false;
+        if (!it.errors) it.errors = [];
+        if (!it.errors.includes(msg)) it.errors.push(msg);
+      }
+    }
+  }
+  // 同步回 enriched 行级 errors（前端 rows.filter(r => r.matched && r.errors.length===0)）
+  const dupOrderIds = new Set(groups.filter(g => g.already_exists).map(g => g.amazon_order_id));
+  for (const r of enriched) {
+    if (dupOrderIds.has(r.amazon_order_id)) {
+      r.matched = false;
+      const msg = `订单 ${r.amazon_order_id} 已下过单，不能重复提交`;
+      if (!r.errors.includes(msg)) r.errors.push(msg);
+    }
+  }
   const grandTotalUsd = groups.filter(g => g.all_matched).reduce((s, g) => s + g.total_usd, 0);
   const grandTotalCny = grandTotalUsd * exchangeRate;
 
