@@ -26,6 +26,27 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
+// 总表可能 20+ 万行（如德国），最大放宽到 500MB 并落盘避免内存撑爆
+const TMP_UPLOAD_DIR = path.join(__dirname, '..', '..', 'data', 'uploads-tmp');
+if (!fs.existsSync(TMP_UPLOAD_DIR)) fs.mkdirSync(TMP_UPLOAD_DIR, { recursive: true });
+const masterUpload = multer({
+  storage: multer.diskStorage({
+    destination: TMP_UPLOAD_DIR,
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}.xlsx`),
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 },
+});
+// 包装一层，把 multer 的 LIMIT_FILE_SIZE 等错误转成 JSON 响应
+function masterUploadMw(req, res, next) {
+  masterUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: '文件超过 500MB 限制；建议拆成多个文件分批上传，或联系后端调整阈值' });
+    }
+    return res.status(400).json({ error: err.message || '上传失败' });
+  });
+}
+
 function resolveCountry(input) {
   if (!input) return null;
   const s = String(input).trim();
@@ -428,54 +449,131 @@ router.delete('/dropxl-accounts/:country', (req, res) => {
 // 总表：店主上传的精选 SKU 名单 + 主图链接（A 列）
 // 商品库存价格管理 / 批量采购匹配 / 分销商下载 都以总表为白名单过滤
 
-function parseMasterXlsx(buffer) {
-  const wb = XLSX.read(buffer, { type: 'buffer' });
+// 稀疏单元格直读：避免 sheet_to_json 全表对象化，180MB 文件可降到峰值 ~500MB
+// 通过 generator 流式吐出行，配合事务分批写入，控制内存峰值
+function* iterMasterXlsxRows(filePath) {
+  // 只读结构、跳过 cellNF/HTML，关掉日期转换以省 CPU 和内存
+  const wb = XLSX.readFile(filePath, { cellHTML: false, cellNF: false, cellDates: false });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-  // 优先用列名匹配；A 列 'Image 1'，B 列 'SKU'
-  return rows.map(r => {
-    const lower = {};
-    for (const k of Object.keys(r)) lower[String(k).toLowerCase().trim()] = r[k];
-    const sku = String(lower['sku'] ?? '').trim();
-    let img = String(lower['image 1'] ?? lower['image'] ?? lower['image_url'] ?? '').trim();
-    if (img && !/^https?:\/\//i.test(img)) img = '';
-    return sku ? { sku, image_url: img || null } : null;
-  }).filter(Boolean);
+  if (!sheet || !sheet['!ref']) return;
+  const range = XLSX.utils.decode_range(sheet['!ref']);
+  // 找 SKU 列 + Image 列（用首行表头）
+  let skuCol = -1, imgCol = -1;
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const cell = sheet[XLSX.utils.encode_cell({ r: range.s.r, c })];
+    if (!cell) continue;
+    const v = String(cell.v || '').trim().toLowerCase();
+    if (v === 'sku' && skuCol < 0) skuCol = c;
+    if ((v === 'image 1' || v === 'image' || v === 'image_url' || v === 'image1') && imgCol < 0) imgCol = c;
+  }
+  if (skuCol < 0) return;
+  for (let r = range.s.r + 1; r <= range.e.r; r++) {
+    const skuCell = sheet[XLSX.utils.encode_cell({ r, c: skuCol })];
+    if (!skuCell || skuCell.v == null) continue;
+    const sku = String(skuCell.v).trim();
+    if (!sku) continue;
+    let img = null;
+    if (imgCol >= 0) {
+      const imgCell = sheet[XLSX.utils.encode_cell({ r, c: imgCol })];
+      if (imgCell?.v) {
+        const u = String(imgCell.v).trim();
+        if (/^https?:\/\//i.test(u)) img = u;
+      }
+    }
+    yield { sku, image_url: img };
+  }
 }
 
-// 上传/替换某国总表
-router.post('/master-upload/:country', upload.single('file'), (req, res) => {
+// 内存中跟踪每个国家的总表导入进度（用于前端轮询）
+// key=country, value={ status: 'parsing'|'writing'|'done'|'failed', rows, error, started_at, finished_at }
+const masterImportJobs = new Map();
+
+// 上传/替换某国总表（大文件 流式 sparse 读 + 批次写入，避免内存撑爆）
+router.post('/master-upload/:country', masterUploadMw, (req, res) => {
   const country = resolveCountry(req.params.country);
-  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const cleanup = () => { if (req.file?.path && fs.existsSync(req.file.path)) { try { fs.unlinkSync(req.file.path); } catch {} } };
+  if (!country) { cleanup(); return res.status(400).json({ error: '不支持的国家' }); }
   if (!req.file) return res.status(400).json({ error: '请选择文件' });
 
-  let rows;
-  try { rows = parseMasterXlsx(req.file.buffer); }
-  catch (e) { return res.status(400).json({ error: '解析失败：' + e.message }); }
-  if (rows.length === 0) return res.status(400).json({ error: '文件中未找到有效行（需含 SKU 列）' });
-
   const code = COUNTRY_TO_CODE[country];
+  const tempPath = req.file.path;
   const storedFilename = `${code}.xlsx`;
-  fs.writeFileSync(path.join(MASTER_DIR, storedFilename), req.file.buffer);
+  const storedPath = path.join(MASTER_DIR, storedFilename);
 
-  const now = new Date().toISOString();
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM country_master_skus WHERE country = ?').run(country);
-    const ins = db.prepare(
-      'INSERT OR REPLACE INTO country_master_skus (country, sku, image_url, uploaded_at) VALUES (?, ?, ?, ?)'
-    );
-    for (const r of rows) ins.run(country, r.sku, r.image_url, now);
-    db.prepare(`
-      INSERT OR REPLACE INTO country_master_uploads
-        (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(country, req.file.originalname, storedFilename, rows.length, req.user.username, now);
+  // 立即响应客户端：上传完成，进入后台导入阶段
+  // 客户端轮询 GET /admin/products/master-upload-status/:country 查询进度
+  masterImportJobs.set(country, {
+    status: 'parsing', rows: 0, error: null,
+    original_filename: req.file.originalname,
+    started_at: new Date().toISOString(),
   });
-  tx();
+  res.json({ ok: true, country, queued: true });
 
-  setAudit(res, { target_name: country, summary: `${country} 总表上传 ${rows.length} 行` });
-  res.json({ ok: true, country, rows: rows.length });
+  // 异步处理（不 await，让 response 已发送）
+  setImmediate(() => {
+    const job = masterImportJobs.get(country);
+    const username = req.user.username;
+    try {
+      // 先把上传的临时文件原子重命名到正式目录（供下载源文件用）
+      try { fs.renameSync(tempPath, storedPath); }
+      catch {
+        // 跨设备 rename 失败的兜底：复制 + 删
+        fs.copyFileSync(tempPath, storedPath);
+        try { fs.unlinkSync(tempPath); } catch {}
+      }
+
+      job.status = 'writing';
+      const now = new Date().toISOString();
+      // 先清旧数据
+      db.prepare('DELETE FROM country_master_skus WHERE country = ?').run(country);
+      const ins = db.prepare(
+        'INSERT OR REPLACE INTO country_master_skus (country, sku, image_url, uploaded_at) VALUES (?, ?, ?, ?)'
+      );
+      // 分批写入：每 5000 行一个事务，释放对象给 GC
+      const BATCH = 5000;
+      let batch = [];
+      let total = 0;
+      const flushBatch = db.transaction((arr) => {
+        for (const r of arr) ins.run(country, r.sku, r.image_url, now);
+      });
+      for (const row of iterMasterXlsxRows(storedPath)) {
+        batch.push(row);
+        if (batch.length >= BATCH) {
+          flushBatch(batch);
+          total += batch.length;
+          job.rows = total;
+          batch = [];
+        }
+      }
+      if (batch.length) { flushBatch(batch); total += batch.length; job.rows = total; }
+
+      if (total === 0) throw new Error('文件中未找到有效行（需含 SKU 列）');
+
+      db.prepare(`
+        INSERT OR REPLACE INTO country_master_uploads
+          (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(country, job.original_filename, storedFilename, total, username, now);
+
+      job.status = 'done';
+      job.rows = total;
+      job.finished_at = new Date().toISOString();
+    } catch (e) {
+      console.error('[master-upload] failed', country, e);
+      job.status = 'failed';
+      job.error = String(e.message || e);
+      cleanup();
+    }
+  });
+});
+
+// 总表导入进度查询（前端轮询）
+router.get('/master-upload-status/:country', (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const job = masterImportJobs.get(country);
+  if (!job) return res.json({ status: 'idle' });
+  res.json(job);
 });
 
 // 各国总表上传状态
@@ -485,14 +583,21 @@ router.get('/master-status', (req, res) => {
     FROM country_master_uploads
   `).all();
   const map = Object.fromEntries(rows.map(r => [r.country, r]));
-  res.json(Object.keys(COUNTRY_TO_CODE).map(c => ({
-    country: c,
-    code: COUNTRY_TO_CODE[c],
-    available: !!map[c],
-    rows_count: map[c]?.rows_count || 0,
-    uploaded_at: map[c]?.uploaded_at || null,
-    original_filename: map[c]?.original_filename || null,
-  })));
+  res.json(Object.keys(COUNTRY_TO_CODE).map(c => {
+    const job = masterImportJobs.get(c);
+    return {
+      country: c,
+      code: COUNTRY_TO_CODE[c],
+      available: !!map[c],
+      rows_count: map[c]?.rows_count || 0,
+      uploaded_at: map[c]?.uploaded_at || null,
+      original_filename: map[c]?.original_filename || null,
+      // 导入任务实时状态（前端轮询用）
+      import_status: job?.status || null,   // null/parsing/writing/done/failed
+      import_rows: job?.rows || 0,
+      import_error: job?.error || null,
+    };
+  }));
 });
 
 // 下载店主上传的总表源文件（仅店主）

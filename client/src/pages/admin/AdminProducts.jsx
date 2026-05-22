@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../../api';
+import { bgUpload } from '../../lib/bgUpload.js';
 
 const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
 const PAGE_SIZE = 50;
@@ -31,13 +32,17 @@ export default function AdminProducts() {
   };
 
   useEffect(() => { loadStatus(); loadMarkup(); loadAccounts(); loadMasterStatus(); }, []);
-  // 任一国家正在 API 同步时，每 3 秒刷新一次状态卡片
+  // 任一国家正在 API 同步或总表导入时，每 3 秒刷新一次状态卡片
   const anySyncing = status.some(s => s.api_sync_status === 'running' || s.api_sync_status === 'pending');
+  const anyImporting = masterStatus.some(s => s.import_status === 'parsing' || s.import_status === 'writing');
   useEffect(() => {
-    if (!anySyncing) return;
-    const t = setInterval(() => { loadStatus(); }, 3000);
+    if (!anySyncing && !anyImporting) return;
+    const t = setInterval(() => {
+      if (anySyncing) loadStatus();
+      if (anyImporting) loadMasterStatus();
+    }, 3000);
     return () => clearInterval(t);
-  }, [anySyncing]);
+  }, [anySyncing, anyImporting]);
   useEffect(() => { setPage(0); /* eslint-disable-next-line */ }, [activeCountry]);
   useEffect(() => { loadProducts(); /* eslint-disable-next-line */ }, [activeCountry, page]);
 
@@ -198,28 +203,37 @@ function MasterUploadGrid({ masterStatus, onChange }) {
 
 function MasterCard({ country, status, onChange }) {
   const fileRef = useRef(null);
-  const [uploading, setUploading] = useState(false);
-  const onPick = async (e) => {
+  const [, force] = useState(0);
+  // 跨页订阅 bgUpload，让 nav 切换不影响"上传中"指示
+  useEffect(() => bgUpload.subscribe(() => force(n => n + 1)), []);
+  const xhrUploading = bgUpload.isActive(`master:${country}`);
+  // 服务端导入进度（即使前端刷新也能读到）
+  const importStatus = status?.import_status;
+  const importing = importStatus === 'parsing' || importStatus === 'writing';
+  const failed = importStatus === 'failed';
+  const busy = xhrUploading || importing;
+
+  const onPick = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!confirm(`确认用 "${file.name}" 替换 ${country} 总表？\n原有总表会被全量覆盖；不在新总表里的 SKU 将不再显示。`)) {
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    if (!confirm(`确认用 "${file.name}" (${sizeMB}MB) 替换 ${country} 总表？\n原有总表会被全量覆盖；不在新总表里的 SKU 将不再显示。\n上传后会在后台导入，切换页面不会中断；刷新浏览器会中断 body 上传阶段。`)) {
       e.target.value = ''; return;
     }
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const r = await api.post(`/admin/products/master-upload/${encodeURIComponent(country)}`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      alert(`${country} 总表已更新：${r.data.rows} 条 SKU`);
+    const fd = new FormData();
+    fd.append('file', file);
+    // fire-and-forget；bgUpload 跟踪 XHR；handler 完成后异步导入由 /master-status 轮询展示
+    const promise = api.post(`/admin/products/master-upload/${encodeURIComponent(country)}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,   // 大文件不设超时
+    }).then(() => {
+      // 上传 body 完成；后端进入异步导入，触发一次 status 刷新接住进度
       onChange();
-    } catch (err) {
-      alert(err.response?.data?.error || '上传失败');
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
+    }).catch(err => {
+      alert(`${country} 总表上传失败：${err.response?.data?.error || err.message}`);
+    });
+    bgUpload.start(`master:${country}`, promise, `${country} 总表 (${sizeMB}MB)`);
+    if (fileRef.current) fileRef.current.value = '';
   };
   const download = async () => {
     try {
@@ -250,15 +264,19 @@ function MasterCard({ country, status, onChange }) {
         ) : (
           <div className="text-gray-400">尚未上传</div>
         )}
+        {xhrUploading && <div className="text-blue-600 mt-0.5">⬆️ 上传中（可切换页面）</div>}
+        {importStatus === 'parsing' && <div className="text-blue-600 mt-0.5">⏳ 解析中…</div>}
+        {importStatus === 'writing' && <div className="text-blue-600 mt-0.5">⏳ 已写入 {status.import_rows || 0}</div>}
+        {failed && <div className="text-red-600 mt-0.5" title={status.import_error}>✗ 导入失败</div>}
       </div>
       <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
       <button
         type="button"
-        disabled={uploading}
+        disabled={busy}
         onClick={() => fileRef.current?.click()}
-        className="btn btn-primary text-xs justify-center py-1 w-full mt-2"
+        className="btn btn-primary text-xs justify-center py-1 w-full mt-2 disabled:opacity-50"
       >
-        {uploading ? '上传中...' : (status?.available ? '🔄 替换总表' : '📤 上传总表')}
+        {xhrUploading ? '上传中…' : importing ? '导入中…' : status?.available ? '🔄 替换总表' : '📤 上传总表'}
       </button>
     </div>
   );
