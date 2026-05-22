@@ -79,6 +79,8 @@ export default function App() {
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/aftersales" element={<AdminAfterSales />} />
+            <Route path="/admin/purchase" element={<PurchaseProducts />} />
+            <Route path="/admin/downloads" element={<Downloads />} />
             {user?.is_owner && <Route path="/admin/staff" element={<Lazy><AdminStaff /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/api-test" element={<Lazy><AdminApiTest /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/products" element={<Lazy><AdminProducts /></Lazy>} />}

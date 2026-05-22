@@ -6,7 +6,7 @@ export default function AdminStaff() {
   const [showCreate, setShowCreate] = useState(false);
   const [resetUser, setResetUser] = useState(null);
 
-  const load = () => api.get('/admin/staff').then(r => setList(r.data));
+  const load = () => { api.get('/admin/staff').then(r => setList(r.data)); };
   useEffect(load, []);
 
   const del = async (s) => {

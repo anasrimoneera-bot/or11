@@ -172,7 +172,7 @@ function AmazonRatesCard() {
   const [edits, setEdits] = useState({});
   const [saving, setSaving] = useState(null);
 
-  const load = () => api.get('/admin/country-amazon-rates').then(r => setRows(r.data));
+  const load = () => { api.get('/admin/country-amazon-rates').then(r => setRows(r.data)); };
   useEffect(load, []);
 
   const save = async (country) => {

@@ -19,8 +19,8 @@ export default function AdminAfterSales() {
     if (orderNoFilter.trim()) params.order_no = orderNoFilter.trim();
     if (q.trim()) params.q = q.trim();
     api.get('/admin/aftersales', { params }).then(r => {
-      setRows(r.data.rows);
-      setShops(r.data.shops || []);
+      setRows(r.data?.rows || []);
+      setShops(r.data?.shops || []);
     });
   };
   useEffect(load, [statusFilter, shopFilter]);
@@ -99,9 +99,11 @@ function Detail({ id, onClose, onChanged }) {
   const [adminNote, setAdminNote] = useState('');
   const [refundAmount, setRefundAmount] = useState('');
 
-  const load = () => api.get(`/admin/aftersales/${id}`).then(r => {
-    setT(r.data); setStatus(r.data.status); setAdminNote(r.data.admin_note || '');
-  });
+  const load = () => {
+    api.get(`/admin/aftersales/${id}`).then(r => {
+      setT(r.data); setStatus(r.data.status); setAdminNote(r.data.admin_note || '');
+    });
+  };
   useEffect(load, [id]);
 
   if (!t) return null;
@@ -196,7 +198,7 @@ function Detail({ id, onClose, onChanged }) {
               <div className="font-medium text-orange-700">💰 退款给用户</div>
               <input className="field" type="number" step="0.01" placeholder="退款金额(¥)" value={refundAmount} onChange={e => setRefundAmount(e.target.value)} />
               <button className="btn btn-warning w-full" onClick={doRefund}>退款到用户余额</button>
-              {t.refund_amount > 0 && <div className="text-xs text-green-700">已退款: ¥{t.refund_amount.toFixed(2)}</div>}
+              {Number(t.refund_amount) > 0 && <div className="text-xs text-green-700">已退款: ¥{Number(t.refund_amount).toFixed(2)}</div>}
             </div>
           </div>
         </div>

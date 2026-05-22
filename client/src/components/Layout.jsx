@@ -18,6 +18,8 @@ const adminMenu = [
   { to: '/admin/users', icon: '👥', label: '用户管理' },
   { to: '/admin/orders', icon: '📋', label: '订单管理' },
   { to: '/admin/aftersales', icon: '🔧', label: '售后管理' },
+  { to: '/admin/purchase', icon: '🛒', label: '采购商品' },
+  { to: '/admin/downloads', icon: '⬇️', label: '下载支持' },
   { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', ownerOnly: true },
   { to: '/admin/staff', icon: '🛡️', label: '员工管理', ownerOnly: true },
   { to: '/admin/api-test', icon: '🧪', label: '供应商接口测试', ownerOnly: true },
