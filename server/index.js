@@ -26,8 +26,22 @@ app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISO
 
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+  // index.html 不缓存，让浏览器每次都拿最新 hash；带 hash 的 assets 永久缓存
+  app.use(express.static(clientDist, {
+    setHeaders: (res, filePath) => {
+      const base = path.basename(filePath);
+      if (base === 'index.html') {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (/\.(js|css)$/.test(base)) {
+        // Vite 在文件名里加 content hash，可以放心 long cache
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
 } else {
   app.get('/', (req, res) => res.send('Client not built. Run: cd client && npm install && npm run build'));
 }
