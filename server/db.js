@@ -230,6 +230,15 @@ CREATE TABLE IF NOT EXISTS country_master_uploads (
   uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 亚马逊各国汇率（与采购汇率独立维护；采购汇率含店主汇差，不能拿来算亚马逊收入）
+-- 店主在订单管理页保存 amazon_amount 时把当前 rate 锁到 purchase_orders.amazon_rate_locked
+CREATE TABLE IF NOT EXISTS country_amazon_rate (
+  country TEXT PRIMARY KEY,
+  rate REAL NOT NULL DEFAULT 0,
+  currency TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS aftersales_policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT UNIQUE NOT NULL,
@@ -302,6 +311,19 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   add('dropxl_push_status', 'TEXT');     // null / 'success' / 'failed'
   add('dropxl_push_error', 'TEXT');
   add('dropxl_pushed_at', 'TEXT');
+  // 亚马逊金额锁定的汇率快照（与订单采购汇率分离）
+  add('amazon_rate_locked', 'REAL');
+})();
+
+// 首次初始化亚马逊各国汇率（rate=0 表示未设置，店主需在系统设置页维护）
+(function seedAmazonRates() {
+  const CURRENCY_BY_COUNTRY = {
+    美国: 'USD', 英国: 'GBP',
+    德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR',
+    波兰: 'PLN',
+  };
+  const ins = db.prepare('INSERT OR IGNORE INTO country_amazon_rate (country, rate, currency) VALUES (?, 0, ?)');
+  for (const [c, cur] of Object.entries(CURRENCY_BY_COUNTRY)) ins.run(c, cur);
 })();
 
 function ensureDefaultUser() {

@@ -72,7 +72,75 @@ export default function AdminSettings() {
         )}
       </div>
 
+      <AmazonRatesCard />
       <DropxlAccountsCard />
+    </div>
+  );
+}
+
+function AmazonRatesCard() {
+  const [rows, setRows] = useState([]);
+  const [edits, setEdits] = useState({});
+  const [saving, setSaving] = useState(null);
+
+  const load = () => api.get('/admin/country-amazon-rates').then(r => setRows(r.data));
+  useEffect(load, []);
+
+  const save = async (country) => {
+    const v = Number(edits[country]);
+    if (!isFinite(v) || v < 0) return alert('请输入非负数');
+    setSaving(country);
+    try {
+      await api.put(`/admin/country-amazon-rates/${encodeURIComponent(country)}`, { rate: v });
+      setEdits(e => { const n = { ...e }; delete n[country]; return n; });
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || '保存失败');
+    } finally { setSaving(null); }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow border p-5 space-y-4">
+      <div className="border-b pb-3">
+        <div className="font-semibold">🌐 亚马逊各国汇率（外币 → 人民币）</div>
+        <div className="text-xs text-gray-500 mt-1">
+          仅用于订单管理页计算"亚马逊金额对应的人民币利润"。
+          <b>与采购汇率独立维护</b>（采购汇率含店主自定汇差不能拿来算亚马逊收入）。<br/>
+          店主在订单管理页保存亚马逊金额时，会用<b>当下设定的汇率锁定</b>到该订单上；之后修改本页汇率不会影响已锁定的订单。
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {rows.map(r => {
+          const isDirty = edits[r.country] !== undefined;
+          const display = isDirty ? edits[r.country] : String(r.rate || '');
+          return (
+            <div key={r.country} className="border rounded p-3 bg-gray-50">
+              <div className="text-sm font-medium mb-1">{r.country} <span className="text-xs text-gray-500">({r.currency})</span></div>
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  className="field text-sm"
+                  value={display}
+                  onChange={e => setEdits({ ...edits, [r.country]: e.target.value })}
+                  placeholder="未设置"
+                />
+                <button
+                  onClick={() => save(r.country)}
+                  disabled={!isDirty || saving === r.country}
+                  className={`text-xs px-2 rounded ${isDirty ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-400'}`}
+                >
+                  {saving === r.country ? '...' : '保存'}
+                </button>
+              </div>
+              {r.rate > 0 && (
+                <div className="text-xs text-gray-500 mt-1">1 {r.currency} = {r.rate} CNY</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

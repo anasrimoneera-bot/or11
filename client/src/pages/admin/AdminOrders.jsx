@@ -21,7 +21,6 @@ const statusColor = {
 export default function AdminOrders() {
   const [rows, setRows] = useState([]);
   const [me, setMe] = useState(null);
-  const [settingsRate, setSettingsRate] = useState(0);
   const [filters, setFilters] = useState({ status: 'pending_purchase', q: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
   const isOwner = !!me?.is_owner;
@@ -36,11 +35,7 @@ export default function AdminOrders() {
     if (filters.q) params.q = filters.q;
     api.get('/admin/orders', { params }).then(r => setRows(r.data.rows));
   };
-  useEffect(() => {
-    load();
-    api.get('/auth/me').then(r => setMe(r.data));
-    api.get('/settings').then(r => setSettingsRate(Number(r.data.exchange_rate_cny_per_usd) || 0));
-  }, []);
+  useEffect(() => { load(); api.get('/auth/me').then(r => setMe(r.data)); }, []);
   useEffect(load, [filters.status]);
 
   const sync = async () => {
@@ -136,10 +131,11 @@ export default function AdminOrders() {
               const purchase = Number(o.purchase_amount_usd) || 0;
               const purchaseCny = Number(o.purchase_amount_cny) || 0;
               const profit = sales > 0 ? sales - purchase : 0;
-              // 订单锁定汇率优先，无锁定则用当前系统汇率
-              const rate = Number(o.exchange_rate) || settingsRate || 0;
-              const salesCny = sales * rate;
-              const profitCny = sales > 0 ? salesCny - purchaseCny : 0;
+              // 亚马逊金额 -> 人民币：用 amazon_rate_locked（店主保存 amazon_amount 时锁定的亚马逊汇率）
+              // 不存在锁定汇率则不计算人民币利润，避免用错误的采购汇率换算
+              const amazonRate = Number(o.amazon_rate_locked) || 0;
+              const canComputeCny = sales > 0 && amazonRate > 0;
+              const profitCny = canComputeCny ? sales * amazonRate - purchaseCny : 0;
               return (
               <tr key={o.id} className="border-t hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
@@ -156,9 +152,9 @@ export default function AdminOrders() {
                 <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
                 </td>
-                <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}
-                    title={rate > 0 ? `按汇率 ${rate} 换算` : '无可用汇率'}>
-                  {sales === 0 || rate === 0 ? '—' : `${profitCny >= 0 ? '+' : ''}¥${profitCny.toFixed(2)}`}
+                <td className={`px-3 py-2 text-right font-semibold ${!canComputeCny ? 'text-gray-400' : profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                    title={canComputeCny ? `按锁定汇率 ${amazonRate} 换算` : (sales === 0 ? '未填写亚马逊金额' : '该国未设置亚马逊汇率')}>
+                  {!canComputeCny ? '—' : `${profitCny >= 0 ? '+' : ''}¥${profitCny.toFixed(2)}`}
                 </td>
                 {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
@@ -186,8 +182,8 @@ export default function AdminOrders() {
               const purchase = Number(o.purchase_amount_usd) || 0;
               const purchaseCny = Number(o.purchase_amount_cny) || 0;
               const profit = sales > 0 ? sales - purchase : 0;
-              const rate = Number(o.exchange_rate) || settingsRate || 0;
-              const profitCny = sales > 0 ? sales * rate - purchaseCny : 0;
+              const amazonRate = Number(o.amazon_rate_locked) || 0;
+              const profitCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate - purchaseCny : 0;
               return {
                 sales: a.sales + sales,
                 purchase: a.purchase + purchase,

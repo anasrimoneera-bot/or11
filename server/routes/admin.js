@@ -375,6 +375,24 @@ router.put('/orders/:id', (req, res) => {
   const amazonAmt = amazon_amount === undefined ? null : Number(amazon_amount);
   const amazonTax = amazon_tax_amount === undefined ? null : Number(amazon_tax_amount);
   const shipFee = shipping_fee === undefined ? null : Number(shipping_fee);
+
+  // 若本次更新涉及 amazon_amount > 0，按订单国家查当前亚马逊汇率并一同锁定
+  // amazon_amount 清空（=0）则同步把锁定汇率清掉
+  let rateLocked = null;        // null = 不更新该字段
+  let updateRateFlag = false;
+  if (amazonAmt != null) {
+    updateRateFlag = true;
+    if (amazonAmt > 0) {
+      const order = db.prepare('SELECT country FROM purchase_orders WHERE id = ?').get(req.params.id);
+      if (order?.country) {
+        const r = db.prepare('SELECT rate FROM country_amazon_rate WHERE country = ?').get(order.country);
+        rateLocked = (r && Number(r.rate) > 0) ? Number(r.rate) : null;
+      }
+    } else {
+      rateLocked = null;  // amazon_amount = 0 时清掉锁定
+    }
+  }
+
   db.prepare(`
     UPDATE purchase_orders
     SET status = COALESCE(?, status),
@@ -382,9 +400,26 @@ router.put('/orders/:id', (req, res) => {
         amazon_amount = COALESCE(?, amazon_amount),
         amazon_tax_amount = COALESCE(?, amazon_tax_amount),
         shipping_fee = COALESCE(?, shipping_fee),
+        amazon_rate_locked = CASE WHEN ? THEN ? ELSE amazon_rate_locked END,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(status, tracking_no, amazonAmt, amazonTax, shipFee, req.params.id);
+  `).run(status, tracking_no, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
+  res.json({ ok: true });
+});
+
+// 亚马逊各国汇率（与采购汇率分离；店主可写）
+router.get('/country-amazon-rates', (req, res) => {
+  const rows = db.prepare('SELECT country, rate, currency, updated_at FROM country_amazon_rate ORDER BY country').all();
+  res.json(rows);
+});
+router.put('/country-amazon-rates/:country', ownerRequired, (req, res) => {
+  const country = decodeURIComponent(req.params.country);
+  const v = Number(req.body?.rate);
+  if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入非负数' });
+  const existing = db.prepare('SELECT rate FROM country_amazon_rate WHERE country = ?').get(country);
+  if (!existing) return res.status(404).json({ error: '不支持的国家' });
+  db.prepare('UPDATE country_amazon_rate SET rate = ?, updated_at = CURRENT_TIMESTAMP WHERE country = ?').run(v, country);
+  setAudit(res, { target_name: country, summary: `${country} 亚马逊汇率 ${existing.rate} → ${v}` });
   res.json({ ok: true });
 });
 
