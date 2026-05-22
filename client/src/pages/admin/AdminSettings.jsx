@@ -72,8 +72,97 @@ export default function AdminSettings() {
         )}
       </div>
 
+      <AutoSyncCard />
       <AmazonRatesCard />
       <DropxlAccountsCard />
+    </div>
+  );
+}
+
+function AutoSyncCard() {
+  const [status, setStatus] = useState(null);
+  const [triggering, setTriggering] = useState(false);
+  const load = () => api.get('/admin/auto-sync-status').then(r => setStatus(r.data));
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+  const trigger = async () => {
+    if (status?.busy) return alert('上一轮同步还在跑，请稍后');
+    if (!confirm('立即触发一次完整同步（商品 + 订单状态）？\n按 1 秒/请求限速，每国约 10-20 分钟。')) return;
+    setTriggering(true);
+    try {
+      await api.post('/admin/auto-sync-now');
+      setTimeout(load, 1000);
+    } catch (e) {
+      alert(e.response?.data?.error || '触发失败');
+    } finally { setTriggering(false); }
+  };
+  const fmt = (s) => s ? new Date(s).toLocaleString('zh-CN', { hour12: false }) : '从未运行';
+  const last = status?.last_run;
+  return (
+    <div className="bg-white rounded-xl shadow border p-5 space-y-3">
+      <div className="border-b pb-3 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div className="font-semibold">🔁 自动同步调度</div>
+          <div className="text-xs text-gray-500 mt-1">
+            服务器每 <b>{status?.interval_hours || 6}</b> 小时自动跑一次：
+            ① 已配置凭据的国家做商品库存 API 同步 ② 所有国家订单跟踪号/状态拉取（限 1 秒/请求）。
+            重启服务器会丢失内存中的"上次运行"记录，但下一轮会在 1 分钟后自动开始。
+          </div>
+        </div>
+        <button onClick={trigger} disabled={triggering || status?.busy} className="btn btn-primary text-sm whitespace-nowrap">
+          {status?.busy ? '⏳ 同步中...' : (triggering ? '触发中...' : '🚀 立即同步一次')}
+        </button>
+      </div>
+      {status && (
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div className="text-xs text-gray-500">状态</div>
+            <div className={`font-semibold ${status.busy ? 'text-blue-600' : 'text-gray-700'}`}>
+              {status.busy ? '⏳ 同步进行中' : '✓ 空闲'}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">下次自动运行</div>
+            <div className="text-gray-700">{fmt(status.next_run_at)}</div>
+          </div>
+          <div className="col-span-2">
+            <div className="text-xs text-gray-500">上次运行</div>
+            <div className="text-gray-700">
+              {last
+                ? `${fmt(last.started_at)} → ${last.finished_at ? fmt(last.finished_at) : '运行中'} （${last.reason}）`
+                : '从未运行'}
+            </div>
+          </div>
+          {last && (
+            <div className="col-span-2 grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-gray-50 rounded p-2">
+                <div className="text-gray-500 mb-1">商品同步结果</div>
+                {last.products?.length > 0 ? last.products.map(p => (
+                  <div key={p.country} className={p.ok ? 'text-green-700' : 'text-red-600'}>
+                    {p.ok ? '✓' : '✗'} {p.country}
+                    {p.skipped && <span className="text-gray-400">（跳过：{p.reason}）</span>}
+                    {p.ok && !p.skipped && <span className="text-gray-500"> · 抓取 {p.fetched} · 有库存 {p.in_stock}</span>}
+                    {p.error && <span className="text-red-500"> · {p.error}</span>}
+                  </div>
+                )) : <div className="text-gray-400">无</div>}
+              </div>
+              <div className="bg-gray-50 rounded p-2">
+                <div className="text-gray-500 mb-1">订单同步结果</div>
+                {last.orders?.length > 0 ? last.orders.map(o => (
+                  <div key={o.country} className={o.ok ? 'text-green-700' : 'text-red-600'}>
+                    {o.ok ? '✓' : '✗'} {o.country}
+                    {o.ok && <span className="text-gray-500"> · 拉取 {o.total} · 更新 {o.updated}</span>}
+                    {o.error && <span className="text-red-500"> · {o.error}</span>}
+                  </div>
+                )) : <div className="text-gray-400">无</div>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

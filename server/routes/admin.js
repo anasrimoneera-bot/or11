@@ -424,27 +424,61 @@ router.put('/country-amazon-rates/:country', ownerRequired, (req, res) => {
 });
 
 // 从DropXL同步所有订单状态
-router.post('/orders/sync', async (req, res) => {
-  try {
-    const data = await dropxl.listOrders({ limit: 200 });
-    const items = data?.items || data?.orders || data || [];
-    let updated = 0;
-    for (const o of items) {
-      const id = o.id || o.order_id;
+// 订单状态/跟踪号同步的核心逻辑，被 /orders/sync 路由和 scheduler 共用
+// country=null 时使用 .env 默认凭据；指定国家时用该国 DropXL token
+async function syncOrdersFromDropxl({ sinceDays = 90, country = null } = {}) {
+  const since = new Date(Date.now() - sinceDays * 86400 * 1000).toISOString().slice(0, 10);
+  const PAGE = 500;
+  const RATE_MS = 1100;
+  let offset = 0;
+  let totalFetched = 0, updated = 0, notFound = 0;
+  while (true) {
+    const data = await dropxl.listOrders({ submitted_at_gteq: since, limit: PAGE, offset }, country);
+    const wraps = Array.isArray(data) ? data : (data?.orders || data?.items || []);
+    if (wraps.length === 0) break;
+    for (const wrap of wraps) {
+      const o = wrap?.order || wrap;
+      const id = String(o.id || o.order_id || '');
       if (!id) continue;
-      const tracking = (o.tracking && (o.tracking.number || o.tracking.code)) || o.tracking_number || '';
-      const status = mapStatus(o.status);
+      const tracking = o.shipping_tracking || '';
+      const status = mapStatus(o.status_order_name || o.status);
       const r = db.prepare(`
         UPDATE purchase_orders
-        SET status = ?, tracking_no = ?, updated_at = CURRENT_TIMESTAMP
+        SET status = ?,
+            tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
+            updated_at = CURRENT_TIMESTAMP
         WHERE dropxl_order_id = ?
-      `).run(status, tracking, String(id));
-      if (r.changes > 0) updated++;
+      `).run(status, tracking, tracking, id);
+      if (r.changes > 0) updated++; else notFound++;
     }
-    res.json({ ok: true, total: items.length, updated });
+    totalFetched += wraps.length;
+    if (wraps.length < PAGE) break;
+    offset += PAGE;
+    await new Promise(r => setTimeout(r, RATE_MS));
+  }
+  return { total: totalFetched, updated, not_found: notFound, since };
+}
+
+router.post('/orders/sync', async (req, res) => {
+  try {
+    const sinceDays = Number(req.body?.days) || 90;
+    const result = await syncOrdersFromDropxl({ sinceDays });
+    res.json({ ok: true, ...result });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+// 自动同步调度器（每 6 小时一次商品+订单双同步）
+const scheduler = require('../scheduler');
+router.get('/auto-sync-status', (req, res) => {
+  res.json(scheduler.getStatus());
+});
+router.post('/auto-sync-now', ownerRequired, async (req, res) => {
+  // 立即触发一次（不等 6 小时）
+  scheduler.runOnce('manual-trigger').catch(e => console.error('[scheduler] manual run failed:', e));
+  setAudit(res, { summary: '手动触发自动同步' });
+  res.json({ ok: true, started: true });
 });
 
 function mapStatus(s) {
@@ -820,3 +854,4 @@ router.post('/aftersales-policies/publish-all', ownerRequired, (req, res) => {
 });
 
 module.exports = router;
+module.exports.syncOrdersFromDropxl = syncOrdersFromDropxl;

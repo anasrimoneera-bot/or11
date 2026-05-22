@@ -39,9 +39,10 @@ export default function AdminOrders() {
   useEffect(load, [filters.status]);
 
   const sync = async () => {
+    if (!confirm('从供应商同步最近 90 天订单的发货状态与跟踪号？\n（按 1 秒/请求限速，订单多时可能耗时几分钟，期间页面可切换）')) return;
     try {
       const { data } = await api.post('/admin/orders/sync');
-      alert(`同步完成：共 ${data.total} 单，更新 ${data.updated} 单的跟踪号/状态`);
+      alert(`同步完成：共拉取 ${data.total} 单 (since ${data.since})\n  ✓ 命中更新 ${data.updated} 单\n  · 本地不存在跳过 ${data.not_found} 单`);
       load();
     } catch (e) { alert(e.response?.data?.error || '同步失败'); }
   };
@@ -164,7 +165,9 @@ export default function AdminOrders() {
                     : '-'
                 }</td>
                 <td className="px-3 py-2"><span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status]}</span></td>
-                <td className="px-3 py-2 text-xs">{o.created_at}</td>
+                <td className="px-3 py-2 text-xs whitespace-nowrap" title={o.created_at}>
+                  {o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { hour12: false }) : '-'}
+                </td>
                 <td className="px-3 py-2 text-right">
                   {o.status === 'pending_purchase' && (
                     <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>

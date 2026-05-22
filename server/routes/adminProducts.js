@@ -612,3 +612,6 @@ router.get('/master-file/:country', (req, res) => {
 });
 
 module.exports = router;
+// 供 scheduler 调用：自动同步时复用同一套 job 跟踪逻辑
+module.exports.runCountryApiSync = runCountryApiSync;
+module.exports.apiSyncJobs = apiSyncJobs;
