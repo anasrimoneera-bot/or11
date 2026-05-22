@@ -15,9 +15,11 @@ export default function AdminProducts() {
   const [filters, setFilters] = useState({ q: '', min_price: '', max_price: '', stock_filter: 'all' });
   const [page, setPage] = useState(0);
 
+  const [masterStatus, setMasterStatus] = useState([]);
   const loadStatus = () => api.get('/admin/products/inventory-status').then(r => setStatus(r.data));
   const loadMarkup = () => api.get('/admin/products/country-markup').then(r => setMarkup(r.data));
   const loadAccounts = () => api.get('/admin/products/dropxl-accounts').then(r => setAccounts(r.data));
+  const loadMasterStatus = () => api.get('/admin/products/master-status').then(r => setMasterStatus(r.data));
   const loadProducts = () => {
     setLoading(true);
     const params = { country: activeCountry, limit: PAGE_SIZE, offset: page * PAGE_SIZE, ...filters };
@@ -28,7 +30,7 @@ export default function AdminProducts() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadStatus(); loadMarkup(); loadAccounts(); }, []);
+  useEffect(() => { loadStatus(); loadMarkup(); loadAccounts(); loadMasterStatus(); }, []);
   // 任一国家正在 API 同步时，每 3 秒刷新一次状态卡片
   const anySyncing = status.some(s => s.api_sync_status === 'running' || s.api_sync_status === 'pending');
   useEffect(() => {
@@ -66,9 +68,12 @@ export default function AdminProducts() {
         未配置或想全量替换的国家可手动上传 xlsx。在 <b>系统设置 → DropXL 多国账户</b> 维护各国凭据。
       </div>
 
+      <MasterUploadGrid masterStatus={masterStatus} onChange={() => { loadMasterStatus(); loadProducts(); }} />
+
       <CountryUploadGrid
         status={status}
         accounts={accounts}
+        masterStatus={masterStatus}
         onChange={() => { loadStatus(); loadProducts(); }}
         activeCountry={activeCountry}
         setActiveCountry={setActiveCountry}
@@ -119,7 +124,7 @@ export default function AdminProducts() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
               <tr>
-                <th className="px-3 py-2 text-left w-16">图片</th>
+                <th className="px-3 py-2 text-left w-20">图片</th>
                 <th className="px-3 py-2 text-left">SKU (product_code)</th>
                 <th className="px-3 py-2 text-right">B2B 价 (USD)</th>
                 <th className="px-3 py-2 text-right">加价后 (USD)</th>
@@ -143,8 +148,8 @@ export default function AdminProducts() {
                   <tr key={r.code} className="border-t hover:bg-gray-50">
                     <td className="px-3 py-2">
                       {r.image_url
-                        ? <img src={r.image_url} alt="" className="w-12 h-12 object-cover rounded bg-gray-100" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
-                        : <div className="w-12 h-12 rounded bg-gray-100 flex items-center justify-center text-gray-300 text-lg">📦</div>}
+                        ? <img src={r.image_url} alt="" className="w-14 h-14 object-cover rounded bg-gray-100 border" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                        : <div className="w-14 h-14 rounded bg-gray-100 border flex items-center justify-center text-gray-300 text-xl">📦</div>}
                     </td>
                     <td className="px-3 py-2 font-mono">{r.code}</td>
                     <td className="px-3 py-2 text-right">${r.b2b_price.toFixed(2)}</td>
@@ -172,7 +177,94 @@ export default function AdminProducts() {
   );
 }
 
-function CountryUploadGrid({ status, accounts, onChange, activeCountry, setActiveCountry }) {
+function MasterUploadGrid({ masterStatus, onChange }) {
+  return (
+    <div className="bg-white rounded-xl shadow border">
+      <div className="border-b px-4 py-3 font-medium">
+        📑 各国销售总表（SKU 白名单 + 主图）
+        <span className="text-xs text-gray-500 font-normal ml-2">
+          上传后：商品库存管理只显示总表里的 SKU；总表 A 列 Image 1 作为主图源
+        </span>
+      </div>
+      <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {COUNTRIES.map(c => {
+          const s = masterStatus.find(x => x.country === c);
+          return <MasterCard key={c} country={c} status={s} onChange={onChange} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MasterCard({ country, status, onChange }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const onPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!confirm(`确认用 "${file.name}" 替换 ${country} 总表？\n原有总表会被全量覆盖；不在新总表里的 SKU 将不再显示。`)) {
+      e.target.value = ''; return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post(`/admin/products/master-upload/${encodeURIComponent(country)}`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      alert(`${country} 总表已更新：${r.data.rows} 条 SKU`);
+      onChange();
+    } catch (err) {
+      alert(err.response?.data?.error || '上传失败');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+  const download = async () => {
+    try {
+      const r = await api.get(`/admin/products/master-file/${encodeURIComponent(country)}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = url; a.download = status?.original_filename || `${country}-master.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.response?.data?.error || '下载失败');
+    }
+  };
+  return (
+    <div className={`rounded-lg border p-3 ${status?.available ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200'}`}>
+      <div className="flex justify-between items-center">
+        <div className="font-medium text-sm">📑 {country}</div>
+        {status?.available && (
+          <span onClick={download} className="text-xs text-blue-600 hover:underline cursor-pointer" title="下载源文件">⬇️</span>
+        )}
+      </div>
+      <div className="text-xs text-gray-500 mt-1 min-h-[28px]">
+        {status?.available ? (
+          <>
+            <div>{status.rows_count} 条 SKU</div>
+            <div>更新 {new Date(status.uploaded_at).toLocaleDateString()}</div>
+          </>
+        ) : (
+          <div className="text-gray-400">尚未上传</div>
+        )}
+      </div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => fileRef.current?.click()}
+        className="btn btn-primary text-xs justify-center py-1 w-full mt-2"
+      >
+        {uploading ? '上传中...' : (status?.available ? '🔄 替换总表' : '📤 上传总表')}
+      </button>
+    </div>
+  );
+}
+
+function CountryUploadGrid({ status, accounts, masterStatus, onChange, activeCountry, setActiveCountry }) {
   return (
     <div className="bg-white rounded-xl shadow border">
       <div className="border-b px-4 py-3 font-medium">

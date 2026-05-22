@@ -393,10 +393,10 @@ function OrderGroupCard({ group, exchangeRate }) {
           <tbody>
             {group.items.map(it => (
               <tr key={it.row_no} className="border-t align-top">
-                <td className="px-2 py-1">
+                <td className="px-2 py-1.5">
                   {it.image_url
-                    ? <img src={it.image_url} alt="" className="w-10 h-10 object-cover rounded bg-gray-100" loading="lazy" onError={e => { e.currentTarget.style.display='none'; }} />
-                    : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300 text-lg">📦</div>}
+                    ? <img src={it.image_url} alt="" className="w-14 h-14 object-cover rounded bg-gray-100 border" loading="lazy" onError={e => { e.currentTarget.style.display='none'; }} />
+                    : <div className="w-14 h-14 bg-gray-100 rounded border flex items-center justify-center text-gray-300 text-xl">📦</div>}
                 </td>
                 <td className="px-2 py-1 font-mono">{it.sku}</td>
                 <td className="px-2 py-1 max-w-xs truncate" title={it.product_name}>{it.product_name || '—'}</td>

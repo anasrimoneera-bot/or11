@@ -130,6 +130,15 @@ function enrichRow(row) {
     ? db.prepare('SELECT country, code, b2b_price, stock, image_url FROM dropxl_products WHERE country = ? AND code = ?').get(country, sku)
     : null;
 
+  // 总表白名单 + 主图（店主上传的精选 SKU 名单）
+  const masterRow = (sku && country)
+    ? db.prepare('SELECT sku, image_url FROM country_master_skus WHERE country = ? AND sku = ?').get(country, sku)
+    : null;
+  // 是否启用白名单过滤（仅当该国家上传过总表时）
+  const hasMaster = country
+    ? !!db.prepare('SELECT 1 FROM country_master_uploads WHERE country = ? LIMIT 1').get(country)
+    : false;
+
   let markupPct = null;
   if (country) {
     const m = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
@@ -141,16 +150,21 @@ function enrichRow(row) {
     unitPriceUsd = Number(product.b2b_price) * (1 + markupPct / 100);
   }
 
-  // 注意：响应中绝对不含 raw b2b_price 和 markup_pct，分销商/员工只看加价后单价
+  const imageUrl = masterRow?.image_url || product?.image_url || null;
+  // 总表里没这个 SKU 时视为"不在销售目录"，不能下单
+  const notInMaster = hasMaster && product && !masterRow;
+  const matched = !!product && !notInMaster;
+
   return {
     ...row,
     country_name: country,
-    matched: !!product,
-    dropxl_product: product ? { code: product.code, stock: product.stock, image_url: product.image_url } : null,
+    matched,
+    dropxl_product: product ? { code: product.code, stock: product.stock, image_url: imageUrl } : null,
     unit_price_usd: unitPriceUsd,
     errors: errors.concat(
       !country && row.ship_country ? [`国家代码 ${row.ship_country} 无法识别`] : [],
       country && !product && sku ? [`${country} 库存中未找到 SKU=${sku}（请确认对应国家库存文件已上传）`] : [],
+      notInMaster ? [`SKU=${sku} 不在 ${country} 销售目录（总表）中`] : [],
       markupPct == null && country ? [`未配置 ${country} 的加价规则`] : [],
     ),
     warnings: product && product.stock <= 0 ? [`${country} 当前无库存（仍可下单，DropXL 端补货后发货）`] : [],

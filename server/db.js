@@ -208,6 +208,28 @@ CREATE TABLE IF NOT EXISTS dropxl_accounts (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 各国销售白名单 + 主图链接（店主上传的"总表"）
+-- 商品库存价格管理 / 批量采购 只显示该表里有的 SKU
+-- A 列 Image 1 -> image_url；B 列 SKU -> sku
+CREATE TABLE IF NOT EXISTS country_master_skus (
+  country TEXT NOT NULL,
+  sku TEXT NOT NULL,
+  image_url TEXT,
+  uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (country, sku)
+);
+CREATE INDEX IF NOT EXISTS idx_master_country ON country_master_skus(country);
+
+-- 各国总表上传记录（含原始文件名给店主下载源文件）
+CREATE TABLE IF NOT EXISTS country_master_uploads (
+  country TEXT PRIMARY KEY,
+  original_filename TEXT,
+  stored_filename TEXT,
+  rows_count INTEGER DEFAULT 0,
+  uploaded_by TEXT,
+  uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS aftersales_policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT UNIQUE NOT NULL,

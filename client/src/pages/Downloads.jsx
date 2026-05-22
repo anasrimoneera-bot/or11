@@ -9,17 +9,42 @@ const countries = [
 
 export default function Downloads() {
   const [status, setStatus] = useState({});
+  const [masterStatus, setMasterStatus] = useState({});
   const [busy, setBusy] = useState(null);
 
   useEffect(() => {
-    api.get('/inventory/status')
-      .then(r => {
-        const map = {};
-        for (const s of r.data) map[s.country] = s;
-        setStatus(map);
-      })
-      .catch(() => {});
+    api.get('/inventory/status').then(r => {
+      const map = {};
+      for (const s of r.data) map[s.country] = s;
+      setStatus(map);
+    }).catch(() => {});
+    api.get('/inventory/master-status').then(r => {
+      const map = {};
+      for (const s of r.data) map[s.country] = s;
+      setMasterStatus(map);
+    }).catch(() => {});
   }, []);
+
+  const downloadMaster = async (country) => {
+    setBusy('master-' + country);
+    try {
+      const r = await api.get(`/inventory/master/${encodeURIComponent(country)}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      const cd = r.headers['content-disposition'] || '';
+      const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i);
+      a.href = url;
+      a.download = match ? decodeURIComponent(match[1]) : `${country}-master.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      let msg = '下载失败';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
+      } else { msg = e.response?.data?.error || e.message; }
+      alert(msg);
+    } finally { setBusy(null); }
+  };
 
   const downloadFeed = async (country) => {
     setBusy(country);
@@ -78,6 +103,38 @@ export default function Downloads() {
                 <span className="text-xs opacity-80">
                   {s?.available
                     ? `${s.rows_count} 条 · ${new Date(s.uploaded_at).toLocaleDateString()}`
+                    : '暂未上传'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow border-l-4 border-emerald-500 p-5">
+        <h2 className="font-semibold mb-3 text-emerald-700">📑 各国销售总表下载</h2>
+        <p className="text-sm text-gray-600 mb-4">含 SKU 白名单 + 主图链接的精选目录（由店主端上传维护）。</p>
+        <div className="grid grid-cols-4 gap-3">
+          {countries.map(c => {
+            const ms = masterStatus[c.name];
+            const disabled = !ms?.available || busy === ('master-' + c.name);
+            return (
+              <button
+                key={c.code}
+                onClick={() => downloadMaster(c.name)}
+                disabled={disabled}
+                className={`rounded-lg py-3 px-4 flex flex-col items-start gap-1 transition ${
+                  disabled
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                }`}
+              >
+                <span className="w-full flex justify-between items-center font-medium">
+                  📑 {c.name} 总表 <span>{busy === ('master-' + c.name) ? '...' : '⬇️'}</span>
+                </span>
+                <span className="text-xs opacity-80">
+                  {ms?.available
+                    ? `${ms.rows_count} 条 SKU · ${new Date(ms.uploaded_at).toLocaleDateString()}`
                     : '暂未上传'}
                 </span>
               </button>

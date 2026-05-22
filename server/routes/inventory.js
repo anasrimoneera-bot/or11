@@ -1,9 +1,12 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const XLSX = require('xlsx');
 const db = require('../db');
 const { authRequired } = require('../middleware/auth');
 
 const router = express.Router();
+const MASTER_DIR = path.join(__dirname, '..', '..', 'data', 'master');
 
 const COUNTRY_TO_CODE = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', 荷兰: 'NL', 意大利: 'IT', 西班牙: 'ES', 波兰: 'PL' };
 const COUNTRY_CODE_TO_NAME = Object.fromEntries(Object.entries(COUNTRY_TO_CODE).map(([k, v]) => [v, k]));
@@ -15,6 +18,32 @@ function resolveCountry(input) {
   if (COUNTRY_CODE_TO_NAME[s.toUpperCase()]) return COUNTRY_CODE_TO_NAME[s.toUpperCase()];
   return COUNTRY_TO_CODE[s] ? s : null;
 }
+
+// 总表状态（分销商可见）
+router.get('/master-status', authRequired, (req, res) => {
+  const rows = db.prepare(`
+    SELECT country, rows_count, uploaded_at FROM country_master_uploads
+  `).all();
+  const map = Object.fromEntries(rows.map(r => [r.country, r]));
+  res.json(Object.keys(COUNTRY_TO_CODE).map(c => ({
+    country: c,
+    code: COUNTRY_TO_CODE[c],
+    available: !!map[c],
+    rows_count: map[c]?.rows_count || 0,
+    uploaded_at: map[c]?.uploaded_at || null,
+  })));
+});
+
+// 分销商下载总表源文件
+router.get('/master/:country', authRequired, (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
+  if (!meta) return res.status(404).json({ error: '该国家总表暂未上传' });
+  const file = path.join(MASTER_DIR, meta.stored_filename);
+  if (!fs.existsSync(file)) return res.status(410).json({ error: '源文件不存在' });
+  res.download(file, meta.original_filename || `${country}-master.xlsx`);
+});
 
 router.get('/status', authRequired, (req, res) => {
   // 给分销商查询用：哪些国家有数据 + 行数 + 更新时间。不暴露 source / markup / 原文件名

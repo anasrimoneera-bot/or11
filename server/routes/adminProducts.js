@@ -14,6 +14,8 @@ router.use(authRequired, ownerRequired);
 
 const INVENTORY_DIR = path.join(__dirname, '..', '..', 'data', 'inventory');
 if (!fs.existsSync(INVENTORY_DIR)) fs.mkdirSync(INVENTORY_DIR, { recursive: true });
+const MASTER_DIR = path.join(__dirname, '..', '..', 'data', 'master');
+if (!fs.existsSync(MASTER_DIR)) fs.mkdirSync(MASTER_DIR, { recursive: true });
 
 const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
 const COUNTRY_TO_CODE = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', 荷兰: 'NL', 意大利: 'IT', 西班牙: 'ES', 波兰: 'PL' };
@@ -290,23 +292,36 @@ router.get('/', (req, res) => {
   const country_zh = resolveCountry(country);
   if (!country_zh) return res.status(400).json({ error: '请指定国家 (country=美国/US/...)' });
 
-  const conds = ['country = ?'];
+  // 该国是否上传了总表？没有则不过滤（向后兼容老数据），有则只显示总表里的 SKU
+  const hasMaster = db.prepare('SELECT 1 FROM country_master_uploads WHERE country = ? LIMIT 1').get(country_zh);
+
+  const conds = ['p.country = ?'];
   const args = [country_zh];
-  if (q.trim()) { conds.push('code LIKE ?'); args.push(`%${q.trim()}%`); }
-  if (min_price !== '' && !isNaN(Number(min_price))) { conds.push('b2b_price >= ?'); args.push(Number(min_price)); }
-  if (max_price !== '' && !isNaN(Number(max_price))) { conds.push('b2b_price <= ?'); args.push(Number(max_price)); }
-  if (min_stock !== '' && !isNaN(Number(min_stock))) { conds.push('stock >= ?'); args.push(Number(min_stock)); }
-  if (max_stock !== '' && !isNaN(Number(max_stock))) { conds.push('stock <= ?'); args.push(Number(max_stock)); }
-  if (stock_filter === 'in_stock') { conds.push('stock > 0'); }
-  else if (stock_filter === 'out_of_stock') { conds.push('stock = 0'); }
+  if (hasMaster) {
+    // INNER JOIN 白名单：只返回总表里有的 SKU
+    conds.push('m.sku IS NOT NULL');
+  }
+  if (q.trim()) { conds.push('p.code LIKE ?'); args.push(`%${q.trim()}%`); }
+  if (min_price !== '' && !isNaN(Number(min_price))) { conds.push('p.b2b_price >= ?'); args.push(Number(min_price)); }
+  if (max_price !== '' && !isNaN(Number(max_price))) { conds.push('p.b2b_price <= ?'); args.push(Number(max_price)); }
+  if (min_stock !== '' && !isNaN(Number(min_stock))) { conds.push('p.stock >= ?'); args.push(Number(min_stock)); }
+  if (max_stock !== '' && !isNaN(Number(max_stock))) { conds.push('p.stock <= ?'); args.push(Number(max_stock)); }
+  if (stock_filter === 'in_stock') { conds.push('p.stock > 0'); }
+  else if (stock_filter === 'out_of_stock') { conds.push('p.stock = 0'); }
   const where = 'WHERE ' + conds.join(' AND ');
 
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM dropxl_products ${where}`).get(...args).c;
+  const joinClause = `
+    FROM dropxl_products p
+    LEFT JOIN country_master_skus m ON m.country = p.country AND m.sku = p.code
+  `;
+  const total = db.prepare(`SELECT COUNT(*) AS c ${joinClause} ${where}`).get(...args).c;
   const rows = db.prepare(`
-    SELECT country, code, b2b_price, stock, image_url, uploaded_at
-    FROM dropxl_products
+    SELECT p.country, p.code, p.b2b_price, p.stock,
+           COALESCE(m.image_url, p.image_url) AS image_url,
+           p.uploaded_at
+    ${joinClause}
     ${where}
-    ORDER BY CAST(code AS INTEGER) ASC, code ASC
+    ORDER BY CAST(p.code AS INTEGER) ASC, p.code ASC
     LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
 
@@ -408,6 +423,88 @@ router.delete('/dropxl-accounts/:country', (req, res) => {
   db.prepare('DELETE FROM dropxl_accounts WHERE country = ?').run(country);
   setAudit(res, { target_name: country, summary: `删除 ${country} DropXL 账户凭据` });
   res.json({ ok: true });
+});
+
+// ============ 各国销售白名单"总表"管理 ============
+// 总表：店主上传的精选 SKU 名单 + 主图链接（A 列）
+// 商品库存价格管理 / 批量采购匹配 / 分销商下载 都以总表为白名单过滤
+
+function parseMasterXlsx(buffer) {
+  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+  // 优先用列名匹配；A 列 'Image 1'，B 列 'SKU'
+  return rows.map(r => {
+    const lower = {};
+    for (const k of Object.keys(r)) lower[String(k).toLowerCase().trim()] = r[k];
+    const sku = String(lower['sku'] ?? '').trim();
+    let img = String(lower['image 1'] ?? lower['image'] ?? lower['image_url'] ?? '').trim();
+    if (img && !/^https?:\/\//i.test(img)) img = '';
+    return sku ? { sku, image_url: img || null } : null;
+  }).filter(Boolean);
+}
+
+// 上传/替换某国总表
+router.post('/master-upload/:country', upload.single('file'), (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  if (!req.file) return res.status(400).json({ error: '请选择文件' });
+
+  let rows;
+  try { rows = parseMasterXlsx(req.file.buffer); }
+  catch (e) { return res.status(400).json({ error: '解析失败：' + e.message }); }
+  if (rows.length === 0) return res.status(400).json({ error: '文件中未找到有效行（需含 SKU 列）' });
+
+  const code = COUNTRY_TO_CODE[country];
+  const storedFilename = `${code}.xlsx`;
+  fs.writeFileSync(path.join(MASTER_DIR, storedFilename), req.file.buffer);
+
+  const now = new Date().toISOString();
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM country_master_skus WHERE country = ?').run(country);
+    const ins = db.prepare(
+      'INSERT OR REPLACE INTO country_master_skus (country, sku, image_url, uploaded_at) VALUES (?, ?, ?, ?)'
+    );
+    for (const r of rows) ins.run(country, r.sku, r.image_url, now);
+    db.prepare(`
+      INSERT OR REPLACE INTO country_master_uploads
+        (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(country, req.file.originalname, storedFilename, rows.length, req.user.username, now);
+  });
+  tx();
+
+  setAudit(res, { target_name: country, summary: `${country} 总表上传 ${rows.length} 行` });
+  res.json({ ok: true, country, rows: rows.length });
+});
+
+// 各国总表上传状态
+router.get('/master-status', (req, res) => {
+  const rows = db.prepare(`
+    SELECT country, original_filename, rows_count, uploaded_by, uploaded_at
+    FROM country_master_uploads
+  `).all();
+  const map = Object.fromEntries(rows.map(r => [r.country, r]));
+  res.json(Object.keys(COUNTRY_TO_CODE).map(c => ({
+    country: c,
+    code: COUNTRY_TO_CODE[c],
+    available: !!map[c],
+    rows_count: map[c]?.rows_count || 0,
+    uploaded_at: map[c]?.uploaded_at || null,
+    original_filename: map[c]?.original_filename || null,
+  })));
+});
+
+// 下载店主上传的总表源文件（仅店主）
+router.get('/master-file/:country', (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
+  if (!meta) return res.status(404).json({ error: '该国家总表暂未上传' });
+  const file = path.join(MASTER_DIR, meta.stored_filename);
+  if (!fs.existsSync(file)) return res.status(410).json({ error: '源文件不存在，请重新上传总表' });
+  res.download(file, meta.original_filename || `${country}-master.xlsx`);
 });
 
 module.exports = router;
