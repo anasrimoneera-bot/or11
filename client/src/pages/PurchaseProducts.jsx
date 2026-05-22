@@ -41,7 +41,11 @@ export default function PurchaseProducts() {
   const purchaseUsd = form.items.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 1), 0);
   const purchaseCny = purchaseUsd * (Number(exchangeRate) || 0);
 
-  const triggerFilePicker = () => fileInputRef.current?.click();
+  const triggerFilePicker = () => {
+    // 选同一个文件时 input.value 没变 onChange 不会触发，先清空保证每次都重新解析
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    fileInputRef.current?.click();
+  };
   // 选完文件立刻自动解析 + 匹配
   const onFilePicked = async (e) => {
     const f = e.target.files?.[0] || null;
