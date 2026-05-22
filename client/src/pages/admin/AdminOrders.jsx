@@ -21,6 +21,7 @@ const statusColor = {
 export default function AdminOrders() {
   const [rows, setRows] = useState([]);
   const [me, setMe] = useState(null);
+  const [settingsRate, setSettingsRate] = useState(0);
   const [filters, setFilters] = useState({ status: 'pending_purchase', q: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
   const isOwner = !!me?.is_owner;
@@ -35,7 +36,11 @@ export default function AdminOrders() {
     if (filters.q) params.q = filters.q;
     api.get('/admin/orders', { params }).then(r => setRows(r.data.rows));
   };
-  useEffect(() => { load(); api.get('/auth/me').then(r => setMe(r.data)); }, []);
+  useEffect(() => {
+    load();
+    api.get('/auth/me').then(r => setMe(r.data));
+    api.get('/settings').then(r => setSettingsRate(Number(r.data.exchange_rate_cny_per_usd) || 0));
+  }, []);
   useEffect(load, [filters.status]);
 
   const sync = async () => {
@@ -116,6 +121,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-right">采购(USD)</th>
               <th className="px-3 py-2 text-right">采购(¥)</th>
               <th className="px-3 py-2 text-right">利润 (USD)</th>
+              <th className="px-3 py-2 text-right" title="按订单锁定汇率（无锁定则用当前系统汇率）换算">利润 (¥)</th>
               {isOwner && <Suspense fallback={<><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
               <th className="px-3 py-2 text-left">供应商 ID</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
@@ -128,7 +134,12 @@ export default function AdminOrders() {
             {rows.map(o => {
               const sales = Number(o.amazon_amount) || 0;
               const purchase = Number(o.purchase_amount_usd) || 0;
+              const purchaseCny = Number(o.purchase_amount_cny) || 0;
               const profit = sales > 0 ? sales - purchase : 0;
+              // 订单锁定汇率优先，无锁定则用当前系统汇率
+              const rate = Number(o.exchange_rate) || settingsRate || 0;
+              const salesCny = sales * rate;
+              const profitCny = sales > 0 ? salesCny - purchaseCny : 0;
               return (
               <tr key={o.id} className="border-t hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
@@ -144,6 +155,10 @@ export default function AdminOrders() {
                 <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
                 <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                </td>
+                <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                    title={rate > 0 ? `按汇率 ${rate} 换算` : '无可用汇率'}>
+                  {sales === 0 || rate === 0 ? '—' : `${profitCny >= 0 ? '+' : ''}¥${profitCny.toFixed(2)}`}
                 </td>
                 {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
@@ -161,10 +176,45 @@ export default function AdminOrders() {
                 </td>
               </tr>
             );})}
-            {rows.length === 0 && <tr><td colSpan={isOwner ? 13 : 11} className="p-6 text-center text-gray-400">
+            {rows.length === 0 && <tr><td colSpan={isOwner ? 15 : 13} className="p-6 text-center text-gray-400">
               {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
+          {rows.length > 0 && (() => {
+            const t = rows.reduce((a, o) => {
+              const sales = Number(o.amazon_amount) || 0;
+              const purchase = Number(o.purchase_amount_usd) || 0;
+              const purchaseCny = Number(o.purchase_amount_cny) || 0;
+              const profit = sales > 0 ? sales - purchase : 0;
+              const rate = Number(o.exchange_rate) || settingsRate || 0;
+              const profitCny = sales > 0 ? sales * rate - purchaseCny : 0;
+              return {
+                sales: a.sales + sales,
+                purchase: a.purchase + purchase,
+                purchaseCny: a.purchaseCny + purchaseCny,
+                profit: a.profit + profit,
+                profitCny: a.profitCny + profitCny,
+              };
+            }, { sales: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0 });
+            return (
+              <tfoot className="bg-gray-50 border-t-2 font-semibold">
+                <tr>
+                  <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({rows.length} 单)</td>
+                  <td className="px-3 py-2.5 text-right">${t.sales.toFixed(2)}</td>
+                  <td className="px-3 py-2.5 text-right">${t.purchase.toFixed(2)}</td>
+                  <td className="px-3 py-2.5 text-right text-red-600">¥{t.purchaseCny.toFixed(2)}</td>
+                  <td className={`px-3 py-2.5 text-right ${t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right ${t.profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {t.profitCny >= 0 ? '+' : ''}¥{t.profitCny.toFixed(2)}
+                  </td>
+                  {isOwner && <><td /><td /></>}
+                  <td colSpan={5} />
+                </tr>
+              </tfoot>
+            );
+          })()}
         </table>
       </div>
 
