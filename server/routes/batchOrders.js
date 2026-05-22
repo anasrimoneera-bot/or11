@@ -265,10 +265,9 @@ router.post('/submit', authRequired, (req, res) => {
   const insOrder = db.prepare(`
     INSERT INTO purchase_orders
       (user_id, order_no, customer_ref, shop_name, country,
-       amazon_amount,
        real_amount_usd, purchase_amount_usd, purchase_amount_cny, exchange_rate, markup_pct,
        status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_purchase')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_purchase')
   `);
   const insItem = db.prepare(`
     INSERT INTO purchase_order_items (order_id, sku, product_name, quantity, unit_price)
@@ -320,16 +319,12 @@ router.post('/submit', authRequired, (req, res) => {
       }
       const displayUsd = realUsd * factor;
       const displayCny = displayUsd * exchangeRate;
-      // 亚马逊金额：按订单组所有 item-price 求和 × 0.85（扣除亚马逊约 15% 抽成）
-      // 自动填入，店主仍可在订单管理页手动覆盖（EditableAmount 组件支持）
-      const amazonAmount = items.reduce((s, it) => s + (Number(it.item_price) || 0), 0) * 0.85;
 
       try {
         const info = insOrder.run(
           req.user.id, orderId, orderId,
           first.shop_name || null,
           country,
-          amazonAmount,
           realUsd, displayUsd, displayCny, exchangeRate, markupPct,
         );
         const id = info.lastInsertRowid;
