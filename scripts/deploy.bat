@@ -92,11 +92,10 @@ echo 在服务器上将执行：
 echo   1. 备份业务数据库 -^> data/erp.db.bak-YYYYMMDD-HHMMSS
 echo   2. 检测未提交的本地改动（避免覆盖手工修改）
 echo   3. 清掉自动生成的 lock 文件（防 git pull 冲突）
-echo   4. fetch + 切到目标分支 %BRANCH% + pull（兼容当前分支不是目标分支的场景）
-echo   5. npm install
-echo   6. 强制重建前端 (rm dist + npm run build)
-echo   7. pm2 restart %PM2_NAME%
-echo   8. 查看启动日志 + 显示新 HEAD 和 dist 时间戳
+echo   4. git pull origin %BRANCH%
+echo   5. npm install （触发 postinstall 自动构建前端）
+echo   6. pm2 restart %PM2_NAME%
+echo   7. 查看启动日志
 echo.
 echo 受保护的业务文件（绝不覆盖）：
 echo   - data/erp.db          （SQLite 数据库）
@@ -112,7 +111,7 @@ echo.
 echo [开始部署...]
 echo.
 
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "set -e; cd %REPO% && echo '=== 1/8 备份业务数据库 ===' && (if [ -f data/erp.db ]; then BK=data/erp.db.bak-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/erp.db $BK && echo \" 已备份到: $BK ($(du -h $BK | awk '{print $1}'))\"; else echo ' (跳过：无数据库文件)'; fi) && echo '' && echo '=== 2/8 检测本地未提交改动 ===' && DIRTY=$(git status --porcelain) && if [ -n \"$DIRTY\" ]; then echo ' 警告：服务器上有未提交改动:'; echo \"$DIRTY\" | head -10; echo ' 已自动 stash 暂存（可用 git stash list 查看，git stash pop 恢复）'; git stash push -u -m \"auto-stash-before-deploy-$(date +%%Y%%m%%d-%%H%%M%%S)\"; else echo ' 无未提交改动'; fi && echo '' && echo '=== 3/8 清理自动生成的 lock 文件（避免冲突）===' && rm -f package-lock.json client/package-lock.json && echo ' OK' && echo '' && echo '=== 4/8 切换并拉取目标分支 %BRANCH% ===' && git config http.version HTTP/1.1 && git fetch origin %BRANCH% 2>&1 | tail -5 && git checkout -B %BRANCH% origin/%BRANCH% 2>&1 | tail -3 && echo '' && echo '=== 5/8 安装根目录依赖 ===' && npm install --no-audit --no-fund 2>&1 | tail -5 && echo '' && echo '=== 6/8 强制重建前端 (关键) ===' && cd client && rm -rf dist && npm install --no-audit --no-fund 2>&1 | tail -5 && npm run build 2>&1 | tail -10 && cd .. && echo '' && echo '=== 7/8 重启 pm2 服务 ===' && pm2 restart %PM2_NAME% --update-env && pm2 ls && echo '' && echo '=== 8/8 启动日志 + 前端 dist 时间 ===' && sleep 1 && pm2 logs %PM2_NAME% --lines 10 --nostream && echo '' && echo \"当前 HEAD: $(git log -1 --oneline)\" && echo '前端 dist 文件:' && ls -la client/dist/assets/index-*.js | head -1 && echo '' && echo '=== 部署完成 ==='"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "set -e; cd %REPO% && echo '=== 1/8 备份业务数据库 ===' && (if [ -f data/erp.db ]; then BK=data/erp.db.bak-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/erp.db $BK && echo \" 已备份到: $BK ($(du -h $BK | awk '{print $1}'))\"; else echo ' (跳过：无数据库文件)'; fi) && echo '' && echo '=== 2/8 检测本地未提交改动 ===' && DIRTY=$(git status --porcelain) && if [ -n \"$DIRTY\" ]; then echo ' 警告：服务器上有未提交改动:'; echo \"$DIRTY\" | head -10; echo ' 已自动 stash 暂存（可用 git stash list 查看，git stash pop 恢复）'; git stash push -u -m \"auto-stash-before-deploy-$(date +%%Y%%m%%d-%%H%%M%%S)\"; else echo ' 无未提交改动'; fi && echo '' && echo '=== 3/8 清理自动生成的 lock 文件（避免冲突）===' && rm -f package-lock.json client/package-lock.json && echo ' OK' && echo '' && echo '=== 4/8 拉取最新代码 ===' && git config http.version HTTP/1.1 && git pull origin %BRANCH% 2>&1 | tail -20 && echo '' && echo '=== 5/8 安装根目录依赖 ===' && npm install --no-audit --no-fund 2>&1 | tail -5 && echo '' && echo '=== 6/8 强制重建前端 (关键) ===' && cd client && rm -rf dist && npm install --no-audit --no-fund 2>&1 | tail -5 && npm run build 2>&1 | tail -10 && cd .. && echo '' && echo '=== 7/8 重启 pm2 服务 ===' && pm2 restart %PM2_NAME% --update-env && pm2 ls && echo '' && echo '=== 8/8 启动日志 + 前端 dist 时间 ===' && sleep 1 && pm2 logs %PM2_NAME% --lines 10 --nostream && echo '' && echo \"当前 HEAD: $(git log -1 --oneline)\" && echo '前端 dist 文件:' && ls -la client/dist/assets/index-*.js | head -1 && echo '' && echo '=== 部署完成 ==='"
 
 set "RC=%ERRORLEVEL%"
 echo.
