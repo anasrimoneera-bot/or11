@@ -187,7 +187,7 @@ function Detail({ id, onClose, onChanged }) {
               </div>
               <div>
                 <label className="text-sm">管理员备注</label>
-                <textarea className="field" rows="3" value={adminNote} onChange={e => setAdminNote(e.target.value)} placeholder="与DropXL沟通进度..." />
+                <textarea className="field" rows="3" value={adminNote} onChange={e => setAdminNote(e.target.value)} placeholder="与供应商沟通进度..." />
               </div>
               <button className="btn btn-primary w-full" onClick={updateStatus}>更新状态</button>
             </div>

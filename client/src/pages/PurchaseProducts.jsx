@@ -73,11 +73,11 @@ export default function PurchaseProducts() {
     try {
       const r = await api.post('/orders/batch/submit', { rows: submittable });
       const s = r.data.summary;
-      const dropxlMsg = s.dropxl_pushed != null
-        ? `\n\nDropXL API 推送：成功 ${s.dropxl_pushed} / 失败 ${s.dropxl_push_failed}` +
-          (s.dropxl_push_failed > 0 ? '\n失败订单可在订单管理页查看错误并由店主重试' : '\n请到 DropXL Unsubmitted Orders 完成支付')
+      const pushMsg = s.dropxl_pushed != null
+        ? `\n\n供应商系统推送：成功 ${s.dropxl_pushed} / 失败 ${s.dropxl_push_failed}` +
+          (s.dropxl_push_failed > 0 ? '\n失败订单可在订单管理页查看错误并由管理员重试' : '\n订单已成功推送至供应商，等待店主完成支付')
         : '';
-      alert(`本地入库：成功 ${s.created} / 跳过(已存在) ${s.skipped} / 失败 ${s.failed}${dropxlMsg}`);
+      alert(`本地入库：成功 ${s.created} / 跳过(已存在) ${s.skipped} / 失败 ${s.failed}${pushMsg}`);
       setShowConfirmModal(false);
       setPreview(null);
       setPickedFile(null);
@@ -100,7 +100,7 @@ export default function PurchaseProducts() {
     setSubmitting(true);
     try {
       const { data } = await api.post('/orders', form);
-      alert(`采购成功! DropXL订单ID: ${data.dropxl_order_id || '(空)'}`);
+      alert(`采购成功! 供应商订单 ID: ${data.dropxl_order_id || '(空)'}`);
       setForm({ ...form, order_no: '', items: [{ sku: '', product_name: '', quantity: 1, unit_price: 0 }] });
     } catch (e) {
       alert('采购失败: ' + (e.response?.data?.error || e.message));

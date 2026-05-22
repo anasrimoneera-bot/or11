@@ -16,7 +16,7 @@ export default function AfterSalesPolicy() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">售后政策</h1>
-        <p className="text-gray-500 text-sm">本页面包含 DropXL 的售后政策相关文档。</p>
+        <p className="text-gray-500 text-sm">本页面包含售后政策相关文档。</p>
       </div>
       {loading ? (
         <div className="text-gray-400 text-sm">加载中...</div>

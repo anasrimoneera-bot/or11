@@ -93,9 +93,9 @@ function DropxlAccountsCard() {
   return (
     <div className="bg-white rounded-xl shadow border p-5 space-y-4">
       <div className="border-b pb-3">
-        <div className="font-semibold">🔑 DropXL 多国账户</div>
+        <div className="font-semibold">🔑 供应商多国账户</div>
         <div className="text-xs text-gray-500 mt-1">
-          DropXL 每个国家独立账户独立 API Token。配置后可在「商品库存价格管理」用 API 同步按钮拉取该国商品。
+          供应商每个国家独立账户独立 API Token。配置后可在「商品库存价格管理」用 API 同步按钮拉取该国商品。
           目前已开通的国家填入凭据；未开通的国家留空，开通后再补即可。
         </div>
       </div>
@@ -176,7 +176,7 @@ function AccountEditor({ account, onClose, onSaved }) {
   };
 
   const remove = async () => {
-    if (!confirm(`确认删除 ${account.country} 的 DropXL 凭据？`)) return;
+    if (!confirm(`确认删除 ${account.country} 的供应商凭据？`)) return;
     await api.delete(`/admin/products/dropxl-accounts/${encodeURIComponent(account.country)}`);
     onSaved();
   };
@@ -185,21 +185,21 @@ function AccountEditor({ account, onClose, onSaved }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl w-full max-w-md">
         <div className="border-b p-4 flex justify-between items-center">
-          <div className="font-semibold">配置 {account.country} DropXL 凭据</div>
+          <div className="font-semibold">配置 {account.country} 供应商凭据</div>
           <button onClick={onClose} className="text-gray-400 text-xl leading-none">×</button>
         </div>
         <div className="p-5 space-y-3 text-sm">
           <div>
-            <label className="text-xs text-gray-500">客户邮箱（DropXL 登录邮箱）</label>
+            <label className="text-xs text-gray-500">客户邮箱（供应商登录邮箱）</label>
             <input className="field" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
           </div>
           <div>
             <label className="text-xs text-gray-500">API Token</label>
-            <input className="field" type="password" value={token} onChange={e => setToken(e.target.value)} placeholder={account.has_token ? '已有 token，留空则保留原值；填入新值会覆盖' : '从 DropXL 后台复制'} />
+            <input className="field" type="password" value={token} onChange={e => setToken(e.target.value)} placeholder={account.has_token ? '已有 token，留空则保留原值；填入新值会覆盖' : '从供应商后台复制'} />
           </div>
           <div>
-            <label className="text-xs text-gray-500">Base URL（可选，默认 https://b2b.dropxl.com/api_customer）</label>
-            <input className="field" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://b2b.dropxl.com/api_customer" />
+            <label className="text-xs text-gray-500">Base URL（可选，留空使用默认）</label>
+            <input className="field" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="留空使用默认" />
           </div>
           {testResult && (
             <div className={`text-xs p-2 rounded ${testResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>

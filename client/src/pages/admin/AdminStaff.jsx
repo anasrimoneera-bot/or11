@@ -29,8 +29,8 @@ export default function AdminStaff() {
         💡 <b>权限说明：</b>
         <ul className="list-disc list-inside mt-1 space-y-0.5 text-gray-700">
           <li>员工可以：管理用户、确认订单（不知真实成本）、处理售后、给用户充值/退款</li>
-          <li>员工<b className="text-red-600">看不到</b>：每个用户的加价百分比、订单的真实 DropXL 采购价、利润金额、DropXL API 测试页</li>
-          <li>仅店主可以：修改加价百分比、查看真实成本、调用 DropXL 测试 API</li>
+          <li>员工<b className="text-red-600">看不到</b>：每个用户的加价百分比、订单的真实供应商采购价、利润金额、供应商接口测试页</li>
+          <li>仅店主可以：修改加价百分比、查看真实成本、调用供应商测试接口</li>
         </ul>
       </div>
 

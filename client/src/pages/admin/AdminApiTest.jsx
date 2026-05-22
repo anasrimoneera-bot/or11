@@ -20,9 +20,9 @@ export default function AdminApiTest() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">🧪 DropXL API 测试</h1>
+      <h1 className="text-2xl font-bold">🧪 供应商接口测试</h1>
       <div className="bg-blue-50 text-blue-700 text-sm rounded p-3">
-        ℹ️ 此页面用于初版调试。DropXL 实际返回的字段名可能与默认假设不同，可在此页面发送测试请求查看响应结构，根据结果修改 server/dropxl.js 中的字段映射。
+        ℹ️ 此页面用于调试供应商接口。可在此页面发送测试请求查看响应结构。
       </div>
       <div className="bg-white rounded-xl shadow p-5 space-y-3">
         <div>

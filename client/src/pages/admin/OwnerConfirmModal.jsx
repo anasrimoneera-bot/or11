@@ -38,13 +38,13 @@ export default function OwnerConfirmModal({ order, onClose, onDone }) {
           <div>用户：{order.display_name || order.username}</div>
           <div>国家/店铺：{order.country} / {order.shop_name}</div>
           <div>亚马逊订单金额：${(order.amazon_amount || 0).toFixed(2)}</div>
-          <div>DropXL Order ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></div>
-          {order.real_amount_usd > 0 && <div className="text-blue-600">DropXL返回真实价：${order.real_amount_usd.toFixed(2)} (可调整)</div>}
+          <div>供应商订单 ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></div>
+          {order.real_amount_usd > 0 && <div className="text-blue-600">供应商返回真实价：${order.real_amount_usd.toFixed(2)} (可调整)</div>}
         </div>
         <div className="grid grid-cols-3 gap-2 mb-2">
           <div>
             <label className="text-sm">真实采购价 (USD) *</label>
-            <input className="field" type="number" step="0.01" value={realUsd} onChange={e => setRealUsd(e.target.value)} placeholder="DropXL实际价" />
+            <input className="field" type="number" step="0.01" value={realUsd} onChange={e => setRealUsd(e.target.value)} placeholder="供应商实际价" />
           </div>
           <div>
             <label className="text-sm">加价 % *</label>

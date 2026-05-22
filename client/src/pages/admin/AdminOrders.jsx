@@ -49,7 +49,7 @@ export default function AdminOrders() {
   const importHistory = async () => {
     const since = prompt('导入从哪一天起的历史订单？格式 YYYY-MM-DD', '2020-01-01');
     if (!since) return;
-    if (!confirm(`确认从 DropXL 拉取 ${since} 之后的所有订单导入本地？已存在的不会重复导入。`)) return;
+    if (!confirm(`确认从供应商拉取 ${since} 之后的所有订单导入本地？已存在的不会重复导入。`)) return;
     try {
       const { data } = await api.post('/admin/orders/import-from-dropxl', { since });
       let msg = `共拉取 ${data.total} 单：\n  ✓ 新导入 ${data.imported} 单\n  · 已存在跳过 ${data.skipped} 单`;
@@ -61,14 +61,14 @@ export default function AdminOrders() {
   };
 
   const exportDropxlTemplate = async () => {
-    if (!confirm('确认导出待处理订单为 DropXL 采购模板？\n• 默认只导出未导出过的订单\n• 导出后会标记为"已导出"，下次不再重复\n• 导出后请前往 DropXL 平台手动提交')) return;
+    if (!confirm('确认导出待处理订单为供应商采购模板？\n• 默认只导出未导出过的订单\n• 导出后会标记为"已导出"，下次不再重复\n• 导出后请前往供应商后台手动提交')) return;
     try {
       const r = await api.post('/admin/orders/dropxl-template-export', {}, { responseType: 'blob' });
       const blob = r.data;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `dropxl-purchase-orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `purchase-orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -88,9 +88,9 @@ export default function AdminOrders() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">📋 订单管理</h1>
         <div className="flex gap-2">
-          <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出 DropXL 采购模板</button>
+          <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
-          <button onClick={sync} className="btn btn-primary">🔄 从DropXL同步跟踪号/状态</button>
+          <button onClick={sync} className="btn btn-primary">🔄 从供应商同步跟踪号/状态</button>
         </div>
       </div>
 
@@ -117,7 +117,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-right">采购(¥)</th>
               <th className="px-3 py-2 text-right">利润 (USD)</th>
               {isOwner && <Suspense fallback={<><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
-              <th className="px-3 py-2 text-left">DropXL ID</th>
+              <th className="px-3 py-2 text-left">供应商 ID</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
               <th className="px-3 py-2 text-left">状态</th>
               <th className="px-3 py-2 text-left">创建时间</th>
@@ -204,7 +204,7 @@ function StaffConfirmModal({ order, onClose, onDone }) {
           <div>订单号：<span className="font-mono">{order.order_no}</span></div>
           <div>用户：{order.display_name || order.username}</div>
           <div>国家/店铺：{order.country} / {order.shop_name}</div>
-          <div>DropXL Order ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></div>
+          <div>供应商订单 ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></div>
           <div className="text-blue-700">系统计算采购价 (USD)：<b>${(order.purchase_amount_usd || 0).toFixed(2)}</b></div>
         </div>
         <label className="text-sm">汇率 *</label>

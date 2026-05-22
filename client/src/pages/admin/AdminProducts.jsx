@@ -57,15 +57,15 @@ export default function AdminProducts() {
         <div>
           <h1 className="text-2xl font-bold">📦 商品库存价格管理</h1>
           <p className="text-gray-500 text-sm mt-1">
-            按国家上传 DropXL 库存 xlsx（SKU/B2B 价/库存）。仅店主可见原价 + 加价比例；
+            按国家上传供应商库存 xlsx（SKU/B2B 价/库存）。仅店主可见原价 + 加价比例；
             分销商"下载支持"页拿到的是加价后的 B2B 价。
           </p>
         </div>
       </div>
 
       <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded p-3">
-        ℹ️ 每个国家 DropXL 独立账户独立 API token，已配置凭据的国家可点 "🔄 API 同步" 自动拉取；
-        未配置或想全量替换的国家可手动上传 xlsx。在 <b>系统设置 → DropXL 多国账户</b> 维护各国凭据。
+        ℹ️ 每个国家供应商独立账户独立 API token，已配置凭据的国家可点 "🔄 API 同步" 自动拉取；
+        未配置或想全量替换的国家可手动上传 xlsx。在 <b>系统设置 → 供应商多国账户</b> 维护各国凭据。
       </div>
 
       <MasterUploadGrid masterStatus={masterStatus} onChange={() => { loadMasterStatus(); loadProducts(); }} />
@@ -301,7 +301,7 @@ function CountryUploadCard({ country, status, account, active, onClick, onUpload
 
   const apiSync = async (e) => {
     e.stopPropagation();
-    if (!confirm(`确认从 DropXL API 同步 ${country} 全量商品？\n会用 ${country} 账户的 API token 拉取，覆盖该国现有库存数据。\n按 DropXL 限速 1 秒/请求，55 万条约耗时 15-20 分钟。`)) return;
+    if (!confirm(`确认从供应商接口同步 ${country} 全量商品？\n会用 ${country} 账户的 API token 拉取，覆盖该国现有库存数据。\n按供应商限速 1 秒/请求，55 万条约耗时 15-20 分钟。`)) return;
     try {
       await api.post(`/admin/products/sync-country/${encodeURIComponent(country)}`);
       onUploaded();
@@ -390,7 +390,7 @@ function CountryUploadCard({ country, status, account, active, onClick, onUpload
           disabled={uploading || syncing || !hasCreds}
           onClick={apiSync}
           className="btn btn-success text-xs justify-center py-1 disabled:opacity-40"
-          title={hasCreds ? `用 ${country} 账户拉取商品库存` : `请在「系统设置 → DropXL 多国账户」配置 ${country} 凭据`}
+          title={hasCreds ? `用 ${country} 账户拉取商品库存` : `请在「系统设置 → 供应商多国账户」配置 ${country} 凭据`}
         >
           {syncing ? '⏳ 同步中' : '🔄 API同步'}
         </button>

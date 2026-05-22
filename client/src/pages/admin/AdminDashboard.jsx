@@ -25,16 +25,16 @@ export default function AdminDashboard() {
         <h2 className="font-semibold mb-3">📝 快速指引</h2>
         {isOwner ? (
           <ul className="list-disc list-inside text-sm space-y-2 text-gray-700">
-            <li>用户提交采购订单后会立即调用 DropXL API 创建订单，结果显示在「订单审核」</li>
+            <li>用户提交采购订单后会立即调用供应商接口创建订单，结果显示在「订单审核」</li>
             <li>管理员在「订单审核」填写采购价格 + 汇率，确认后系统从用户余额扣除对应金额</li>
-            <li>用户提交售后工单后由管理员在「售后管理」与 DropXL 官方对接，处理完毕后可一键退款到用户余额</li>
-            <li>「DropXL测试」页面可以发送测试请求查看 DropXL API 实际响应格式</li>
+            <li>用户提交售后工单后由管理员在「售后管理」与供应商对接，处理完毕后可一键退款到用户余额</li>
+            <li>「供应商接口测试」页面可发送测试请求查看接口实际响应</li>
           </ul>
         ) : (
           <ul className="list-disc list-inside text-sm space-y-2 text-gray-700">
             <li>用户提交采购订单后会自动同步到「订单审核」，需要您审核确认</li>
             <li>在「订单审核」填写汇率、确认订单，系统会自动扣除用户余额</li>
-            <li>「售后管理」处理用户提交的工单，与 DropXL 官方对接</li>
+            <li>「售后管理」处理用户提交的工单，与供应商对接</li>
             <li>「用户管理」可以查看用户信息、充值或退款余额</li>
           </ul>
         )}

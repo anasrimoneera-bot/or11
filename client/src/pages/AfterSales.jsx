@@ -288,7 +288,7 @@ function CreateWizard({ onClose, onCreated }) {
                 <div><b>附件：</b>{files.length} 个</div>
               </div>
               <div className="bg-yellow-50 text-yellow-700 text-sm rounded p-3 mb-4">
-                ⚠️ 工单提交后，我方管理人员将与DropXL官方进行对接处理，请耐心等待回复。
+                ⚠️ 工单提交后，我方管理人员将与供应商对接处理，请耐心等待回复。
               </div>
               <div className="flex justify-between">
                 <button onClick={() => setStep(2)} className="btn btn-ghost">上一步</button>
