@@ -367,7 +367,6 @@ router.put('/country-markup/:country', (req, res) => {
 });
 
 // ============ DropXL 多国账户凭据管理 ============
-const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
 
 // 列出所有国家的账户状态（不返回明文 token，仅返回是否已配置）
 router.get('/dropxl-accounts', (req, res) => {

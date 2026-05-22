@@ -258,7 +258,7 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
 });
 
 // ============ 2. 提交（仅匹配成功的行） ============
-router.post('/submit', authRequired, (req, res) => {
+router.post('/submit', authRequired, async (req, res) => {
   const { rows = [] } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: '提交内容为空' });
 
