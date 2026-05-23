@@ -110,7 +110,7 @@ echo.
 echo [开始部署...]
 echo.
 
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "set -e; cd %REPO% && echo '=== 1/8 备份业务数据库 ===' && (if [ -f data/erp.db ]; then BK=data/erp.db.bak-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/erp.db $BK && echo \" 已备份到: $BK ($(du -h $BK | awk '{print $1}'))\"; else echo ' (跳过：无数据库文件)'; fi) && echo '' && echo '=== 2/8 检测本地未提交改动 ===' && DIRTY=$(git status --porcelain) && if [ -n \"$DIRTY\" ]; then echo ' 警告：服务器上有未提交改动:'; echo \"$DIRTY\" | head -10; echo ' 已自动 stash 暂存（可用 git stash list 查看，git stash pop 恢复）'; git stash push -u -m \"auto-stash-before-deploy-$(date +%%Y%%m%%d-%%H%%M%%S)\"; else echo ' 无未提交改动'; fi && echo '' && echo '=== 3/8 清理自动生成的 lock 文件（避免冲突）===' && rm -f package-lock.json client/package-lock.json && echo ' OK' && echo '' && echo '=== 4/8 拉取最新代码 ===' && git config http.version HTTP/1.1 && git pull origin %BRANCH% 2>&1 | tail -20 && echo '' && echo '=== 5/8 安装根目录依赖 ===' && npm install --no-audit --no-fund 2>&1 | tail -5 && echo '' && echo '=== 6/8 强制重建前端 (关键) ===' && cd client && rm -rf dist && npm install --no-audit --no-fund 2>&1 | tail -5 && npm run build 2>&1 | tail -10 && cd .. && echo '' && echo '=== 7/8 重启 pm2 服务 ===' && pm2 restart %PM2_NAME% --update-env && pm2 ls && echo '' && echo '=== 8/8 启动日志 + 前端 dist 时间 ===' && sleep 1 && pm2 logs %PM2_NAME% --lines 10 --nostream && echo '' && echo \"当前 HEAD: $(git log -1 --oneline)\" && echo '前端 dist 文件:' && ls -la client/dist/assets/index-*.js | head -1 && echo '' && echo '=== 部署完成 ==='"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "set -e; cd %REPO% && echo '=== 1/8 backup database ===' && (if [ -f data/erp.db ]; then BK=data/erp.db.bak-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/erp.db $BK && echo \" backed up to: $BK ($(du -h $BK | awk '{print $1}'))\"; else echo ' (skipped: no db file)'; fi) && echo '' && echo '=== 2/8 check local changes ===' && DIRTY=$(git status --porcelain) && if [ -n \"$DIRTY\" ]; then echo ' WARN: server has uncommitted changes:'; echo \"$DIRTY\" | head -10; echo ' auto-stashed (recover via: git stash list / git stash pop)'; git stash push -u -m \"auto-stash-before-deploy-$(date +%%Y%%m%%d-%%H%%M%%S)\"; else echo ' clean'; fi && echo '' && echo '=== 3/8 remove auto lock files ===' && rm -f package-lock.json client/package-lock.json && echo ' OK' && echo '' && echo '=== 4/8 git pull ===' && git config http.version HTTP/1.1 && git pull origin %BRANCH% 2>&1 | tail -20 && echo '' && echo '=== 5/8 npm install (root) ===' && npm install --no-audit --no-fund 2>&1 | tail -5 && echo '' && echo '=== 6/8 rebuild frontend ===' && cd client && rm -rf dist && npm install --no-audit --no-fund 2>&1 | tail -5 && npm run build 2>&1 | tail -10 && cd .. && echo '' && echo '=== 7/8 pm2 restart ===' && pm2 restart %PM2_NAME% --update-env && pm2 ls && echo '' && echo '=== 8/8 startup log + dist time ===' && sleep 1 && pm2 logs %PM2_NAME% --lines 10 --nostream && echo '' && echo \"HEAD: $(git log -1 --oneline)\" && echo 'dist files:' && ls -la client/dist/assets/index-*.js | head -1 && echo '' && echo '=== deploy done ==='"
 
 set "RC=%ERRORLEVEL%"
 echo.
@@ -156,7 +156,7 @@ rem ============================================================
 rem ============================================================
 cls
 echo === pm2 状态 ===
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "pm2 ls && echo '' && echo '--- 磁盘占用 ---' && df -h /opt | head -2 && echo '' && echo '--- 当前 Git HEAD ---' && cd %REPO% && git log -1 --oneline && echo '' && echo '--- 业务数据 ---' && du -sh %REPO%/data/erp.db %REPO%/data/inventory %REPO%/data/master 2>/dev/null"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "pm2 ls && echo '' && echo '--- disk usage ---' && df -h /opt | head -2 && echo '' && echo '--- current Git HEAD ---' && cd %REPO% && git log -1 --oneline && echo '' && echo '--- business data ---' && du -sh %REPO%/data/erp.db %REPO%/data/inventory %REPO%/data/master 2>/dev/null"
 echo.
 pause
 goto MENU
@@ -177,7 +177,7 @@ rem ============================================================
 rem ============================================================
 cls
 echo === SSH 连接 + 关键文件检查 ===
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "echo '[OK] SSH 连接成功' && echo '主机: '$(uname -n) && echo '系统: '$(uname -srm) && echo '时间: '$(date) && echo 'Node: '$(node -v) && echo 'PM2: '$(pm2 -v) && echo '' && echo '--- 关键文件 ---' && ls -la %REPO%/.env %REPO%/data/erp.db 2>/dev/null && echo '' && echo '--- 业务目录 ---' && ls -ld %REPO%/data/inventory %REPO%/data/master %REPO%/data/uploads-tmp 2>/dev/null"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "echo '[OK] SSH connected' && echo 'host: '$(uname -n) && echo 'os:   '$(uname -srm) && echo 'time: '$(date) && echo 'Node: '$(node -v) && echo 'PM2:  '$(pm2 -v) && echo '' && echo '--- key files ---' && ls -la %REPO%/.env %REPO%/data/erp.db 2>/dev/null && echo '' && echo '--- biz dirs ---' && ls -ld %REPO%/data/inventory %REPO%/data/master %REPO%/data/uploads-tmp 2>/dev/null"
 echo.
 pause
 goto MENU
@@ -187,7 +187,7 @@ rem ============================================================
 rem ============================================================
 cls
 echo === 单独备份业务数据库 ===
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO% && BK=data/erp.db.bak-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/erp.db $BK && echo \"已备份到: $BK\" && ls -lh $BK"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO% && BK=data/erp.db.bak-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/erp.db $BK && echo \"backed up to: $BK\" && ls -lh $BK"
 echo.
 pause
 goto MENU
@@ -197,7 +197,7 @@ rem ============================================================
 rem ============================================================
 cls
 echo === 所有备份文件 ===
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO% && (ls -lht data/erp.db.bak-* 2>/dev/null || echo '尚无备份') | head -20"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO% && (ls -lht data/erp.db.bak-* 2>/dev/null || echo 'no backup yet') | head -20"
 echo.
 echo （只显示最近 20 个备份；如果太多可在 [9] 清理旧备份）
 echo.
@@ -230,7 +230,7 @@ set "GO="
 set /p "GO=确认回滚？[Y/N]: "
 if /i not "%GO%"=="Y" goto MENU
 echo.
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "set -e; cd %REPO% && test -f data/%BAKFILE% && pm2 stop %PM2_NAME% && cp data/erp.db data/erp.db.bak-before-rollback-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/%BAKFILE% data/erp.db && pm2 restart %PM2_NAME% && pm2 logs %PM2_NAME% --lines 10 --nostream && echo '=== 回滚完成 ==='"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "set -e; cd %REPO% && test -f data/%BAKFILE% && pm2 stop %PM2_NAME% && cp data/erp.db data/erp.db.bak-before-rollback-$(date +%%Y%%m%%d-%%H%%M%%S) && cp data/%BAKFILE% data/erp.db && pm2 restart %PM2_NAME% && pm2 logs %PM2_NAME% --lines 10 --nostream && echo '=== rollback done ==='"
 echo.
 pause
 goto MENU
@@ -241,12 +241,12 @@ rem ============================================================
 cls
 echo === 清理 7 天前的旧备份 ===
 echo.
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO%/data && find . -name 'erp.db.bak-*' -mtime +7 -print | head -50 && echo '---' && CNT=$(find . -name 'erp.db.bak-*' -mtime +7 2>/dev/null | wc -l) && echo \"上述 $CNT 个文件将被删除（最近 7 天的备份会保留）\""
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO%/data && find . -name 'erp.db.bak-*' -mtime +7 -print | head -50 && echo '---' && CNT=$(find . -name 'erp.db.bak-*' -mtime +7 2>/dev/null | wc -l) && echo \"$CNT files above will be deleted (last 7 days kept)\""
 echo.
 set "GO="
 set /p "GO=确认删除？[Y/N]: "
 if /i not "%GO%"=="Y" goto MENU
-ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO%/data && find . -name 'erp.db.bak-*' -mtime +7 -delete && echo '已清理。剩余备份：' && ls -lht erp.db.bak-* 2>/dev/null | wc -l"
+ssh -o StrictHostKeyChecking=accept-new %SERVER% "cd %REPO%/data && find . -name 'erp.db.bak-*' -mtime +7 -delete && echo 'cleaned. remaining backups:' && ls -lht erp.db.bak-* 2>/dev/null | wc -l"
 echo.
 pause
 goto MENU
