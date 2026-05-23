@@ -111,6 +111,7 @@ export default function Orders() {
                 <th className="px-3 py-2 text-right">采购(USD)</th>
                 <th className="px-3 py-2 text-right">采购(¥)</th>
                 <th className="px-3 py-2 text-right">利润 (USD)</th>
+                <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
                 <th className="px-3 py-2 text-left">物流跟踪号</th>
                 <th className="px-3 py-2 text-left">状态</th>
                 <th className="px-3 py-2 text-left">创建时间</th>
@@ -121,7 +122,13 @@ export default function Orders() {
               {orders.map(o => {
                 const sales = Number(o.amazon_amount) || 0;
                 const purchase = Number(o.purchase_amount_usd) || 0;
+                const purchaseCny = Number(o.purchase_amount_cny) || 0;
+                const amazonRate = Number(o.amazon_rate_locked) || 0;
                 const profit = sales > 0 ? sales - purchase : 0;
+                const canComputeCny = sales > 0 && amazonRate > 0;
+                const profitCny = canComputeCny ? sales * amazonRate - purchaseCny : 0;
+                const canComputeRate = canComputeCny && purchaseCny > 0;
+                const profitRate = canComputeRate ? profitCny / purchaseCny : 0;
                 return (
                 <tr key={o.id} className="border-t hover:bg-gray-50">
                   <td className="px-3 py-2 font-mono">{o.order_no}</td>
@@ -139,6 +146,10 @@ export default function Orders() {
                   <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
                   </td>
+                  <td className={`px-3 py-2 text-right font-semibold ${!canComputeRate ? 'text-gray-400' : profitRate >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                      title={canComputeRate ? `按订单锁定亚马逊汇率 ${amazonRate} 计算` : (sales === 0 ? '未填亚马逊金额' : '该国未设亚马逊汇率')}>
+                    {!canComputeRate ? '—' : `${profitRate >= 0 ? '+' : ''}${(profitRate * 100).toFixed(2)}%`}
+                  </td>
                   <td className="px-3 py-2">{o.tracking_no || '-'}</td>
                   <td className="px-3 py-2">
                     <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
@@ -149,7 +160,7 @@ export default function Orders() {
                   </td>
                 </tr>
               );})}
-              {orders.length === 0 && <tr><td colSpan="11" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
+              {orders.length === 0 && <tr><td colSpan="12" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
           </table>
         </div>

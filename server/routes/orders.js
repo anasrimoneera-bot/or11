@@ -39,7 +39,7 @@ router.get('/', authRequired, (req, res) => {
   // 注意：不返回 real_amount_usd / raw_payload / raw_response，避免暴露真实采购价
   const rows = db.prepare(`
     SELECT id, user_id, order_no, customer_ref, shop_name, country,
-           amazon_amount, amazon_tax_amount, shipping_fee,
+           amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
            purchase_amount_usd, purchase_amount_cny, exchange_rate,
            distributor_refund, tracking_no, status,
            created_at, updated_at
@@ -67,7 +67,7 @@ router.get('/stats', authRequired, (req, res) => {
 router.get('/:id', authRequired, (req, res) => {
   const row = db.prepare(`
     SELECT id, user_id, order_no, customer_ref, shop_name, country,
-           amazon_amount, amazon_tax_amount, shipping_fee,
+           amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
            purchase_amount_usd, purchase_amount_cny, exchange_rate,
            distributor_refund, tracking_no, status,
            created_at, updated_at
