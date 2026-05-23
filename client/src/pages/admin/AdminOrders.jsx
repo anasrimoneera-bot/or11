@@ -157,7 +157,16 @@ export default function AdminOrders() {
                     onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { amazon_amount: v }); load(); }}
                   />
                 </td>
-                <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(2)}</td>
+                <td className="px-3 py-2 text-right">
+                  {isOwner ? (
+                    <EditableAmount
+                      value={o.purchase_amount_usd || 0}
+                      onSave={async (v) => { await api.put(`/admin/orders/${o.id}/purchase-price`, { purchase_amount_usd: v }); load(); }}
+                    />
+                  ) : (
+                    <>${(o.purchase_amount_usd || 0).toFixed(2)}</>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
                 <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}

@@ -427,6 +427,29 @@ router.put('/orders/:id/assign', (req, res) => {
   res.json({ ok: true });
 });
 
+// 店主手动改用户采购价（覆盖系统按 real * (1+markup) 自动算出的值）
+// 同步按订单 exchange_rate 重算 purchase_amount_cny。real_amount_usd 不动
+router.put('/orders/:id/purchase-price', ownerRequired, (req, res) => {
+  const { purchase_amount_usd } = req.body || {};
+  const v = Number(purchase_amount_usd);
+  if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入非负数' });
+  const order = db.prepare('SELECT id, order_no, purchase_amount_usd, exchange_rate FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  const rate = Number(order.exchange_rate) || 0;
+  const newCny = v * rate;
+  db.prepare(`
+    UPDATE purchase_orders
+    SET purchase_amount_usd = ?, purchase_amount_cny = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(v, newCny, order.id);
+  setAudit(res, {
+    target_id: String(order.id),
+    target_name: order.order_no,
+    summary: `订单 ${order.order_no} 用户采购价 ${Number(order.purchase_amount_usd).toFixed(2)} → ${v.toFixed(2)}`,
+  });
+  res.json({ ok: true, purchase_amount_cny: newCny });
+});
+
 router.put('/orders/:id', (req, res) => {
   const { status, tracking_no, amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
   const amazonAmt = amazon_amount === undefined ? null : Number(amazon_amount);
