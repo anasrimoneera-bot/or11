@@ -8,21 +8,32 @@
 // 单例锁 busy 防止 6 小时窗口内人手动触发同步后又自动跑撞车
 
 const db = require('./db');
+const { getSetting, setSetting } = require('./settings');
 
 const INTERVAL_MS = 6 * 3600 * 1000;
-const INITIAL_DELAY_MS = 60 * 1000;   // 启动 1 分钟后跑第一次
+const FIRST_RUN_DELAY_MS = 60 * 1000;  // 全新部署(从未跑过)时，启动 1 分钟后初始化一次
+const LAST_RUN_KEY = 'auto_sync_last_run_at'; // 持久化上次运行时间，重启不丢，按真实间隔调度
 
 let busy = false;
-let lastRun = null;     // { started_at, finished_at, ok, products: [...], orders: [...] }
+let lastRun = null;     // { started_at, finished_at, ok, ... } 仅本进程内详细结果，重启丢失
+let schedTimer = null;
+let schedulerStarted = false;
+
+function getPersistedLastRunAt() {
+  return getSetting(LAST_RUN_KEY) || null;
+}
 
 function getStatus() {
+  // next_run 基于持久化的上次运行时间算，重启后依然准确
+  const baseTime = lastRun?.finished_at || getPersistedLastRunAt();
   return {
     busy,
     interval_hours: INTERVAL_MS / 3600000,
-    next_run_at: lastRun?.finished_at
-      ? new Date(new Date(lastRun.finished_at).getTime() + INTERVAL_MS).toISOString()
+    next_run_at: baseTime
+      ? new Date(new Date(baseTime).getTime() + INTERVAL_MS).toISOString()
       : null,
-    last_run: lastRun,
+    last_run_at: baseTime || null,  // 上次运行时间（持久化，跨重启）
+    last_run: lastRun,              // 上次运行详细结果（仅本进程内，重启后为 null）
   };
 }
 
@@ -102,16 +113,42 @@ async function runOnce(reason = 'scheduled') {
     result.finished_at = new Date().toISOString();
     lastRun = result;
     busy = false;
+    // 持久化运行时间：重启后据此按真实间隔调度，避免每次重启/部署都重跑一遍
+    try { setSetting(LAST_RUN_KEY, result.finished_at); } catch (e) { console.error('[scheduler] 持久化运行时间失败:', e.message); }
     const dur = (new Date(result.finished_at) - new Date(result.started_at)) / 1000;
     console.log(`[scheduler] ===== auto-sync finished in ${dur.toFixed(0)}s, ok=${result.ok} =====`);
+    // 每跑完一次（含手动触发）都按新的运行时间安排下一次，避免手动同步后旧定时器提前触发
+    if (schedulerStarted) scheduleNext();
   }
   return result;
 }
 
+// 距离下次该跑还有多久：基于持久化的上次运行时间，重启不会重置
+function msUntilNextRun() {
+  const last = getPersistedLastRunAt();
+  if (!last) return FIRST_RUN_DELAY_MS; // 从未跑过：启动 1 分钟后初始化一次
+  const elapsed = Date.now() - new Date(last).getTime();
+  const remaining = INTERVAL_MS - elapsed;
+  return remaining > 0 ? remaining : 0;  // 已超期：尽快补跑（下个事件循环）
+}
+
+// 自调度：每跑完一次按真实间隔安排下一次（不用固定 setInterval，重启后能续上）
+function scheduleNext() {
+  if (schedTimer) clearTimeout(schedTimer);
+  const delay = msUntilNextRun();
+  console.log(`[scheduler] 下次自动同步约在 ${(delay / 60000).toFixed(1)} 分钟后`);
+  schedTimer = setTimeout(() => {
+    // runOnce 的 finally 会调用 scheduleNext 安排下一次，这里不重复
+    runOnce('scheduled').catch(e => console.error('[scheduler] scheduled run failed:', e.message));
+  }, delay);
+}
+
 function start() {
+  schedulerStarted = true;
   console.log(`[scheduler] auto-sync scheduler started; interval = ${INTERVAL_MS / 3600000}h`);
-  setTimeout(() => { runOnce('initial-startup'); }, INITIAL_DELAY_MS);
-  setInterval(() => { runOnce('scheduled'); }, INTERVAL_MS);
+  const last = getPersistedLastRunAt();
+  console.log(`[scheduler] 上次运行: ${last || '从未'}`);
+  scheduleNext();
 }
 
 module.exports = { start, runOnce, getStatus };

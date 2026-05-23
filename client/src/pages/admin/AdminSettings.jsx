@@ -47,7 +47,7 @@ function AutoSyncCard() {
           <div className="text-xs text-gray-500 mt-1">
             服务器每 <b>{status?.interval_hours || 6}</b> 小时自动跑一次：
             ① 已配置凭据的国家做商品库存 API 同步 ② 所有国家订单跟踪号/状态拉取（限 1 秒/请求）。
-            重启服务器会丢失内存中的"上次运行"记录，但下一轮会在 1 分钟后自动开始。
+            <b>纯后台运行，无需登录或打开页面</b>；按真实间隔调度，重启/部署不会重复触发（上次运行时间已持久化）。
           </div>
         </div>
         <button onClick={trigger} disabled={triggering || status?.busy} className="btn btn-primary text-sm whitespace-nowrap">
@@ -71,7 +71,7 @@ function AutoSyncCard() {
             <div className="text-gray-700">
               {last
                 ? `${fmt(last.started_at)} → ${last.finished_at ? fmt(last.finished_at) : '运行中'} （${last.reason}）`
-                : '从未运行'}
+                : (status.last_run_at ? fmt(status.last_run_at) : '从未运行')}
             </div>
           </div>
           {last && (
