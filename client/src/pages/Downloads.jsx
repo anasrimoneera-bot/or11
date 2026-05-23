@@ -76,12 +76,12 @@ export default function Downloads() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">下载支持</h1>
-        <p className="text-gray-500 text-sm">下载库存更新数据和工具文件</p>
+        <p className="text-gray-500 text-sm">下载库存价格更新数据和工具文件</p>
       </div>
 
       <div className="bg-white rounded-xl shadow border-l-4 border-blue-500 p-5">
-        <h2 className="font-semibold mb-3 text-blue-600">🌐 库存更新下载</h2>
-        <p className="text-sm text-gray-600 mb-4">下载各国库存更新数据 (XLSX 格式)。由店主端最新上传的源文件原样下发。</p>
+        <h2 className="font-semibold mb-3 text-blue-600">🌐 库存价格更新下载</h2>
+        <p className="text-sm text-gray-600 mb-4">下载各国库存价格更新数据 (XLSX 格式)。仅包含该国销售总表中的 SKU。</p>
         <div className="grid grid-cols-4 gap-3">
           {countries.map(c => {
             const s = status[c.name];
@@ -98,7 +98,7 @@ export default function Downloads() {
                 }`}
               >
                 <span className="w-full flex justify-between items-center font-medium">
-                  🌐 {c.name} 库存更新 <span>{busy === c.name ? '...' : '⬇️'}</span>
+                  🌐 {c.name} 库存价格更新 <span>{busy === c.name ? '...' : '⬇️'}</span>
                 </span>
                 <span className="text-xs opacity-80">
                   {s?.available
@@ -113,7 +113,7 @@ export default function Downloads() {
 
       <div className="bg-white rounded-xl shadow border-l-4 border-emerald-500 p-5">
         <h2 className="font-semibold mb-3 text-emerald-700">📑 各国销售总表下载</h2>
-        <p className="text-sm text-gray-600 mb-4">含 SKU 白名单 + 主图链接的精选目录（由店主端上传维护）。</p>
+        <p className="text-sm text-gray-600 mb-4">含 SKU 白名单 + 主图链接的精选目录。</p>
         <div className="grid grid-cols-4 gap-3">
           {countries.map(c => {
             const ms = masterStatus[c.name];

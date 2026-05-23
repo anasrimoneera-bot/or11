@@ -46,24 +46,23 @@ router.get('/master/:country', authRequired, (req, res) => {
 });
 
 router.get('/status', authRequired, (req, res) => {
-  // 给分销商查询用：哪些国家有数据 + 行数 + 更新时间。不暴露 source / markup / 原文件名
-  const rows = db.prepare(`
-    SELECT country,
-           MAX(uploaded_at) AS uploaded_at,
-           (SELECT rows_count FROM inventory_uploads i2 WHERE i2.country = i1.country ORDER BY uploaded_at DESC LIMIT 1) AS rows_count,
-           (SELECT in_stock_count FROM inventory_uploads i2 WHERE i2.country = i1.country ORDER BY uploaded_at DESC LIMIT 1) AS in_stock_count
-    FROM inventory_uploads i1
-    GROUP BY country
-  `).all();
-  const map = Object.fromEntries(rows.map(r => [r.country, r]));
-  res.json(Object.keys(COUNTRY_TO_CODE).map(c => ({
-    country: c,
-    code: COUNTRY_TO_CODE[c],
-    available: !!map[c],
-    uploaded_at: map[c]?.uploaded_at || null,
-    rows_count: map[c]?.rows_count || 0,
-    in_stock_count: map[c]?.in_stock_count || 0,
-  })));
+  // 给分销商查询用：行数 = 该国库存 ∩ 该国总表 SKU（没上传总表则回退显示全量库存）
+  const masterCountries = db.prepare('SELECT country FROM country_master_uploads').all().map(r => r.country);
+  const masterSet = new Set(masterCountries);
+  const uploadedAt = db.prepare('SELECT country, MAX(uploaded_at) AS uploaded_at FROM inventory_uploads GROUP BY country').all();
+  const uploadedMap = Object.fromEntries(uploadedAt.map(r => [r.country, r.uploaded_at]));
+  const countAll = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products WHERE country = ?');
+  const countStockAll = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products WHERE country = ? AND stock > 0');
+  const countFiltered = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products p WHERE p.country = ? AND p.code IN (SELECT sku FROM country_master_skus WHERE country = ?)');
+  const countStockFiltered = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products p WHERE p.country = ? AND p.stock > 0 AND p.code IN (SELECT sku FROM country_master_skus WHERE country = ?)');
+  res.json(Object.keys(COUNTRY_TO_CODE).map(c => {
+    const at = uploadedMap[c] || null;
+    if (!at) return { country: c, code: COUNTRY_TO_CODE[c], available: false, uploaded_at: null, rows_count: 0, in_stock_count: 0 };
+    const filtered = masterSet.has(c);
+    const rowsCount = filtered ? countFiltered.get(c, c).c : countAll.get(c).c;
+    const inStock = filtered ? countStockFiltered.get(c, c).c : countStockAll.get(c).c;
+    return { country: c, code: COUNTRY_TO_CODE[c], available: true, uploaded_at: at, rows_count: rowsCount, in_stock_count: inStock };
+  }));
 });
 
 // 分销商下载该国家库存 - 现场从 DB 生成 xlsx，价格已加价
@@ -78,10 +77,14 @@ router.get('/:country', authRequired, (req, res) => {
   const factor = 1 + (Number(markupRow?.markup_pct) || 0) / 100;
 
   const rows = db.prepare(`
-    SELECT code, b2b_price, stock
-    FROM dropxl_products
-    WHERE country = ?
-    ORDER BY CAST(code AS INTEGER) ASC, code ASC
+    SELECT p.code, p.b2b_price, p.stock
+    FROM dropxl_products p
+    WHERE p.country = ?
+      AND (
+        NOT EXISTS (SELECT 1 FROM country_master_uploads WHERE country = p.country)
+        OR p.code IN (SELECT sku FROM country_master_skus WHERE country = p.country)
+      )
+    ORDER BY CAST(p.code AS INTEGER) ASC, p.code ASC
   `).all(country);
 
   // 输出和 DropXL 原始模板一致的 3 列；价格替换为加价后的
