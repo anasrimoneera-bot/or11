@@ -239,6 +239,14 @@ CREATE TABLE IF NOT EXISTS country_amazon_rate (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 各币种采购汇率（外币 → CNY，独立于亚马逊汇率，含店主自定汇差）
+-- USD/EUR/GBP/PLN 四个币种，订单创建时按订单国家映射到对应币种再查这里
+CREATE TABLE IF NOT EXISTS currency_purchase_rate (
+  currency TEXT PRIMARY KEY,
+  rate REAL NOT NULL DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS aftersales_policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT UNIQUE NOT NULL,
@@ -324,6 +332,15 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   };
   const ins = db.prepare('INSERT OR IGNORE INTO country_amazon_rate (country, rate, currency) VALUES (?, 0, ?)');
   for (const [c, cur] of Object.entries(CURRENCY_BY_COUNTRY)) ins.run(c, cur);
+})();
+
+// 采购汇率初始化：USD 沿用原全局 exchange_rate_cny_per_usd 的值，其他币种默认 0 等店主填
+(function seedCurrencyPurchaseRate() {
+  const usdRow = db.prepare("SELECT value FROM settings WHERE key = 'exchange_rate_cny_per_usd'").get();
+  const usdRate = Number(usdRow?.value) || 6.86;
+  const seeds = { USD: usdRate, EUR: 0, GBP: 0, PLN: 0 };
+  const ins = db.prepare('INSERT OR IGNORE INTO currency_purchase_rate (currency, rate) VALUES (?, ?)');
+  for (const [cur, r] of Object.entries(seeds)) ins.run(cur, r);
 })();
 
 function ensureDefaultUser() {

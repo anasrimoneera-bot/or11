@@ -73,8 +73,89 @@ export default function AdminSettings() {
       </div>
 
       <AutoSyncCard />
+      <PurchaseRatesCard />
       <AmazonRatesCard />
       <DropxlAccountsCard />
+    </div>
+  );
+}
+
+const CURRENCY_INFO = {
+  USD: { symbol: '$', name: '美元', countries: '美国' },
+  EUR: { symbol: '€', name: '欧元', countries: '德国 · 法国 · 荷兰 · 意大利 · 西班牙' },
+  GBP: { symbol: '£', name: '英镑', countries: '英国' },
+  PLN: { symbol: 'zł', name: '波兰兹罗提', countries: '波兰' },
+};
+
+function PurchaseRatesCard() {
+  const [rows, setRows] = useState([]);
+  const [edits, setEdits] = useState({});
+  const [saving, setSaving] = useState(null);
+
+  const load = () => { api.get('/admin/currency-purchase-rates').then(r => setRows(r.data)); };
+  useEffect(load, []);
+
+  const save = async (currency) => {
+    const v = Number(edits[currency]);
+    if (!isFinite(v) || v < 0) return alert('请输入非负数');
+    setSaving(currency);
+    try {
+      await api.put(`/admin/currency-purchase-rates/${currency}`, { rate: v });
+      setEdits(e => { const n = { ...e }; delete n[currency]; return n; });
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || '保存失败');
+    } finally { setSaving(null); }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow border p-5 space-y-4">
+      <div className="border-b pb-3">
+        <div className="font-semibold">💰 采购各币种汇率（外币 → 人民币）</div>
+        <div className="text-xs text-gray-500 mt-1">
+          分销商提交采购订单时，按订单国家映射到对应币种再用此处汇率换算应付人民币。<br/>
+          含店主自定汇差，与亚马逊汇率独立维护。已锁定汇率的订单不会被回算。
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {['USD', 'EUR', 'GBP', 'PLN'].map(cur => {
+          const row = rows.find(r => r.currency === cur) || { currency: cur, rate: 0 };
+          const info = CURRENCY_INFO[cur];
+          const isDirty = edits[cur] !== undefined;
+          const display = isDirty ? edits[cur] : String(row.rate || '');
+          return (
+            <div key={cur} className="border rounded p-3 bg-gray-50">
+              <div className="flex justify-between items-baseline mb-1">
+                <div className="text-sm font-medium">
+                  {info.symbol} {info.name} <span className="text-xs text-gray-500 font-mono">({cur})</span>
+                </div>
+                {row.rate > 0 && (
+                  <div className="text-xs text-gray-500">1 {cur} = {row.rate} CNY</div>
+                )}
+              </div>
+              <div className="text-xs text-gray-400 mb-2">{info.countries}</div>
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  className="field text-sm"
+                  value={display}
+                  onChange={e => setEdits({ ...edits, [cur]: e.target.value })}
+                  placeholder="未设置"
+                />
+                <button
+                  onClick={() => save(cur)}
+                  disabled={!isDirty || saving === cur}
+                  className={`text-xs px-3 rounded ${isDirty ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-400'}`}
+                >
+                  {saving === cur ? '...' : '保存'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

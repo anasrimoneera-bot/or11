@@ -3,10 +3,12 @@ import api from '../api';
 
 const countries = ['美国', '英国', '德国', '法国', '意大利', '荷兰', '西班牙', '波兰'];
 const currencyByCountry = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 意大利: 'EUR', 荷兰: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+const currencySymbol = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
 
 export default function PurchaseProducts() {
   const [shops, setShops] = useState([]);
-  const [exchangeRate, setExchangeRate] = useState(null);
+  const [exchangeRate, setExchangeRate] = useState(null); // 已废弃 fallback，留作懒加载兜底
+  const [purchaseRates, setPurchaseRates] = useState({}); // { USD: 6.86, EUR: 7.8, ... }
   const [form, setForm] = useState({
     order_no: '', customer_ref: '', country: '美国', shop_name: '',
     amazon_amount: 0, amazon_tax_amount: 0, shipping_fee: 0,
@@ -23,8 +25,15 @@ export default function PurchaseProducts() {
 
   useEffect(() => {
     api.get('/orders/shop-names').then(r => setShops(r.data));
-    api.get('/settings').then(r => setExchangeRate(r.data.exchange_rate_cny_per_usd));
+    api.get('/settings').then(r => {
+      setExchangeRate(r.data.exchange_rate_cny_per_usd);
+      setPurchaseRates(r.data.purchase_rates || {});
+    });
   }, []);
+
+  // 根据当前所选国家算币种 + 该币种汇率
+  const currentCurrency = currencyByCountry[form.country] || 'USD';
+  const currentRate = purchaseRates[currentCurrency] ?? exchangeRate ?? 0;
 
   const downloadTemplate = async () => {
     try {
@@ -39,7 +48,7 @@ export default function PurchaseProducts() {
   };
 
   const purchaseUsd = form.items.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 1), 0);
-  const purchaseCny = purchaseUsd * (Number(exchangeRate) || 0);
+  const purchaseCny = purchaseUsd * (Number(currentRate) || 0);
 
   const triggerFilePicker = () => {
     // 选同一个文件时 input.value 没变 onChange 不会触发，先清空保证每次都重新解析
@@ -270,13 +279,13 @@ export default function PurchaseProducts() {
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 sticky top-0">
             <h3 className="font-semibold mb-3">💰 费用信息</h3>
             <div className="space-y-2 text-sm">
-              <Row label="币别">{currencyByCountry[form.country] || 'USD'}</Row>
+              <Row label="币别"><b>{currentCurrency}</b> <span className="text-xs text-gray-500 ml-1">({currencySymbol[currentCurrency]})</span></Row>
               <Row label="汇率">
-                <span title="由店主在系统设置中维护">
-                  {exchangeRate == null ? '加载中...' : Number(exchangeRate).toFixed(4)}
+                <span title={`由店主在系统设置 → 采购各币种汇率 中维护 (${currentCurrency})`}>
+                  {currentRate > 0 ? `1 ${currentCurrency} = ${Number(currentRate).toFixed(4)} CNY` : <span className="text-red-500">未配置 {currentCurrency} 汇率</span>}
                 </span>
               </Row>
-              <Row label="采购金额(USD)"><b>${purchaseUsd.toFixed(4)}</b></Row>
+              <Row label={`采购金额(${currentCurrency})`}><b>{currencySymbol[currentCurrency]}{purchaseUsd.toFixed(4)}</b></Row>
               <div className="border-t pt-2 mt-2 flex justify-between items-center">
                 <span>需要支付人民币：</span>
                 <b className="text-xl text-red-600">¥{purchaseCny.toFixed(2)}</b>

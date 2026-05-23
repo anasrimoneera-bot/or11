@@ -100,7 +100,9 @@ cd ..
 
 echo ""
 echo "=== 7/8 pm2 restart ==="
-pm2 restart "$PM2_NAME" --update-env
+# 用 startOrRestart 应用 ecosystem.config.js (含 node_args=--max-old-space-size=4096)
+# 否则普通 restart 不会读 ecosystem 配置，大 xlsx 解析会 OOM
+pm2 startOrRestart ecosystem.config.js --update-env
 pm2 ls
 
 echo ""

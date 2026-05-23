@@ -183,7 +183,18 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
   if (rows.length === 0) return res.status(400).json({ error: '文件中未找到有效数据行' });
 
   const enriched = rows.map(enrichRow);
-  const exchangeRate = require('../settings').getExchangeRate();
+  // 按币种取采购汇率（USD/EUR/GBP/PLN），按订单国家映射
+  const purchaseRates = Object.fromEntries(
+    db.prepare('SELECT currency, rate FROM currency_purchase_rate').all().map(r => [r.currency, r.rate])
+  );
+  const usdFallback = require('../settings').getExchangeRate();
+  const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+  const rateForCountry = (cn) => {
+    const cur = CURRENCY_BY_COUNTRY[cn] || 'USD';
+    return Number(purchaseRates[cur]) || (cur === 'USD' ? usdFallback : 0);
+  };
+  // 兼容老字段：summary 给前端展示的 'exchange_rate' 用 USD 兜底（多币种时混合，前端展示按 group 自己的 rate）
+  const exchangeRate = rateForCountry('美国');
 
   // 检测当前用户已经下过的 Amazon 订单号，预览阶段就标红屏蔽
   const existingOrderNos = new Set(
@@ -218,11 +229,14 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
         total_cny: 0,
         all_matched: true,
         errors: [],
+        currency: (CURRENCY_BY_COUNTRY[r.country_name] || 'USD'),
+        exchange_rate: rateForCountry(r.country_name), // 该 group 用的汇率
       });
     }
     const g = groupsMap.get(r.amazon_order_id);
+    const groupRate = g.exchange_rate;
     const subtotalUsd = (r.unit_price_usd || 0) * (Number(r.quantity) || 0);
-    const subtotalCny = subtotalUsd * exchangeRate;
+    const subtotalCny = subtotalUsd * groupRate;
     g.items.push({
       row_no: r.row_no,
       sku: r.sku,
@@ -271,7 +285,8 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
     }
   }
   const grandTotalUsd = groups.filter(g => g.all_matched).reduce((s, g) => s + g.total_usd, 0);
-  const grandTotalCny = grandTotalUsd * exchangeRate;
+  // 多币种 grand total CNY：每个 group 按自己的汇率算 CNY 再求和
+  const grandTotalCny = groups.filter(g => g.all_matched).reduce((s, g) => s + (g.total_cny || 0), 0);
 
   res.json({
     rows: enriched,
@@ -292,7 +307,16 @@ router.post('/submit', authRequired, async (req, res) => {
   const { rows = [] } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: '提交内容为空' });
 
-  const exchangeRate = require('../settings').getExchangeRate();
+  // 按订单国家映射币种再查采购汇率
+  const usdFallback = require('../settings').getExchangeRate();
+  const purchaseRates = Object.fromEntries(
+    db.prepare('SELECT currency, rate FROM currency_purchase_rate').all().map(r => [r.currency, r.rate])
+  );
+  const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+  const rateForCountry = (cn) => {
+    const cur = CURRENCY_BY_COUNTRY[cn] || 'USD';
+    return Number(purchaseRates[cur]) || (cur === 'USD' ? usdFallback : 0);
+  };
 
   // 按 amazon_order_id 分组：同一个亚马逊订单的多行 SKU 合并为一个 purchase_order
   const groups = new Map();
@@ -363,7 +387,9 @@ router.post('/submit', authRequired, async (req, res) => {
         continue;
       }
       const displayUsd = realUsd * factor;
-      const displayCny = displayUsd * exchangeRate;
+      // 按订单国家对应币种的采购汇率算 CNY（不再全用 USD 汇率）
+      const purchaseRate = rateForCountry(country);
+      const displayCny = displayUsd * purchaseRate;
 
       // 亚马逊到账金额预填: 全单 item-price 合计 × 0.85（剔除平台 commission/税估算）
       // 仅在导入时一次性填充，店主之后可在订单管理页手动覆写
@@ -377,7 +403,7 @@ router.post('/submit', authRequired, async (req, res) => {
           req.user.id, orderId, orderId,
           first.shop_name || null,
           country,
-          realUsd, displayUsd, displayCny, exchangeRate, markupPct,
+          realUsd, displayUsd, displayCny, purchaseRate, markupPct,
           amazonAmount, amazonRateLocked,
         );
         const id = info.lastInsertRowid;
