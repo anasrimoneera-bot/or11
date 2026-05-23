@@ -41,7 +41,38 @@ echo " OK"
 echo ""
 echo "=== 4/8 git pull ==="
 git config http.version HTTP/1.1
-git pull origin "$BRANCH" 2>&1 | tail -20
+git config --global http.lowSpeedLimit 1000
+git config --global http.lowSpeedTime 20  # 20s under 1KB/s is treated as stuck
+
+pull_ok=0
+for i in 1 2 3; do
+  echo "[attempt $i/3] git pull origin $BRANCH"
+  if timeout 60 git pull origin "$BRANCH" 2>&1 | tail -20; then
+    pull_ok=1
+    break
+  fi
+  echo " attempt $i failed (timeout or network), retrying in 3s..."
+  sleep 3
+done
+
+if [ $pull_ok -eq 0 ]; then
+  echo " direct GitHub failed, trying ghproxy mirror..."
+  ORIG_URL=$(git remote get-url origin)
+  PROXY_URL="https://ghproxy.com/$ORIG_URL"
+  git remote set-url origin "$PROXY_URL"
+  if timeout 60 git pull origin "$BRANCH" 2>&1 | tail -20; then
+    pull_ok=1
+    echo " ghproxy success."
+  fi
+  # restore origin url regardless, prefer direct on next deploy
+  git remote set-url origin "$ORIG_URL"
+fi
+
+if [ $pull_ok -eq 0 ]; then
+  echo " ERROR: git pull failed via direct and ghproxy. Network blocked?"
+  echo " manual debug: ssh server, then 'cd $REPO && git pull origin $BRANCH'"
+  exit 1
+fi
 
 echo ""
 echo "=== 5/8 npm install (root) ==="
