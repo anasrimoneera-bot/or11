@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const db = require('../db');
 const dropxl = require('../dropxl');
 const { authRequired, adminRequired } = require('../middleware/auth');
@@ -449,9 +450,6 @@ router.delete('/dropxl-accounts/:country', (req, res) => {
 // 总表：店主上传的精选 SKU 名单 + 主图链接（A 列）
 // 商品库存价格管理 / 批量采购匹配 / 分销商下载 都以总表为白名单过滤
 
-// 稀疏单元格直读：避免 sheet_to_json 全表对象化，180MB 文件可降到峰值 ~500MB
-// 通过 generator 流式吐出行，配合事务分批写入，控制内存峰值
-//
 // 表头归一化：去掉 BOM/零宽/不间断空格等隐藏字符再比较，避免「列名明明是 SKU 却识别不到」
 function normalizeHeader(v) {
   return String(v == null ? '' : v)
@@ -460,55 +458,76 @@ function normalizeHeader(v) {
     .toLowerCase();
 }
 
-// 在前若干行里找表头行 + SKU/Image 列。返回 { headerRow, skuCol, imgCol, headers }
-// 表头不一定在第 1 行（有的导出工具会在顶部留标题行/空行），故扫描前 25 行
-function detectMasterColumns(sheet, range) {
-  const maxScan = Math.min(range.s.r + 24, range.e.r);
-  let firstNonEmpty = null;
-  for (let r = range.s.r; r <= maxScan; r++) {
-    let skuCol = -1, imgCol = -1;
-    const headers = [];
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-      if (!cell || cell.v == null) continue;
-      const raw = String(cell.v).trim();
-      const v = normalizeHeader(cell.v);
-      if (v) headers.push(raw);
-      // SKU 列：精确等于 sku，或作为独立词出现（如 "Seller SKU"/"商品SKU"）
-      if (skuCol < 0 && (v === 'sku' || /(^|[^a-z])sku([^a-z]|$)/.test(v))) skuCol = c;
-      if (imgCol < 0 && (v === 'image 1' || v === 'image' || v === 'image_url' || v === 'image1' || /(^|[^a-z])image([^a-z]|$)/.test(v))) imgCol = c;
-    }
-    if (headers.length && !firstNonEmpty) firstNonEmpty = { row: r, headers };
-    if (skuCol >= 0) return { headerRow: r, skuCol, imgCol, headers };
+// exceljs 单元格值 → 纯文本（兼容数字 / 富文本 / 公式结果 / 超链接对象）
+function cellText(v) {
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map(t => t.text || '').join('');
+    if (v.text != null) return String(v.text);
+    if (v.hyperlink != null) return String(v.hyperlink);
+    if (v.result != null) return String(v.result);
+    return '';
   }
-  return { headerRow: -1, skuCol: -1, imgCol: -1, headers: firstNonEmpty?.headers || [] };
+  return String(v);
 }
 
-function* iterMasterXlsxRows(filePath) {
-  // 只读结构、跳过 cellNF/HTML，关掉日期转换以省 CPU 和内存
-  const wb = XLSX.readFile(filePath, { cellHTML: false, cellNF: false, cellDates: false });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet || !sheet['!ref']) throw new Error('文件为空或第一个工作表没有数据');
-  const range = XLSX.utils.decode_range(sheet['!ref']);
-  const { headerRow, skuCol, imgCol, headers } = detectMasterColumns(sheet, range);
-  if (skuCol < 0) {
-    const found = headers.length ? `检测到的表头：${headers.slice(0, 30).join(' | ')}` : '前几行均为空';
-    throw new Error(`未找到 SKU 列（${found}）。请确认总表含名为 "SKU" 的列`);
-  }
-  for (let r = headerRow + 1; r <= range.e.r; r++) {
-    const skuCell = sheet[XLSX.utils.encode_cell({ r, c: skuCol })];
-    if (!skuCell || skuCell.v == null) continue;
-    const sku = String(skuCell.v).trim();
-    if (!sku) continue;
-    let img = null;
-    if (imgCol >= 0) {
-      const imgCell = sheet[XLSX.utils.encode_cell({ r, c: imgCol })];
-      if (imgCell?.v) {
-        const u = String(imgCell.v).trim();
+const SKU_RE = /(^|[^a-z])sku([^a-z]|$)/;
+const IMG_RE = /(^|[^a-z])image([^a-z]|$)/;
+function matchSkuHeader(norm) { return norm === 'sku' || SKU_RE.test(norm); }
+function matchImgHeader(norm) {
+  return norm === 'image 1' || norm === 'image' || norm === 'image_url' || norm === 'image1' || IMG_RE.test(norm);
+}
+
+// 流式读总表（exceljs WorkbookReader）：内存恒定 ~百 MB，可处理 24 万+ 行、
+// 含超长 HTML 描述列的大文件。XLSX.readFile 会把整张表读成一个超大字符串，
+// 超过 V8 ~512MB 字符串上限会直接报错，且峰值内存动辄数 GB，撑不住这种文件。
+// 单遍扫描：先在前 25 行里定位含 SKU 的表头行，之后逐行 yield {sku, image_url}。
+async function* iterMasterXlsxRows(filePath) {
+  const wb = new ExcelJS.stream.xlsx.WorkbookReader(filePath, {
+    sharedStrings: 'cache', styles: 'ignore', hyperlinks: 'ignore', worksheets: 'emit',
+  });
+  let sheetDone = false;
+  for await (const ws of wb) {
+    if (sheetDone) break; // 只读第一个工作表
+    sheetDone = true;
+
+    let skuCol = -1, imgCol = -1, headerFound = false, scanned = 0;
+    let diagHeaders = [];
+
+    for await (const row of ws) {
+      if (!headerFound) {
+        scanned++;
+        const cells = [];
+        row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+          const raw = cellText(cell.value).trim();
+          if (raw) cells.push({ col: colNumber, raw, norm: normalizeHeader(cell.value) });
+        });
+        for (const c of cells) {
+          if (skuCol < 0 && matchSkuHeader(c.norm)) skuCol = c.col;
+          if (imgCol < 0 && matchImgHeader(c.norm)) imgCol = c.col;
+        }
+        if (cells.length && diagHeaders.length === 0) diagHeaders = cells.map(c => c.raw);
+        if (skuCol >= 0) { headerFound = true; continue; } // 表头行本身不算数据
+        if (scanned >= 25) {
+          const found = diagHeaders.length ? `检测到的表头：${diagHeaders.slice(0, 30).join(' | ')}` : '前 25 行均为空';
+          throw new Error(`未找到 SKU 列（${found}）。请确认总表含名为 "SKU" 的列`);
+        }
+        continue;
+      }
+      const sku = cellText(row.getCell(skuCol).value).trim();
+      if (!sku) continue;
+      let img = null;
+      if (imgCol >= 0) {
+        const u = cellText(row.getCell(imgCol).value).trim();
         if (/^https?:\/\//i.test(u)) img = u;
       }
+      yield { sku, image_url: img };
     }
-    yield { sku, image_url: img };
+
+    if (!headerFound) {
+      const found = diagHeaders.length ? `检测到的表头：${diagHeaders.slice(0, 30).join(' | ')}` : '工作表为空';
+      throw new Error(`未找到 SKU 列（${found}）。请确认总表含名为 "SKU" 的列`);
+    }
   }
 }
 
@@ -538,7 +557,7 @@ router.post('/master-upload/:country', masterUploadMw, (req, res) => {
   res.json({ ok: true, country, queued: true });
 
   // 异步处理（不 await，让 response 已发送）
-  setImmediate(() => {
+  setImmediate(async () => {
     const job = masterImportJobs.get(country);
     const username = req.user.username;
     try {
@@ -564,7 +583,7 @@ router.post('/master-upload/:country', masterUploadMw, (req, res) => {
       const flushBatch = db.transaction((arr) => {
         for (const r of arr) ins.run(country, r.sku, r.image_url, now);
       });
-      for (const row of iterMasterXlsxRows(storedPath)) {
+      for await (const row of iterMasterXlsxRows(storedPath)) {
         batch.push(row);
         if (batch.length >= BATCH) {
           flushBatch(batch);
@@ -643,6 +662,5 @@ module.exports = router;
 // 供 scheduler 调用：自动同步时复用同一套 job 跟踪逻辑
 module.exports.runCountryApiSync = runCountryApiSync;
 module.exports.apiSyncJobs = apiSyncJobs;
-// 供测试用：总表表头检测 + 行迭代
+// 供测试用：总表流式行迭代
 module.exports.iterMasterXlsxRows = iterMasterXlsxRows;
-module.exports.detectMasterColumns = detectMasterColumns;
