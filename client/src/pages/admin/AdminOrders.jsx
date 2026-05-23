@@ -210,14 +210,22 @@ export default function AdminOrders() {
               const profit = sales > 0 ? sales - purchase : 0;
               const amazonRate = Number(o.amazon_rate_locked) || 0;
               const profitCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate - purchaseCny : 0;
+              // 店主成本列合计：真实(USD) / 真实采购价(¥) / 差价利润(¥)
+              const realUsd = Number(o.real_amount_usd) || 0;
+              const paypalRate = Number(o.paypal_rate) || 0;
+              const realCny = paypalRate > 0 ? realUsd / paypalRate : 0; // 未填 PayPal 汇率的不计入
+              const profitDiff = paypalRate > 0 ? purchaseCny - realCny : 0;
               return {
                 sales: a.sales + sales,
                 purchase: a.purchase + purchase,
                 purchaseCny: a.purchaseCny + purchaseCny,
                 profit: a.profit + profit,
                 profitCny: a.profitCny + profitCny,
+                realUsd: a.realUsd + realUsd,
+                realCny: a.realCny + realCny,
+                profitDiff: a.profitDiff + profitDiff,
               };
-            }, { sales: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0 });
+            }, { sales: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0, realUsd: 0, realCny: 0, profitDiff: 0 });
             return (
               <tfoot className="bg-gray-50 border-t-2 font-semibold">
                 <tr>
@@ -235,7 +243,15 @@ export default function AdminOrders() {
                       title="本页合计：总人民币利润 / 总人民币采购价">
                     {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
                   </td>
-                  {canSeeCost && <><td /><td /><td /><td /><td /></>}
+                  {canSeeCost && <>
+                    <td className="px-3 py-2.5 text-right text-red-600">${t.realUsd.toFixed(2)}</td>
+                    <td />
+                    <td />
+                    <td className="px-3 py-2.5 text-right text-red-600">¥{t.realCny.toFixed(2)}</td>
+                    <td className={`px-3 py-2.5 text-right ${t.profitDiff >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {t.profitDiff >= 0 ? '+' : ''}¥{t.profitDiff.toFixed(2)}
+                    </td>
+                  </>}
                   <td colSpan={5} />
                 </tr>
               </tfoot>
