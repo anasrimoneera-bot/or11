@@ -100,9 +100,11 @@ cd ..
 
 echo ""
 echo "=== 7/8 pm2 restart ==="
-# 用 startOrRestart 应用 ecosystem.config.js (含 node_args=--max-old-space-size=4096)
-# 否则普通 restart 不会读 ecosystem 配置，大 xlsx 解析会 OOM
-pm2 startOrRestart ecosystem.config.js --update-env
+# 必须 delete + start 才能强制应用 ecosystem.config.js 里新的 node_args
+# (pm2 startOrRestart / restart 都不会改已运行进程的 node-args)
+pm2 delete "$PM2_NAME" >/dev/null 2>&1 || true
+pm2 start ecosystem.config.js --update-env
+pm2 save >/dev/null 2>&1 || true
 pm2 ls
 
 echo ""

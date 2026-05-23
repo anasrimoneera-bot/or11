@@ -267,7 +267,16 @@ function MasterCard({ country, status, onChange }) {
         {xhrUploading && <div className="text-blue-600 mt-0.5">⬆️ 上传中（可切换页面）</div>}
         {importStatus === 'parsing' && <div className="text-blue-600 mt-0.5">⏳ 解析中…</div>}
         {importStatus === 'writing' && <div className="text-blue-600 mt-0.5">⏳ 已写入 {status.import_rows || 0}</div>}
-        {failed && <div className="text-red-600 mt-0.5" title={status.import_error}>✗ 导入失败</div>}
+        {failed && (
+          <div className="text-red-600 mt-0.5">
+            ✗ 导入失败
+            {status.import_error && (
+              <div className="text-xs text-red-500 mt-0.5 break-all" style={{ wordBreak: 'break-all' }}>
+                {status.import_error}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
       <button
