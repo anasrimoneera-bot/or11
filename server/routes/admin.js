@@ -370,6 +370,28 @@ router.post('/orders/:id/reject', (req, res) => {
   res.json({ ok: true });
 });
 
+// 分配订单归属用户（解决历史订单挂在错的账户上的问题）
+router.put('/orders/:id/assign', (req, res) => {
+  const { user_id } = req.body || {};
+  const targetId = Number(user_id);
+  if (!targetId) return res.status(400).json({ error: '请选择用户' });
+  const target = db.prepare('SELECT id, username, display_name, is_admin FROM users WHERE id = ?').get(targetId);
+  if (!target) return res.status(404).json({ error: '目标用户不存在' });
+  if (target.is_admin) return res.status(400).json({ error: '不能把订单分配给管理员账号，请选分销商' });
+  const order = db.prepare('SELECT id, order_no, user_id FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  const oldUser = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(order.user_id);
+  db.prepare('UPDATE purchase_orders SET user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(targetId, order.id);
+  const oldLabel = oldUser ? `${oldUser.display_name || ''}(${oldUser.username})` : `#${order.user_id}`;
+  const newLabel = `${target.display_name || ''}(${target.username})`;
+  setAudit(res, {
+    target_id: String(order.id),
+    target_name: order.order_no,
+    summary: `订单 ${order.order_no} 归属 ${oldLabel} → ${newLabel}`,
+  });
+  res.json({ ok: true });
+});
+
 router.put('/orders/:id', (req, res) => {
   const { status, tracking_no, amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
   const amazonAmt = amazon_amount === undefined ? null : Number(amazon_amount);

@@ -23,6 +23,7 @@ export default function AdminOrders() {
   const [me, setMe] = useState(null);
   const [filters, setFilters] = useState({ status: 'pending_purchase', q: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
+  const [assignOrder, setAssignOrder] = useState(null);
   const isOwner = !!me?.is_owner;
 
   const load = () => {
@@ -140,7 +141,14 @@ export default function AdminOrders() {
               return (
               <tr key={o.id} className="border-t hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
-                <td className="px-3 py-2">{o.display_name || o.username}</td>
+                <td className="px-3 py-2">
+                  <div>{o.display_name || o.username}</div>
+                  <button
+                    onClick={() => setAssignOrder(o)}
+                    className="text-xs text-blue-600 hover:underline mt-0.5"
+                    title="把订单归属改到另一个分销商账号"
+                  >👤 分配</button>
+                </td>
                 <td className="px-3 py-2">{o.country} / {o.shop_name || '-'}</td>
                 <td className="px-3 py-2 text-right">
                   <EditableAmount
@@ -222,6 +230,107 @@ export default function AdminOrders() {
           ? <Suspense fallback={null}><OwnerConfirmModal order={confirmOrder} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} /></Suspense>
           : <StaffConfirmModal order={confirmOrder} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} />
       )}
+
+      {assignOrder && (
+        <AssignOrderModal
+          order={assignOrder}
+          onClose={() => setAssignOrder(null)}
+          onDone={() => { setAssignOrder(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AssignOrderModal({ order, onClose, onDone }) {
+  const [users, setUsers] = useState([]);
+  const [q, setQ] = useState('');
+  const [selected, setSelected] = useState(order.user_id || null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get('/admin/users').then(r => setUsers(r.data || []));
+  }, []);
+
+  const filtered = users.filter(u => {
+    if (!q.trim()) return true;
+    const k = q.trim().toLowerCase();
+    return (u.username || '').toLowerCase().includes(k)
+        || (u.display_name || '').toLowerCase().includes(k)
+        || (u.email || '').toLowerCase().includes(k);
+  });
+
+  const save = async () => {
+    if (!selected) return alert('请先选一个分销商');
+    if (selected === order.user_id) return alert('该订单当前已经属于这个用户，无需改动');
+    if (!confirm(`确认把订单 ${order.order_no} 的归属改为该用户？\n改完后会出现在该用户的订单管理列表里。`)) return;
+    setSaving(true);
+    try {
+      await api.put(`/admin/orders/${order.id}/assign`, { user_id: selected });
+      onDone();
+    } catch (e) {
+      alert(e.response?.data?.error || '分配失败');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex justify-between items-center p-4 border-b">
+          <div>
+            <div className="font-bold">👤 分配订单归属用户</div>
+            <div className="text-xs text-gray-500 mt-1">
+              订单号 <span className="font-mono">{order.order_no}</span> · 当前归属：
+              <b>{order.display_name || order.username || `#${order.user_id}`}</b>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+
+        <div className="p-4 border-b">
+          <input
+            className="field w-full"
+            placeholder="搜索用户名 / 显示名 / 邮箱"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {filtered.length === 0 && <div className="text-center text-gray-400 py-8 text-sm">没有匹配的用户</div>}
+          {filtered.map(u => (
+            <label
+              key={u.id}
+              className={`flex items-center gap-3 px-3 py-2 rounded cursor-pointer hover:bg-blue-50 ${selected === u.id ? 'bg-blue-100' : ''}`}
+            >
+              <input
+                type="radio"
+                name="assign-user"
+                checked={selected === u.id}
+                onChange={() => setSelected(u.id)}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm">
+                  <b>{u.display_name || u.username}</b>
+                  <span className="text-gray-400 ml-2 text-xs font-mono">@{u.username}</span>
+                  {u.id === order.user_id && <span className="ml-2 text-xs text-blue-600">(当前归属)</span>}
+                </div>
+                {(u.email || u.company) && (
+                  <div className="text-xs text-gray-500 truncate">{u.email}{u.company ? ' · ' + u.company : ''}</div>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+
+        <div className="border-t p-3 flex justify-end gap-2">
+          <button onClick={onClose} className="btn btn-ghost border">取消</button>
+          <button onClick={save} disabled={saving || !selected} className="btn btn-primary">
+            {saving ? '保存中...' : '✓ 确认分配'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
