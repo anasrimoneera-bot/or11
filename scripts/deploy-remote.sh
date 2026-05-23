@@ -44,33 +44,45 @@ git config http.version HTTP/1.1
 git config --global http.lowSpeedLimit 1000
 git config --global http.lowSpeedTime 20  # 20s under 1KB/s is treated as stuck
 
+# NOTE: do NOT pipe through tail in the if-condition; pipe exit code = tail's = always 0
+# We capture output, check git's actual exit code, then print last 20 lines.
 pull_ok=0
 for i in 1 2 3; do
   echo "[attempt $i/3] git pull origin $BRANCH"
-  if timeout 60 git pull origin "$BRANCH" 2>&1 | tail -20; then
+  OUT=$(timeout 60 git pull origin "$BRANCH" 2>&1)
+  RC=$?
+  echo "$OUT" | tail -20
+  if [ $RC -eq 0 ]; then
     pull_ok=1
     break
   fi
-  echo " attempt $i failed (timeout or network), retrying in 3s..."
+  echo " attempt $i FAILED (exit $RC), retrying in 3s..."
   sleep 3
 done
 
 if [ $pull_ok -eq 0 ]; then
-  echo " direct GitHub failed, trying ghproxy mirror..."
+  echo ""
+  echo " direct GitHub failed all 3 attempts, trying ghproxy mirror..."
   ORIG_URL=$(git remote get-url origin)
   PROXY_URL="https://ghproxy.com/$ORIG_URL"
   git remote set-url origin "$PROXY_URL"
-  if timeout 60 git pull origin "$BRANCH" 2>&1 | tail -20; then
+  OUT=$(timeout 90 git pull origin "$BRANCH" 2>&1)
+  RC=$?
+  echo "$OUT" | tail -20
+  if [ $RC -eq 0 ]; then
     pull_ok=1
     echo " ghproxy success."
+  else
+    echo " ghproxy also failed (exit $RC)."
   fi
   # restore origin url regardless, prefer direct on next deploy
   git remote set-url origin "$ORIG_URL"
 fi
 
 if [ $pull_ok -eq 0 ]; then
-  echo " ERROR: git pull failed via direct and ghproxy. Network blocked?"
-  echo " manual debug: ssh server, then 'cd $REPO && git pull origin $BRANCH'"
+  echo ""
+  echo " ERROR: git pull failed via direct AND ghproxy. Network blocked?"
+  echo " manual debug on server: cd $REPO && git pull origin $BRANCH"
   exit 1
 fi
 
