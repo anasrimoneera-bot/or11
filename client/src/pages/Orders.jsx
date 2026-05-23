@@ -111,6 +111,7 @@ export default function Orders() {
                 <th className="px-3 py-2 text-right">采购(USD)</th>
                 <th className="px-3 py-2 text-right">采购(¥)</th>
                 <th className="px-3 py-2 text-right">利润 (USD)</th>
+                <th className="px-3 py-2 text-right" title="人民币利润 = 亚马逊金额 × 锁定汇率 − 采购(¥)">利润 (¥)</th>
                 <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
                 <th className="px-3 py-2 text-left">物流跟踪号</th>
                 <th className="px-3 py-2 text-left">状态</th>
@@ -146,6 +147,10 @@ export default function Orders() {
                   <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
                   </td>
+                  <td className={`px-3 py-2 text-right font-semibold ${!canComputeCny ? 'text-gray-400' : profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                      title={canComputeCny ? `按订单锁定亚马逊汇率 ${amazonRate} 计算` : (sales === 0 ? '未填亚马逊金额' : '该国未设亚马逊汇率')}>
+                    {!canComputeCny ? '—' : `${profitCny >= 0 ? '+' : ''}¥${profitCny.toFixed(2)}`}
+                  </td>
                   <td className={`px-3 py-2 text-right font-semibold ${!canComputeRate ? 'text-gray-400' : profitRate >= 0 ? 'text-green-700' : 'text-red-600'}`}
                       title={canComputeRate ? `按订单锁定亚马逊汇率 ${amazonRate} 计算` : (sales === 0 ? '未填亚马逊金额' : '该国未设亚马逊汇率')}>
                     {!canComputeRate ? '—' : `${profitRate >= 0 ? '+' : ''}${(profitRate * 100).toFixed(2)}%`}
@@ -160,8 +165,46 @@ export default function Orders() {
                   </td>
                 </tr>
               );})}
-              {orders.length === 0 && <tr><td colSpan="12" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
+              {orders.length === 0 && <tr><td colSpan="13" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
+            {orders.length > 0 && (() => {
+              const t = orders.reduce((a, o) => {
+                const sales = Number(o.amazon_amount) || 0;
+                const purchase = Number(o.purchase_amount_usd) || 0;
+                const purchaseCny = Number(o.purchase_amount_cny) || 0;
+                const amazonRate = Number(o.amazon_rate_locked) || 0;
+                const profit = sales > 0 ? sales - purchase : 0;
+                const profitCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate - purchaseCny : 0;
+                return {
+                  sales: a.sales + sales,
+                  purchase: a.purchase + purchase,
+                  purchaseCny: a.purchaseCny + purchaseCny,
+                  profit: a.profit + profit,
+                  profitCny: a.profitCny + profitCny,
+                };
+              }, { sales: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0 });
+              return (
+                <tfoot className="bg-gray-50 border-t-2 font-semibold">
+                  <tr>
+                    <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({orders.length} 单)</td>
+                    <td className="px-3 py-2.5 text-right">${t.sales.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 text-right">${t.purchase.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 text-right text-red-600">¥{t.purchaseCny.toFixed(2)}</td>
+                    <td className={`px-3 py-2.5 text-right ${t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right ${t.profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {t.profitCny >= 0 ? '+' : ''}¥{t.profitCny.toFixed(2)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right ${(t.purchaseCny > 0 && t.profitCny >= 0) ? 'text-green-700' : t.purchaseCny > 0 ? 'text-red-600' : 'text-gray-400'}`}
+                        title="本页合计：总人民币利润 / 总人民币采购价">
+                      {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
+                    </td>
+                    <td colSpan={4} />
+                  </tr>
+                </tfoot>
+              );
+            })()}
           </table>
         </div>
       </div>
