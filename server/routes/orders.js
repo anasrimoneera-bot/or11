@@ -87,8 +87,9 @@ router.post('/', authRequired, async (req, res) => {
     shipping_address,
   } = req.body || {};
 
-  // 汇率统一由店主在系统设置中维护，分销商提交的值会被忽略
-  const exchange_rate = require('../settings').getExchangeRate();
+  // 采购汇率 = 该国亚马逊汇率 × 1.012，按订单国家取；未设置则回退到旧全局 USD 汇率
+  const { purchaseRateForCountry, getExchangeRate } = require('../settings');
+  const exchange_rate = purchaseRateForCountry(country) || getExchangeRate();
 
   if (!order_no) return res.status(400).json({ error: '请填写订单号' });
   if (!items.length) return res.status(400).json({ error: '请至少添加一个商品' });

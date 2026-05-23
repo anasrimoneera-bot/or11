@@ -500,26 +500,7 @@ router.put('/orders/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// 采购各币种汇率（USD/EUR/GBP/PLN → CNY，下单时按订单国家映射到币种再查）
-router.get('/currency-purchase-rates', (req, res) => {
-  const rows = db.prepare('SELECT currency, rate, updated_at FROM currency_purchase_rate ORDER BY currency').all();
-  res.json(rows);
-});
-router.put('/currency-purchase-rates/:currency', ownerRequired, (req, res) => {
-  const currency = String(req.params.currency || '').toUpperCase();
-  if (!['USD', 'EUR', 'GBP', 'PLN'].includes(currency)) return res.status(400).json({ error: '不支持的币种' });
-  const v = Number(req.body?.rate);
-  if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入非负数' });
-  const existing = db.prepare('SELECT rate FROM currency_purchase_rate WHERE currency = ?').get(currency);
-  db.prepare(`
-    INSERT INTO currency_purchase_rate (currency, rate, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(currency) DO UPDATE SET rate = excluded.rate, updated_at = excluded.updated_at
-  `).run(currency, v);
-  setAudit(res, { target_name: currency, summary: `${currency} 采购汇率 ${existing?.rate || 0} → ${v}` });
-  res.json({ ok: true });
-});
-
-// 亚马逊各国汇率（与采购汇率分离；店主可写）
+// 亚马逊各国汇率（采购汇率 = 此汇率 × 1.012 自动推导；店主可写）
 router.get('/country-amazon-rates', (req, res) => {
   const rows = db.prepare('SELECT country, rate, currency, updated_at FROM country_amazon_rate ORDER BY country').all();
   res.json(rows);

@@ -183,17 +183,11 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
   if (rows.length === 0) return res.status(400).json({ error: '文件中未找到有效数据行' });
 
   const enriched = rows.map(enrichRow);
-  // 按币种取采购汇率（USD/EUR/GBP/PLN），按订单国家映射
-  const purchaseRates = Object.fromEntries(
-    db.prepare('SELECT currency, rate FROM currency_purchase_rate').all().map(r => [r.currency, r.rate])
-  );
-  const usdFallback = require('../settings').getExchangeRate();
+  // 采购汇率 = 该国亚马逊汇率 × 1.012，按订单国家取
+  const { purchaseRateForCountry } = require('../settings');
   const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
-  const rateForCountry = (cn) => {
-    const cur = CURRENCY_BY_COUNTRY[cn] || 'USD';
-    return Number(purchaseRates[cur]) || (cur === 'USD' ? usdFallback : 0);
-  };
-  // 兼容老字段：summary 给前端展示的 'exchange_rate' 用 USD 兜底（多币种时混合，前端展示按 group 自己的 rate）
+  const rateForCountry = (cn) => purchaseRateForCountry(cn);
+  // 兼容老字段：summary 给前端展示的 'exchange_rate'
   const exchangeRate = rateForCountry('美国');
 
   // 检测当前用户已经下过的 Amazon 订单号，预览阶段就标红屏蔽
@@ -307,16 +301,9 @@ router.post('/submit', authRequired, async (req, res) => {
   const { rows = [] } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: '提交内容为空' });
 
-  // 按订单国家映射币种再查采购汇率
-  const usdFallback = require('../settings').getExchangeRate();
-  const purchaseRates = Object.fromEntries(
-    db.prepare('SELECT currency, rate FROM currency_purchase_rate').all().map(r => [r.currency, r.rate])
-  );
-  const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
-  const rateForCountry = (cn) => {
-    const cur = CURRENCY_BY_COUNTRY[cn] || 'USD';
-    return Number(purchaseRates[cur]) || (cur === 'USD' ? usdFallback : 0);
-  };
+  // 采购汇率 = 该国亚马逊汇率 × 1.012
+  const { purchaseRateForCountry } = require('../settings');
+  const rateForCountry = (cn) => purchaseRateForCountry(cn);
 
   // 按 amazon_order_id 分组：同一个亚马逊订单的多行 SKU 合并为一个 purchase_order
   const groups = new Map();

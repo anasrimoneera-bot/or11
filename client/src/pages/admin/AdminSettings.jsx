@@ -1,34 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
-
 export default function AdminSettings() {
-  const [rate, setRate] = useState('');
-  const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState(null);
-
-  useEffect(() => {
-    api.get('/admin/settings').then(r => {
-      setRate(String(r.data.exchange_rate_cny_per_usd ?? ''));
-      setLoaded(true);
-    });
-  }, []);
-
-  const save = async () => {
-    const v = Number(rate);
-    if (!isFinite(v) || v <= 0) return alert('汇率必须是正数');
-    setSaving(true);
-    try {
-      await api.put('/admin/settings', { exchange_rate_cny_per_usd: v });
-      setSavedAt(new Date());
-    } catch (e) {
-      alert(e.response?.data?.error || '保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -37,125 +10,9 @@ export default function AdminSettings() {
         <p className="text-gray-500 text-sm mt-1">这里维护的参数对所有分销商生效。</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow border p-5 space-y-4">
-        <div className="border-b pb-3">
-          <div className="font-semibold">💱 人民币 / 美元汇率</div>
-          <div className="text-xs text-gray-500 mt-1">
-            分销商提交新订单时按此汇率换算人民币应付金额。<br />
-            已锁定汇率的订单（已提交未确认/已确认）不会被回算。
-          </div>
-        </div>
-        {!loaded ? (
-          <div className="text-gray-400 text-sm">加载中...</div>
-        ) : (
-          <div className="flex items-end gap-3">
-            <div className="flex-1 max-w-xs">
-              <label className="text-xs text-gray-500">1 USD = ? CNY</label>
-              <input
-                type="number"
-                step="0.0001"
-                min="0"
-                className="field"
-                value={rate}
-                onChange={e => setRate(e.target.value)}
-              />
-            </div>
-            <button onClick={save} disabled={saving} className="btn btn-primary">
-              {saving ? '保存中...' : '保存'}
-            </button>
-            {savedAt && (
-              <span className="text-xs text-green-600 mb-2">
-                ✓ 已保存于 {savedAt.toLocaleTimeString()}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
       <AutoSyncCard />
-      <PurchaseRatesCard />
       <AmazonRatesCard />
       <DropxlAccountsCard />
-    </div>
-  );
-}
-
-const CURRENCY_INFO = {
-  USD: { symbol: '$', name: '美元', countries: '美国' },
-  EUR: { symbol: '€', name: '欧元', countries: '德国 · 法国 · 荷兰 · 意大利 · 西班牙' },
-  GBP: { symbol: '£', name: '英镑', countries: '英国' },
-  PLN: { symbol: 'zł', name: '波兰兹罗提', countries: '波兰' },
-};
-
-function PurchaseRatesCard() {
-  const [rows, setRows] = useState([]);
-  const [edits, setEdits] = useState({});
-  const [saving, setSaving] = useState(null);
-
-  const load = () => { api.get('/admin/currency-purchase-rates').then(r => setRows(r.data)); };
-  useEffect(load, []);
-
-  const save = async (currency) => {
-    const v = Number(edits[currency]);
-    if (!isFinite(v) || v < 0) return alert('请输入非负数');
-    setSaving(currency);
-    try {
-      await api.put(`/admin/currency-purchase-rates/${currency}`, { rate: v });
-      setEdits(e => { const n = { ...e }; delete n[currency]; return n; });
-      load();
-    } catch (err) {
-      alert(err.response?.data?.error || '保存失败');
-    } finally { setSaving(null); }
-  };
-
-  return (
-    <div className="bg-white rounded-xl shadow border p-5 space-y-4">
-      <div className="border-b pb-3">
-        <div className="font-semibold">💰 采购各币种汇率（外币 → 人民币）</div>
-        <div className="text-xs text-gray-500 mt-1">
-          分销商提交采购订单时，按订单国家映射到对应币种再用此处汇率换算应付人民币。<br/>
-          含店主自定汇差，与亚马逊汇率独立维护。已锁定汇率的订单不会被回算。
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {['USD', 'EUR', 'GBP', 'PLN'].map(cur => {
-          const row = rows.find(r => r.currency === cur) || { currency: cur, rate: 0 };
-          const info = CURRENCY_INFO[cur];
-          const isDirty = edits[cur] !== undefined;
-          const display = isDirty ? edits[cur] : String(row.rate || '');
-          return (
-            <div key={cur} className="border rounded p-3 bg-gray-50">
-              <div className="flex justify-between items-baseline mb-1">
-                <div className="text-sm font-medium">
-                  {info.symbol} {info.name} <span className="text-xs text-gray-500 font-mono">({cur})</span>
-                </div>
-                {row.rate > 0 && (
-                  <div className="text-xs text-gray-500">1 {cur} = {row.rate} CNY</div>
-                )}
-              </div>
-              <div className="text-xs text-gray-400 mb-2">{info.countries}</div>
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  className="field text-sm"
-                  value={display}
-                  onChange={e => setEdits({ ...edits, [cur]: e.target.value })}
-                  placeholder="未设置"
-                />
-                <button
-                  onClick={() => save(cur)}
-                  disabled={!isDirty || saving === cur}
-                  className={`text-xs px-3 rounded ${isDirty ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-400'}`}
-                >
-                  {saving === cur ? '...' : '保存'}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -274,9 +131,9 @@ function AmazonRatesCard() {
       <div className="border-b pb-3">
         <div className="font-semibold">🌐 亚马逊各国汇率（外币 → 人民币）</div>
         <div className="text-xs text-gray-500 mt-1">
-          仅用于订单管理页计算"亚马逊金额对应的人民币利润"。
-          <b>与采购汇率独立维护</b>（采购汇率含店主自定汇差不能拿来算亚马逊收入）。<br/>
-          店主在订单管理页保存亚马逊金额时，会用<b>当下设定的汇率锁定</b>到该订单上；之后修改本页汇率不会影响已锁定的订单。
+          ① 订单管理页计算"亚马逊金额对应的人民币利润"用此汇率。<br/>
+          ② <b>分销商采购汇率 = 此汇率 × 1.012</b>（自动加 1.2% 店主汇差），下单时按订单国家自动锁定，不再单独维护采购汇率。<br/>
+          店主在订单管理页保存亚马逊金额时，会用<b>当下汇率锁定</b>到该订单；之后改本页汇率不影响已锁定订单。
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

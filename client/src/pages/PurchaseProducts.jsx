@@ -27,13 +27,14 @@ export default function PurchaseProducts() {
     api.get('/orders/shop-names').then(r => setShops(r.data));
     api.get('/settings').then(r => {
       setExchangeRate(r.data.exchange_rate_cny_per_usd);
-      setPurchaseRates(r.data.purchase_rates || {});
+      // 采购汇率按国家给（= 该国亚马逊汇率 × 1.012）
+      setPurchaseRates(r.data.purchase_rate_by_country || {});
     });
   }, []);
 
-  // 根据当前所选国家算币种 + 该币种汇率
+  // 当前国家的币种 + 采购汇率（亚马逊汇率 ×1.012）
   const currentCurrency = currencyByCountry[form.country] || 'USD';
-  const currentRate = purchaseRates[currentCurrency] ?? exchangeRate ?? 0;
+  const currentRate = purchaseRates[form.country] ?? 0;
 
   const downloadTemplate = async () => {
     try {
