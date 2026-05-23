@@ -27,6 +27,7 @@ export default function Orders() {
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ status: 'all', country: '', shop: '', q: '', start: '', end: '' });
   const [shops, setShops] = useState([]);
+  const [detailId, setDetailId] = useState(null);
 
   const load = () => {
     const params = {};
@@ -125,7 +126,7 @@ export default function Orders() {
                   <td className="px-3 py-2 text-right">
                     <EditableAmount value={o.amazon_amount || 0} onSave={async (v) => { await api.put(`/orders/${o.id}`, { amazon_amount: v }); load(); }} />
                   </td>
-                  <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(4)}</td>
+                  <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(2)}</td>
                   <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
                   <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
@@ -136,13 +137,127 @@ export default function Orders() {
                   </td>
                   <td className="px-3 py-2">{(o.created_at || '').replace('T', ' ').slice(0, 19)}</td>
                   <td className="px-3 py-2 text-right">
-                    <button className="text-blue-600 hover:underline text-xs mr-2">查看</button>
+                    <button onClick={() => setDetailId(o.id)} className="text-blue-600 hover:underline text-xs mr-2">查看</button>
                   </td>
                 </tr>
               );})}
               {orders.length === 0 && <tr><td colSpan="10" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {detailId && <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />}
+    </div>
+  );
+}
+
+const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
+
+function OrderDetailModal({ id, onClose }) {
+  const [order, setOrder] = useState(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    api.get(`/orders/${id}`)
+      .then(r => setOrder(r.data))
+      .catch(e => setErr(e.response?.data?.error || '加载失败'));
+  }, [id]);
+
+  const currency = order ? (CURRENCY_BY_COUNTRY[order.country] || 'USD') : 'USD';
+  const symbol = CURRENCY_SYMBOL[currency];
+  const rate = Number(order?.exchange_rate) || 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-4 flex flex-col" style={{ maxHeight: 'calc(100vh - 32px)' }}>
+        <div className="flex justify-between items-center p-4 border-b">
+          <div className="font-bold text-lg">📦 订单详情</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+
+        {err && <div className="p-6 text-red-600">{err}</div>}
+        {!order && !err && <div className="p-12 text-center text-gray-400">加载中...</div>}
+
+        {order && (
+          <div className="overflow-y-auto p-5 space-y-4 text-sm">
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="flex justify-between items-start mb-2">
+                <div className="font-semibold">订单号: <span className="font-mono">{order.order_no}</span></div>
+                <div className="text-xs text-gray-500">商品数量: {order.items?.length || 0}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+                <div>国家: <b>{order.country || '-'}</b></div>
+                <div>店铺: <b>{order.shop_name || '-'}</b></div>
+                <div>币别: <b>{currency} ({symbol})</b></div>
+                <div>采购汇率: {rate > 0 ? `1 ${currency} = ${rate.toFixed(4)} CNY` : '-'}</div>
+              </div>
+
+              {order.shipping && (
+                <>
+                  <div className="font-medium mb-2">收货信息：</div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+                    <div>客户名称: <b>{order.shipping.name || '-'}</b></div>
+                    <div>客户电话: {order.shipping.phone || '-'}</div>
+                    <div className="col-span-2">地址1: {order.shipping.address1 || '-'}{order.shipping.address2 ? <><br/>地址2: {order.shipping.address2}</> : null}</div>
+                    <div>城市: {order.shipping.city || '-'}</div>
+                    <div>州/省: {order.shipping.state || '-'}</div>
+                    <div>邮编: {order.shipping.postal || '-'}</div>
+                  </div>
+                </>
+              )}
+
+              <div className="font-medium mb-2">商品列表：</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500 bg-gray-50">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left">SKU</th>
+                      <th className="px-2 py-1.5 text-right">数量</th>
+                      <th className="px-2 py-1.5 text-right">采购单价</th>
+                      <th className="px-2 py-1.5 text-right">小计</th>
+                      <th className="px-2 py-1.5 text-right">小计(CNY)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(order.items || []).map(it => {
+                      const qty = Number(it.quantity) || 0;
+                      const unit = Number(it.unit_price) || 0;
+                      const sub = unit * qty;
+                      const subCny = sub * rate;
+                      return (
+                        <tr key={it.id} className="border-t align-top">
+                          <td className="px-2 py-1 font-mono">{it.sku}</td>
+                          <td className="px-2 py-1 text-right">{qty}</td>
+                          <td className="px-2 py-1 text-right">{symbol}{unit.toFixed(2)}</td>
+                          <td className="px-2 py-1 text-right">{symbol}{sub.toFixed(2)}</td>
+                          <td className="px-2 py-1 text-right text-red-600">¥{subCny.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t bg-gray-50">
+                      <td colSpan="3" className="px-2 py-2 text-right text-gray-600">订单总金额:</td>
+                      <td className="px-2 py-2 text-right font-bold">{symbol}{(Number(order.purchase_amount_usd) || 0).toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right font-bold text-red-600">¥{(Number(order.purchase_amount_cny) || 0).toFixed(2)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
+              <div>状态：<span className="font-medium text-gray-800">{order.status}</span></div>
+              <div>创建时间：{(order.created_at || '').replace('T', ' ').slice(0, 19)}</div>
+              {order.tracking_no && <div className="col-span-2">物流跟踪号：<span className="font-mono">{order.tracking_no}</span></div>}
+            </div>
+          </div>
+        )}
+
+        <div className="border-t p-3 flex justify-end">
+          <button onClick={onClose} className="btn btn-ghost border">关闭</button>
         </div>
       </div>
     </div>

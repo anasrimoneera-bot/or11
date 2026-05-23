@@ -75,7 +75,8 @@ router.get('/:id', authRequired, (req, res) => {
   `).get(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: '订单不存在' });
   const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
-  res.json({ ...row, items });
+  const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(row.id);
+  res.json({ ...row, items, shipping: shipping || null });
 });
 
 router.post('/', authRequired, async (req, res) => {

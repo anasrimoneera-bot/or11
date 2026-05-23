@@ -285,7 +285,7 @@ export default function PurchaseProducts() {
                   {currentRate > 0 ? `1 ${currentCurrency} = ${Number(currentRate).toFixed(4)} CNY` : <span className="text-red-500">未配置 {currentCurrency} 汇率</span>}
                 </span>
               </Row>
-              <Row label={`采购金额(${currentCurrency})`}><b>{currencySymbol[currentCurrency]}{purchaseUsd.toFixed(4)}</b></Row>
+              <Row label={`采购金额(${currentCurrency})`}><b>{currencySymbol[currentCurrency]}{purchaseUsd.toFixed(2)}</b></Row>
               <div className="border-t pt-2 mt-2 flex justify-between items-center">
                 <span>需要支付人民币：</span>
                 <b className="text-xl text-red-600">¥{purchaseCny.toFixed(2)}</b>
