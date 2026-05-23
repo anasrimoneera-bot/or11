@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import api from '../api';
 import EditableAmount from '../components/EditableAmount.jsx';
 
+const countryCode = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', 荷兰: 'NL', 意大利: 'IT', 西班牙: 'ES', 波兰: 'PL' };
+
 const statusColor = {
   pending_purchase: 'bg-orange-100 text-orange-700',
   pending_shipment: 'bg-blue-100 text-blue-700',
@@ -103,6 +105,7 @@ export default function Orders() {
             <thead className="bg-gray-50 text-gray-600">
               <tr>
                 <th className="px-3 py-2 text-left">订单号</th>
+                <th className="px-3 py-2 text-left">国家</th>
                 <th className="px-3 py-2 text-left">店铺</th>
                 <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额 (USD)</th>
                 <th className="px-3 py-2 text-right">采购(USD)</th>
@@ -122,6 +125,11 @@ export default function Orders() {
                 return (
                 <tr key={o.id} className="border-t hover:bg-gray-50">
                   <td className="px-3 py-2 font-mono">{o.order_no}</td>
+                  <td className="px-3 py-2">
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-xs font-mono" title={o.country}>
+                      {countryCode[o.country] || o.country || '-'}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">{o.shop_name || '-'}</td>
                   <td className="px-3 py-2 text-right">
                     <EditableAmount value={o.amazon_amount || 0} onSave={async (v) => { await api.put(`/orders/${o.id}`, { amazon_amount: v }); load(); }} />
@@ -141,7 +149,7 @@ export default function Orders() {
                   </td>
                 </tr>
               );})}
-              {orders.length === 0 && <tr><td colSpan="10" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
+              {orders.length === 0 && <tr><td colSpan="11" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
           </table>
         </div>

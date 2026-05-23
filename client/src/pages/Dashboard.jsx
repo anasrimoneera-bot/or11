@@ -8,21 +8,35 @@ export default function Dashboard() {
   if (!d) return <div>加载中...</div>;
 
   const statusMap = { pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货', completed: '已完成', cancelled: '已取消', refunded: '已退款', replaced: '已替换' };
+  const countryCode = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', 荷兰: 'NL', 意大利: 'IT', 西班牙: 'ES', 波兰: 'PL' };
   const pieData = d.status_dist.map(s => ({ name: statusMap[s.status] || s.status, value: s.count }));
+  const countryPieData = (d.country_dist || []).map(c => ({ name: `${countryCode[c.country] || c.country} ${c.country}`, value: c.count }));
   const trendOpt = {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['订单数量', '订单金额(¥)'], bottom: 0 },
+    legend: { data: ['订单数量', '亚马逊收入(¥)'], bottom: 0 },
     xAxis: { type: 'category', data: d.trend.map(t => t.day.slice(5)) },
     yAxis: [{ type: 'value' }, { type: 'value' }],
     series: [
       { name: '订单数量', type: 'line', smooth: true, areaStyle: { color: 'rgba(96,165,250,0.3)' }, data: d.trend.map(t => t.count), itemStyle: { color: '#3b82f6' } },
-      { name: '订单金额(¥)', type: 'line', yAxisIndex: 1, smooth: true, data: d.trend.map(t => Math.round(t.amount || 0)), itemStyle: { color: '#10b981' } },
+      { name: '亚马逊收入(¥)', type: 'line', yAxisIndex: 1, smooth: true, data: d.trend.map(t => Math.round(t.amount || 0)), itemStyle: { color: '#10b981' } },
     ],
   };
   const pieOpt = {
     tooltip: { trigger: 'item' },
     legend: { bottom: 0 },
     series: [{ type: 'pie', radius: ['40%', '70%'], data: pieData, label: { formatter: '{b}: {c}' } }],
+  };
+  const countryPieOpt = {
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0 },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'], data: countryPieData,
+      label: { formatter: '{b}: {c}' },
+      itemStyle: { color: function(p) {
+        const colors = ['#3b82f6', '#10b981', '#f97316', '#a855f7', '#ec4899', '#06b6d4', '#facc15', '#ef4444'];
+        return colors[p.dataIndex % colors.length];
+      } },
+    }],
   };
   const shopOpt = {
     tooltip: {},
@@ -52,16 +66,19 @@ export default function Dashboard() {
             {pieData.length > 0 ? <ReactECharts option={pieOpt} style={{ height: 320 }} /> : <Empty />}
           </div>
           <div className="bg-white rounded-xl p-4 shadow">
-            <div className="font-medium mb-2">订单金额趋势</div>
+            <div className="font-medium mb-2">
+              亚马逊收入趋势 <span className="text-xs text-gray-500 font-normal">（按订单锁定的亚马逊汇率换算 CNY）</span>
+            </div>
             {d.trend.length > 0 ? <ReactECharts option={trendOpt} style={{ height: 320 }} /> : <Empty />}
           </div>
-        </div>
-      </div>
-
-      <div>
-        <h2 className="text-lg font-semibold mb-3 text-orange-600">🏪 店铺订单分布</h2>
-        <div className="bg-white rounded-xl p-4 shadow">
-          {d.shop_dist.length > 0 ? <ReactECharts option={shopOpt} style={{ height: 280 }} /> : <Empty />}
+          <div className="bg-white rounded-xl p-4 shadow">
+            <div className="font-medium mb-2">订单国家分布</div>
+            {countryPieData.length > 0 ? <ReactECharts option={countryPieOpt} style={{ height: 320 }} /> : <Empty />}
+          </div>
+          <div className="bg-white rounded-xl p-4 shadow">
+            <div className="font-medium mb-2">店铺订单分布 <span className="text-xs text-gray-500 font-normal">（最近 30 天）</span></div>
+            {d.shop_dist.length > 0 ? <ReactECharts option={shopOpt} style={{ height: 320 }} /> : <Empty />}
+          </div>
         </div>
       </div>
     </div>
