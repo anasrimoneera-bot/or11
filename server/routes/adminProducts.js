@@ -451,23 +451,51 @@ router.delete('/dropxl-accounts/:country', (req, res) => {
 
 // 稀疏单元格直读：避免 sheet_to_json 全表对象化，180MB 文件可降到峰值 ~500MB
 // 通过 generator 流式吐出行，配合事务分批写入，控制内存峰值
+//
+// 表头归一化：去掉 BOM/零宽/不间断空格等隐藏字符再比较，避免「列名明明是 SKU 却识别不到」
+function normalizeHeader(v) {
+  return String(v == null ? '' : v)
+    .replace(/[﻿​‌‍ ]/g, ' ') // BOM/零宽/不间断空格 → 普通空格
+    .trim()
+    .toLowerCase();
+}
+
+// 在前若干行里找表头行 + SKU/Image 列。返回 { headerRow, skuCol, imgCol, headers }
+// 表头不一定在第 1 行（有的导出工具会在顶部留标题行/空行），故扫描前 25 行
+function detectMasterColumns(sheet, range) {
+  const maxScan = Math.min(range.s.r + 24, range.e.r);
+  let firstNonEmpty = null;
+  for (let r = range.s.r; r <= maxScan; r++) {
+    let skuCol = -1, imgCol = -1;
+    const headers = [];
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+      if (!cell || cell.v == null) continue;
+      const raw = String(cell.v).trim();
+      const v = normalizeHeader(cell.v);
+      if (v) headers.push(raw);
+      // SKU 列：精确等于 sku，或作为独立词出现（如 "Seller SKU"/"商品SKU"）
+      if (skuCol < 0 && (v === 'sku' || /(^|[^a-z])sku([^a-z]|$)/.test(v))) skuCol = c;
+      if (imgCol < 0 && (v === 'image 1' || v === 'image' || v === 'image_url' || v === 'image1' || /(^|[^a-z])image([^a-z]|$)/.test(v))) imgCol = c;
+    }
+    if (headers.length && !firstNonEmpty) firstNonEmpty = { row: r, headers };
+    if (skuCol >= 0) return { headerRow: r, skuCol, imgCol, headers };
+  }
+  return { headerRow: -1, skuCol: -1, imgCol: -1, headers: firstNonEmpty?.headers || [] };
+}
+
 function* iterMasterXlsxRows(filePath) {
   // 只读结构、跳过 cellNF/HTML，关掉日期转换以省 CPU 和内存
   const wb = XLSX.readFile(filePath, { cellHTML: false, cellNF: false, cellDates: false });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet || !sheet['!ref']) return;
+  if (!sheet || !sheet['!ref']) throw new Error('文件为空或第一个工作表没有数据');
   const range = XLSX.utils.decode_range(sheet['!ref']);
-  // 找 SKU 列 + Image 列（用首行表头）
-  let skuCol = -1, imgCol = -1;
-  for (let c = range.s.c; c <= range.e.c; c++) {
-    const cell = sheet[XLSX.utils.encode_cell({ r: range.s.r, c })];
-    if (!cell) continue;
-    const v = String(cell.v || '').trim().toLowerCase();
-    if (v === 'sku' && skuCol < 0) skuCol = c;
-    if ((v === 'image 1' || v === 'image' || v === 'image_url' || v === 'image1') && imgCol < 0) imgCol = c;
+  const { headerRow, skuCol, imgCol, headers } = detectMasterColumns(sheet, range);
+  if (skuCol < 0) {
+    const found = headers.length ? `检测到的表头：${headers.slice(0, 30).join(' | ')}` : '前几行均为空';
+    throw new Error(`未找到 SKU 列（${found}）。请确认总表含名为 "SKU" 的列`);
   }
-  if (skuCol < 0) return;
-  for (let r = range.s.r + 1; r <= range.e.r; r++) {
+  for (let r = headerRow + 1; r <= range.e.r; r++) {
     const skuCell = sheet[XLSX.utils.encode_cell({ r, c: skuCol })];
     if (!skuCell || skuCell.v == null) continue;
     const sku = String(skuCell.v).trim();
@@ -547,7 +575,7 @@ router.post('/master-upload/:country', masterUploadMw, (req, res) => {
       }
       if (batch.length) { flushBatch(batch); total += batch.length; job.rows = total; }
 
-      if (total === 0) throw new Error('文件中未找到有效行（需含 SKU 列）');
+      if (total === 0) throw new Error('找到了 SKU 列但没有任何有效数据行（SKU 单元格均为空）');
 
       db.prepare(`
         INSERT OR REPLACE INTO country_master_uploads
@@ -615,3 +643,6 @@ module.exports = router;
 // 供 scheduler 调用：自动同步时复用同一套 job 跟踪逻辑
 module.exports.runCountryApiSync = runCountryApiSync;
 module.exports.apiSyncJobs = apiSyncJobs;
+// 供测试用：总表表头检测 + 行迭代
+module.exports.iterMasterXlsxRows = iterMasterXlsxRows;
+module.exports.detectMasterColumns = detectMasterColumns;
