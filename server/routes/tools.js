@@ -47,7 +47,7 @@ const upload = multer({
   }),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB 上限
 });
-router.post('/installer/upload', ownerRequired, upload.single('file'), (req, res) => {
+router.post('/installer/upload', authRequired, ownerRequired, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请选择文件' });
   try {
     if (fs.existsSync(FILE)) fs.unlinkSync(FILE);
