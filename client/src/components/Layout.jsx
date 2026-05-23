@@ -23,7 +23,7 @@ const adminMenu = [
   { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', ownerOnly: true },
   { to: '/admin/staff', icon: '🛡️', label: '管理员', ownerOnly: true },
   { to: '/admin/api-test', icon: '🧪', label: '供应商接口测试', ownerOnly: true },
-  { to: '/admin/products', icon: '📦', label: '商品库存价格管理', ownerOnly: true },
+  { to: '/admin/products', icon: '📦', label: '商品库存价格管理' },
   { to: '/admin/settings', icon: '⚙️', label: '系统设置', ownerOnly: true },
   { to: '/profile', icon: '👤', label: '个人资料' },
 ];
@@ -81,7 +81,7 @@ export default function Layout({ user, setUser }) {
             </div>
             <span className="font-medium">{user?.display_name || user?.username}</span>
             {user?.is_owner
-              ? <span className="badge bg-red-100 text-red-700">👑 店主</span>
+              ? <span className="badge bg-red-100 text-red-700">👑 BOSS</span>
               : user?.is_admin
                 ? <span className="badge bg-purple-100 text-purple-700">管理员</span>
                 : <span className="badge bg-orange-100 text-orange-600">分销商</span>}

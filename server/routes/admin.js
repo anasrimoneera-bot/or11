@@ -8,12 +8,12 @@ const { audit, setAudit } = require('../middleware/audit');
 const router = express.Router();
 router.use(authRequired, adminRequired, audit);
 
-// 工具：根据当前用户是否为店主，剥离敏感字段
-function stripSensitive(obj, isOwner) {
-  if (isOwner) return obj;
-  if (Array.isArray(obj)) return obj.map(o => stripSensitive(o, isOwner));
+// 工具：剥离真正的内部字段（DropXL 原始请求/响应）。
+// 真实成本/加价/PayPal 汇率等对所有管理员（店主+管理员）可见，仅用户端 /orders 接口不返回。
+function stripSensitive(obj) {
+  if (Array.isArray(obj)) return obj.map(o => stripSensitive(o));
   if (!obj || typeof obj !== 'object') return obj;
-  const { real_amount_usd, markup_pct, raw_payload, raw_response, ...safe } = obj;
+  const { raw_payload, raw_response, ...safe } = obj;
   return safe;
 }
 
@@ -297,7 +297,7 @@ router.get('/orders', (req, res) => {
     ORDER BY o.created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders o JOIN users u ON u.id = o.user_id ${where}`).get(...args).c;
-  res.json({ rows: stripSensitive(rows, !!req.user.is_owner), total });
+  res.json({ rows: stripSensitive(rows), total });
 });
 
 router.get('/orders/:id', (req, res) => {
@@ -308,7 +308,7 @@ router.get('/orders/:id', (req, res) => {
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: '订单不存在' });
   const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
-  res.json({ ...stripSensitive(row, !!req.user.is_owner), items });
+  res.json({ ...stripSensitive(row), items });
 });
 
 // 管理员确认订单：店主可调整真实价/加价，员工仅能按系统已算好的金额扣款
@@ -424,6 +424,19 @@ router.put('/orders/:id/assign', (req, res) => {
     target_name: order.order_no,
     summary: `订单 ${order.order_no} 归属 ${oldLabel} → ${newLabel}`,
   });
+  res.json({ ok: true });
+});
+
+// 设置订单的 PayPal 支付汇率（店主+管理员可改）。1 CNY = ? USD
+// 仅记录, 真实人民币成本/差价利润由前端按 real_amount_usd / paypal_rate 实时算
+router.put('/orders/:id/paypal-rate', (req, res) => {
+  const { paypal_rate } = req.body || {};
+  const v = paypal_rate === '' || paypal_rate == null ? null : Number(paypal_rate);
+  if (v != null && (!isFinite(v) || v <= 0)) return res.status(400).json({ error: 'PayPal 汇率必须是正数' });
+  const order = db.prepare('SELECT id, order_no FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  db.prepare('UPDATE purchase_orders SET paypal_rate = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(v, order.id);
+  setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `订单 ${order.order_no} PayPal 汇率设为 ${v ?? '(清空)'}` });
   res.json({ ok: true });
 });
 

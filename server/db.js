@@ -321,6 +321,9 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   add('dropxl_pushed_at', 'TEXT');
   // 亚马逊金额锁定的汇率快照（与订单采购汇率分离）
   add('amazon_rate_locked', 'REAL');
+  // PayPal 支付汇率（店主向 DropXL 用 PayPal 付款时 PayPal 显示的汇率, 1 CNY = ? USD）
+  // 用于按真实 USD 算真实人民币成本, 再和用户采购价算店主+合伙人的差价利润
+  add('paypal_rate', 'REAL');
 })();
 
 // 首次初始化亚马逊各国汇率（rate=0 表示未设置，店主需在系统设置页维护）
@@ -343,6 +346,13 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   for (const [cur, r] of Object.entries(seeds)) ins.run(cur, r);
 })();
 
+// 把已有店主账号的显示名从 '店主' 改成 'BOSS账号'（仅当还是默认 '店主' 时，不覆盖用户自定义的）
+(function renameOwnerToBoss() {
+  try {
+    db.prepare("UPDATE users SET display_name = 'BOSS账号' WHERE is_owner = 1 AND display_name = '店主'").run();
+  } catch {}
+})();
+
 function ensureDefaultUser() {
   // 创建管理员账号
   const adminName = process.env.ADMIN_USERNAME || 'admin';
@@ -351,7 +361,7 @@ function ensureDefaultUser() {
     const hash = bcrypt.hashSync(adminPass, 10);
     const info = db.prepare(`
       INSERT INTO users (username, password_hash, display_name, role, is_admin, is_owner)
-      VALUES (?, ?, '店主', 'owner', 1, 1)
+      VALUES (?, ?, 'BOSS账号', 'owner', 1, 1)
     `).run(adminName, hash);
     db.prepare('INSERT INTO user_balance (user_id, balance) VALUES (?, 0)').run(info.lastInsertRowid);
   }

@@ -5,7 +5,7 @@ import EditableAmount from '../../components/EditableAmount.jsx';
 // 店主版确认弹窗 - 通过动态 import 隔离，员工不会下载此 chunk
 const OwnerConfirmModal = lazy(() => import('./OwnerConfirmModal.jsx'));
 const OwnerCols = lazy(() => import('./OwnerColumns.jsx').then(m => ({
-  default: ({ kind, order }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells realUsd={order?.[atob('cmVhbF9hbW91bnRfdXNk')]} markupPct={order?.[atob('bWFya3VwX3BjdA==')]} />
+  default: ({ kind, order, onChanged }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells order={order} onChanged={onChanged} />
 })));
 
 const statusLabel = { pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货', completed: '已完成', cancelled: '已取消', refunded: '已退款' };
@@ -25,6 +25,7 @@ export default function AdminOrders() {
   const [confirmOrder, setConfirmOrder] = useState(null);
   const [assignOrder, setAssignOrder] = useState(null);
   const isOwner = !!me?.is_owner;
+  const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
 
   const load = () => {
     if (filters.status === 'all' && !filters.q) {
@@ -120,7 +121,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-right">利润 (USD)</th>
               <th className="px-3 py-2 text-right" title="按订单锁定汇率（无锁定则用当前系统汇率）换算">利润 (¥)</th>
               <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
-              {isOwner && <Suspense fallback={<><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
+              {canSeeCost && <Suspense fallback={<><th /><th /><th /><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
               <th className="px-3 py-2 text-left">供应商 ID</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
               <th className="px-3 py-2 text-left">状态</th>
@@ -179,7 +180,7 @@ export default function AdminOrders() {
                     title="成本利润率 = 人民币利润 / 人民币采购价">
                   {(!canComputeCny || purchaseCny <= 0) ? '—' : `${(profitCny / purchaseCny) >= 0 ? '+' : ''}${((profitCny / purchaseCny) * 100).toFixed(2)}%`}
                 </td>
-                {isOwner && <Suspense fallback={<><td /><td /></>}><OwnerCols kind="c" order={o} /></Suspense>}
+                {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
                 <td className="px-3 py-2 text-xs">{
                   o.tracking_no
@@ -197,7 +198,7 @@ export default function AdminOrders() {
                 </td>
               </tr>
             );})}
-            {rows.length === 0 && <tr><td colSpan={isOwner ? 15 : 13} className="p-6 text-center text-gray-400">
+            {rows.length === 0 && <tr><td colSpan={canSeeCost ? 19 : 14} className="p-6 text-center text-gray-400">
               {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
@@ -234,7 +235,7 @@ export default function AdminOrders() {
                       title="本页合计：总人民币利润 / 总人民币采购价">
                     {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
                   </td>
-                  {isOwner && <><td /><td /></>}
+                  {canSeeCost && <><td /><td /><td /><td /><td /></>}
                   <td colSpan={5} />
                 </tr>
               </tfoot>

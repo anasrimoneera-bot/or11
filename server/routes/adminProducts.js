@@ -5,12 +5,12 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const db = require('../db');
 const dropxl = require('../dropxl');
-const { authRequired, ownerRequired } = require('../middleware/auth');
+const { authRequired, adminRequired } = require('../middleware/auth');
 const { setAudit } = require('../middleware/audit');
 
 const router = express.Router();
-// 整个商品库存价格管理仅店主可见，员工/分销商无权访问
-router.use(authRequired, ownerRequired);
+// 商品库存价格管理：店主 + 管理员可访问（分销商无 admin 权限，进不来）
+router.use(authRequired, adminRequired);
 
 const INVENTORY_DIR = path.join(__dirname, '..', '..', 'data', 'inventory');
 if (!fs.existsSync(INVENTORY_DIR)) fs.mkdirSync(INVENTORY_DIR, { recursive: true });
