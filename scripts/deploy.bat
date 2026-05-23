@@ -9,7 +9,7 @@ rem  连接配置（如服务器搬迁请修改这里）
 rem ============================================================
 set "SERVER=root@101.126.155.252"
 set "REPO=/opt/lanjing-erp"
-set "BRANCH=claude/suspense-routing-fix-GMddk"
+set "BRANCH=main"
 set "PM2_NAME=lanjing-erp"
 
 rem 把 Windows 自带 OpenSSH 加入 PATH（避免找不到 ssh）
