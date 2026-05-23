@@ -110,8 +110,24 @@ function AmazonRatesCard() {
   const [edits, setEdits] = useState({});
   const [saving, setSaving] = useState(null);
 
+  // 实时汇率（聚合数据）相关
+  const [fxStatus, setFxStatus] = useState(null);
+  const [keyInput, setKeyInput] = useState('');
+  const [keySet, setKeySet] = useState(false);
+  const [keyHint, setKeyHint] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [fxMsg, setFxMsg] = useState('');
+
   const load = () => { api.get('/admin/country-amazon-rates').then(r => setRows(r.data)); };
-  useEffect(load, []);
+  const loadFx = () => {
+    api.get('/admin/fx-status').then(r => setFxStatus(r.data));
+    api.get('/admin/settings').then(r => {
+      setKeySet(!!r.data.juhe_fx_api_key_set);
+      setKeyHint(r.data.juhe_fx_api_key_hint || '');
+    });
+  };
+  useEffect(() => { load(); loadFx(); }, []);
 
   const save = async (country) => {
     const v = Number(edits[country]);
@@ -126,6 +142,36 @@ function AmazonRatesCard() {
     } finally { setSaving(null); }
   };
 
+  const saveKey = async () => {
+    setSavingKey(true);
+    try {
+      await api.put('/admin/settings', { juhe_fx_api_key: keyInput.trim() });
+      setKeyInput('');
+      loadFx();
+    } catch (err) {
+      alert(err.response?.data?.error || '保存失败');
+    } finally { setSavingKey(false); }
+  };
+
+  const refreshFx = async () => {
+    setRefreshing(true);
+    setFxMsg('');
+    try {
+      const { data } = await api.post('/admin/fx-refresh');
+      if (data.ok) {
+        setFxMsg('✓ 已更新：' + data.updated.map(u => `${u.currency}=${u.rate}`).join('，'));
+      } else {
+        const errs = (data.errors || []).map(e => `${e.currency}: ${e.error}`).join('；');
+        setFxMsg('✗ ' + (data.error || errs || '拉取失败'));
+      }
+      load(); loadFx();
+    } catch (err) {
+      setFxMsg('✗ ' + (err.response?.data?.error || '请求失败'));
+    } finally { setRefreshing(false); }
+  };
+
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '从未';
+
   return (
     <div className="bg-white rounded-xl shadow border p-5 space-y-4">
       <div className="border-b pb-3">
@@ -136,6 +182,54 @@ function AmazonRatesCard() {
           店主在订单管理页保存亚马逊金额时，会用<b>当下汇率锁定</b>到该订单；之后改本页汇率不影响已锁定订单。
         </div>
       </div>
+
+      {/* 实时汇率自动拉取（聚合数据，每 6 小时一次） */}
+      <div className="border rounded-lg p-3 bg-blue-50 space-y-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="text-sm font-medium">
+            🔄 实时汇率自动更新
+            <span className="text-xs text-gray-500 font-normal ml-2">
+              聚合数据 · 每 6 小时自动拉取一次（免费 50 次/天，远够用）
+            </span>
+          </div>
+          <button
+            onClick={refreshFx}
+            disabled={refreshing || !keySet}
+            className={`text-sm px-3 py-1 rounded ${keySet ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400'} disabled:opacity-60`}
+            title={keySet ? '立即拉取最新汇率' : '请先配置 API Key'}
+          >
+            {refreshing ? '拉取中...' : '立即拉取'}
+          </button>
+        </div>
+        <div className="flex items-end gap-2 flex-wrap">
+          <div className="flex-1 min-w-[220px]">
+            <label className="text-xs text-gray-500">
+              聚合数据 API Key {keySet && <span className="text-green-600">（已配置 {keyHint}）</span>}
+            </label>
+            <input
+              type="password"
+              className="field text-sm"
+              value={keyInput}
+              onChange={e => setKeyInput(e.target.value)}
+              placeholder={keySet ? '如需更换请输入新 Key' : '粘贴你申请的 APPKEY'}
+              autoComplete="off"
+            />
+          </div>
+          <button
+            onClick={saveKey}
+            disabled={savingKey || !keyInput.trim()}
+            className="text-sm px-3 py-1 rounded bg-gray-700 text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {savingKey ? '保存中...' : '保存 Key'}
+          </button>
+        </div>
+        <div className="text-xs text-gray-500">
+          上次更新：{fmtTime(fxStatus?.last_updated_at)}
+          {fxStatus && !fxStatus.configured && <span className="text-amber-600 ml-2">· 尚未配置 Key，自动更新未启用</span>}
+        </div>
+        {fxMsg && <div className={`text-xs ${fxMsg.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>{fxMsg}</div>}
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {rows.map(r => {
           const isDirty = edits[r.country] !== undefined;
@@ -162,7 +256,10 @@ function AmazonRatesCard() {
                 </button>
               </div>
               {r.rate > 0 && (
-                <div className="text-xs text-gray-500 mt-1">1 {r.currency} = {r.rate} CNY</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  1 {r.currency} = {r.rate} CNY<br/>
+                  采购 ×1.012 = <b>{(r.rate * 1.012).toFixed(4)}</b>
+                </div>
               )}
             </div>
           );

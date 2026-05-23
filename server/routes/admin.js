@@ -505,6 +505,16 @@ router.get('/country-amazon-rates', (req, res) => {
   const rows = db.prepare('SELECT country, rate, currency, updated_at FROM country_amazon_rate ORDER BY country').all();
   res.json(rows);
 });
+
+// 实时汇率（聚合数据）状态 + 手动立即拉取
+router.get('/fx-status', ownerRequired, (req, res) => {
+  res.json(require('../fx').getStatus());
+});
+router.post('/fx-refresh', ownerRequired, async (req, res) => {
+  const result = await require('../fx').refreshAmazonRates('manual');
+  setAudit(res, { summary: result.ok ? `手动拉取实时汇率: ${result.updated.map(u => `${u.currency}=${u.rate}`).join(', ')}` : `手动拉取实时汇率失败: ${result.error || '部分币种失败'}` });
+  res.json(result);
+});
 router.put('/country-amazon-rates/:country', ownerRequired, (req, res) => {
   const country = decodeURIComponent(req.params.country);
   const v = Number(req.body?.rate);
@@ -872,21 +882,30 @@ router.post('/orders/dropxl-template-export', (req, res) => {
 });
 
 // ============ 系统设置（仅店主） ============
-const { getExchangeRate, setSetting } = require('../settings');
+const { getExchangeRate, setSetting, getSetting } = require('../settings');
 
 router.get('/settings', ownerRequired, (req, res) => {
+  const fxKey = (getSetting('juhe_fx_api_key') || '').trim();
   res.json({
     exchange_rate_cny_per_usd: getExchangeRate(),
+    // 只回是否已配置 + 末 4 位，不回完整 Key
+    juhe_fx_api_key_set: !!fxKey,
+    juhe_fx_api_key_hint: fxKey ? `****${fxKey.slice(-4)}` : '',
   });
 });
 
 router.put('/settings', ownerRequired, (req, res) => {
-  const { exchange_rate_cny_per_usd } = req.body || {};
+  const { exchange_rate_cny_per_usd, juhe_fx_api_key } = req.body || {};
   if (exchange_rate_cny_per_usd !== undefined) {
     const v = Number(exchange_rate_cny_per_usd);
     if (!isFinite(v) || v <= 0) return res.status(400).json({ error: '汇率必须是正数' });
     setSetting('exchange_rate_cny_per_usd', v);
     setAudit(res, { summary: `修改人民币/美元汇率: ${v}` });
+  }
+  if (juhe_fx_api_key !== undefined) {
+    const k = String(juhe_fx_api_key).trim();
+    setSetting('juhe_fx_api_key', k);
+    setAudit(res, { summary: k ? '更新汇率 API Key' : '清空汇率 API Key' });
   }
   res.json({ ok: true, exchange_rate_cny_per_usd: getExchangeRate() });
 });

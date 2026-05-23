@@ -34,15 +34,26 @@ async function runOnce(reason = 'scheduled') {
   busy = true;
   const startedAt = new Date().toISOString();
   console.log(`[scheduler] ===== auto-sync started (${reason}) at ${startedAt} =====`);
-  const result = { started_at: startedAt, reason, ok: true, products: [], orders: [] };
+  const result = { started_at: startedAt, reason, ok: true, fx: null, products: [], orders: [] };
 
   // 延迟 require 避免循环依赖（adminProducts 在 server 启动末尾才 require 完）
   const adminProducts = require('./routes/adminProducts');
   const adminRoute = require('./routes/admin');
+  const fx = require('./fx');
   const { runCountryApiSync, apiSyncJobs } = adminProducts;
   const { syncOrdersFromDropxl } = adminRoute;
 
   try {
+    // 0) 实时汇率拉取（聚合数据），写入各国亚马逊汇率；采购汇率自动 ×1.012 推导
+    try {
+      result.fx = await fx.refreshAmazonRates(reason);
+      if (result.fx.ok) console.log(`[scheduler] 汇率已更新: ${result.fx.updated.map(u => `${u.currency}=${u.rate}`).join(', ')}`);
+      else console.warn('[scheduler] 汇率更新未全部成功:', result.fx.error || JSON.stringify(result.fx.errors));
+    } catch (e) {
+      result.fx = { ok: false, error: String(e.message || e) };
+      console.error('[scheduler] 汇率更新异常:', e.message);
+    }
+
     // 1) 商品库存 API 同步（按 country 串行，每国 ~10 分钟）
     const accounts = db.prepare(`
       SELECT country FROM dropxl_accounts
