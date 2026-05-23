@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 
 const countries = [
@@ -11,6 +11,13 @@ export default function Downloads() {
   const [status, setStatus] = useState({});
   const [masterStatus, setMasterStatus] = useState({});
   const [busy, setBusy] = useState(null);
+  const [me, setMe] = useState(null);
+  const [installer, setInstaller] = useState(null);
+  const [uploadingInstaller, setUploadingInstaller] = useState(false);
+  const installerInputRef = useRef(null);
+  const isOwner = !!me?.is_owner;
+
+  const loadInstaller = () => api.get('/tools/installer/status').then(r => setInstaller(r.data)).catch(() => {});
 
   useEffect(() => {
     api.get('/inventory/status').then(r => {
@@ -23,7 +30,54 @@ export default function Downloads() {
       for (const s of r.data) map[s.country] = s;
       setMasterStatus(map);
     }).catch(() => {});
+    api.get('/auth/me').then(r => setMe(r.data)).catch(() => {});
+    loadInstaller();
   }, []);
+
+  const onPickInstaller = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!/\.exe$/i.test(f.name)) {
+      if (!confirm(`选中的文件 ${f.name} 不是 .exe，仍然上传吗？`)) {
+        e.target.value = '';
+        return;
+      }
+    }
+    setUploadingInstaller(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      await api.post('/tools/installer/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await loadInstaller();
+      alert('上传成功');
+    } catch (err) {
+      alert(err.response?.data?.error || '上传失败：' + err.message);
+    } finally {
+      setUploadingInstaller(false);
+      if (installerInputRef.current) installerInputRef.current.value = '';
+    }
+  };
+
+  const downloadInstaller = async () => {
+    setBusy('installer');
+    try {
+      const r = await api.get('/tools/installer', { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      const cd = r.headers['content-disposition'] || '';
+      const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i);
+      a.href = url;
+      a.download = match ? decodeURIComponent(match[1]) : 'lanjing-installer.exe';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      let msg = '下载失败';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
+      } else { msg = e.response?.data?.error || e.message; }
+      alert(msg);
+    } finally { setBusy(null); }
+  };
 
   const downloadMaster = async (country) => {
     setBusy('master-' + country);
@@ -145,11 +199,53 @@ export default function Downloads() {
 
       <div className="bg-white rounded-xl shadow border-l-4 border-green-500 p-5">
         <h2 className="font-semibold mb-3 text-green-600">📄 工具文件下载</h2>
-        <p className="text-sm text-gray-600 mb-4">下载蓝鲸工具客户端安装程序</p>
+        <p className="text-sm text-gray-600 mb-4">下载蓝鲸工具客户端安装程序{isOwner ? '（店主可在右侧上传新版）' : ''}</p>
         <div className="grid grid-cols-4 gap-3">
-          <button onClick={() => alert('蓝鲸工具安装EXE下载')} className="bg-green-500 text-white rounded-lg py-3 px-4 flex justify-between items-center hover:bg-green-600">
-            📄 蓝鲸工具安装EXE下载 <span>⬇️</span>
+          <button
+            onClick={downloadInstaller}
+            disabled={!installer?.available || busy === 'installer'}
+            className={`rounded-lg py-3 px-4 flex flex-col items-start gap-1 transition ${
+              !installer?.available || busy === 'installer'
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-green-500 text-white hover:bg-green-600'
+            }`}
+          >
+            <span className="w-full flex justify-between items-center font-medium">
+              📄 蓝鲸工具安装EXE <span>{busy === 'installer' ? '...' : '⬇️'}</span>
+            </span>
+            <span className="text-xs opacity-80">
+              {installer?.available
+                ? `${(installer.size / (1024 * 1024)).toFixed(1)} MB · ${new Date(installer.uploaded_at).toLocaleDateString()}`
+                : '尚未上传'}
+            </span>
           </button>
+
+          {isOwner && (
+            <>
+              <input
+                ref={installerInputRef}
+                type="file"
+                accept=".exe,.msi"
+                className="hidden"
+                onChange={onPickInstaller}
+              />
+              <button
+                onClick={() => installerInputRef.current?.click()}
+                disabled={uploadingInstaller}
+                className={`rounded-lg py-3 px-4 flex flex-col items-start gap-1 transition border-2 border-dashed ${
+                  uploadingInstaller
+                    ? 'border-gray-300 text-gray-400 cursor-not-allowed'
+                    : 'border-blue-400 text-blue-600 hover:bg-blue-50'
+                }`}
+              >
+                <span className="w-full flex justify-between items-center font-medium">
+                  📤 {installer?.available ? '替换安装包' : '上传安装包'}
+                  <span>{uploadingInstaller ? '上传中...' : '+'}</span>
+                </span>
+                <span className="text-xs opacity-80">仅店主可见 · 单个文件 ≤ 500MB</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

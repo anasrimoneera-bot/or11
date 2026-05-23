@@ -34,7 +34,7 @@ router.get('/master-status', authRequired, (req, res) => {
   })));
 });
 
-// 分销商下载总表源文件
+// 分销商下载总表源文件 (统一文件名: 国家 销售总表.xlsx, UTF-8 + RFC5987 编码避免中文乱码)
 router.get('/master/:country', authRequired, (req, res) => {
   const country = resolveCountry(req.params.country);
   if (!country) return res.status(400).json({ error: '不支持的国家' });
@@ -42,7 +42,11 @@ router.get('/master/:country', authRequired, (req, res) => {
   if (!meta) return res.status(404).json({ error: '该国家总表暂未上传' });
   const file = path.join(MASTER_DIR, meta.stored_filename);
   if (!fs.existsSync(file)) return res.status(410).json({ error: '源文件不存在' });
-  res.download(file, meta.original_filename || `${country}-master.xlsx`);
+  const fileName = `${country} 销售总表.xlsx`;
+  // filename*= 放前面，前端正则取到 UTF-8 版本而不是 ASCII fallback
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}; filename="${country}-master.xlsx"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  fs.createReadStream(file).pipe(res);
 });
 
 router.get('/status', authRequired, (req, res) => {
@@ -102,9 +106,10 @@ router.get('/:country', authRequired, (req, res) => {
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
   const code = COUNTRY_TO_CODE[country];
-  const ts = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const fileName = `${code}_inventory_${ts}.xlsx`;
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  const ts = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const cnName = `${country} ${ts}.xlsx`;            // 中文文件名 给浏览器显示
+  const asciiName = `${code}_${ts}.xlsx`;             // ASCII 降级名 防老浏览器乱码
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(cnName)}; filename="${asciiName}"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
 });
