@@ -10,7 +10,7 @@ export default function AdminStaff() {
   useEffect(load, []);
 
   const del = async (s) => {
-    if (!confirm(`确认删除员工账号 ${s.username}？此操作不可恢复。`)) return;
+    if (!confirm(`确认删除管理员账号 ${s.username}？此操作不可恢复。`)) return;
     await api.delete(`/admin/staff/${s.id}`);
     load();
   };
@@ -19,17 +19,17 @@ export default function AdminStaff() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">🛡️ 员工管理</h1>
-          <p className="text-sm text-gray-500 mt-1">员工可登录后台日常操作，但<b className="text-red-600">看不到加价百分比、真实采购价、利润等敏感数据</b></p>
+          <h1 className="text-2xl font-bold">🛡️ 管理员</h1>
+          <p className="text-sm text-gray-500 mt-1">管理员可登录后台日常操作，但<b className="text-red-600">看不到加价百分比、真实采购价、利润等敏感数据</b></p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn btn-primary">+ 创建员工账号</button>
+        <button onClick={() => setShowCreate(true)} className="btn btn-primary">+ 创建管理员账号</button>
       </div>
 
       <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
         💡 <b>权限说明：</b>
         <ul className="list-disc list-inside mt-1 space-y-0.5 text-gray-700">
-          <li>员工可以：管理用户、确认订单（不知真实成本）、处理售后、给用户充值/退款</li>
-          <li>员工<b className="text-red-600">看不到</b>：每个用户的加价百分比、订单的真实供应商采购价、利润金额、供应商接口测试页</li>
+          <li>管理员可以：管理用户、确认订单（不知真实成本）、处理售后、给用户充值/退款</li>
+          <li>管理员<b className="text-red-600">看不到</b>：每个用户的加价百分比、订单的真实供应商采购价、利润金额、供应商接口测试页</li>
           <li>仅店主可以：修改加价百分比、查看真实成本、调用供应商测试接口</li>
         </ul>
       </div>
@@ -60,7 +60,7 @@ export default function AdminStaff() {
                 </td>
               </tr>
             ))}
-            {list.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-gray-400">暂无员工账号，点击右上角创建</td></tr>}
+            {list.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-gray-400">暂无管理员账号，点击右上角创建</td></tr>}
           </tbody>
         </table>
       </div>
@@ -78,7 +78,7 @@ function CreateModal({ onClose, onDone }) {
     catch (e) { alert(e.response?.data?.error || '创建失败'); }
   };
   return (
-    <Modal title="创建员工账号" onClose={onClose}>
+    <Modal title="创建管理员账号" onClose={onClose}>
       <input className="field mb-2" placeholder="用户名" value={f.username} onChange={e => setF({ ...f, username: e.target.value })} />
       <input className="field mb-2" type="password" placeholder="密码 (至少6位)" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} />
       <input className="field mb-2" placeholder="姓名" value={f.display_name} onChange={e => setF({ ...f, display_name: e.target.value })} />
@@ -98,7 +98,7 @@ function ResetModal({ user, onClose, onDone }) {
     catch (e) { alert(e.response?.data?.error || '操作失败'); }
   };
   return (
-    <Modal title={`重置员工密码 - ${user.username}`} onClose={onClose}>
+    <Modal title={`重置管理员密码 - ${user.username}`} onClose={onClose}>
       <input className="field mb-4" type="password" placeholder="新密码 (至少6位)" value={pwd} onChange={e => setPwd(e.target.value)} />
       <div className="flex justify-end gap-2">
         <button className="btn btn-ghost" onClick={onClose}>取消</button>

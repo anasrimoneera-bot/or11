@@ -54,9 +54,23 @@ export default function AdminUsers() {
                 {isOwner && <Suspense fallback={<td />}><OwnerCols kind="c" value={u[SECRET_KEY]} /></Suspense>}
                 <td className={`px-3 py-2 text-right font-semibold ${u.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>¥{(u.balance || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-xs">{u.created_at}</td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-3 py-2 text-right whitespace-nowrap">
                   <button onClick={() => setBalanceUser(u)} className="text-blue-600 text-xs mr-2 hover:underline">充值/扣款</button>
-                  <button onClick={() => setEditUser(u)} className="text-gray-600 text-xs hover:underline">编辑</button>
+                  <button onClick={() => setEditUser(u)} className="text-gray-600 text-xs mr-2 hover:underline">编辑</button>
+                  {isOwner && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`确认删除分销商 ${u.display_name || ''}(${u.username})？\n该操作不可恢复，且要求该用户名下无订单/工单。`)) return;
+                        try {
+                          await api.delete(`/admin/users/${u.id}`);
+                          load();
+                        } catch (e) {
+                          alert(e.response?.data?.error || '删除失败');
+                        }
+                      }}
+                      className="text-red-500 text-xs hover:underline"
+                    >🗑️ 删除</button>
+                  )}
                 </td>
               </tr>
             ))}

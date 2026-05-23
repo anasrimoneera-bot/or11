@@ -35,7 +35,7 @@ export default function Login({ onLogin }) {
       {/* 左侧品牌介绍区 */}
       <div className="hidden lg:flex flex-col justify-center px-14 xl:px-20 flex-1 text-white relative z-10 max-w-3xl">
         <div className="flex items-center gap-4 mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-3xl shadow-lg">🐋</div>
+          <img src="/logo.png" alt="蓝鲸" className="w-16 h-16 rounded-2xl bg-white p-1 shadow-lg" />
           <div className="text-4xl font-bold tracking-wide">蓝鲸跨境海外仓</div>
         </div>
         <p className="text-purple-200/90 leading-relaxed mb-10 text-base max-w-xl">
@@ -54,7 +54,7 @@ export default function Login({ onLogin }) {
         <form onSubmit={submit} className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 lg:p-10">
           {/* 移动端小 Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-lg">🐋</div>
+            <img src="/logo.png" alt="蓝鲸" className="w-9 h-9 rounded-lg bg-white p-0.5" />
             <span className="font-bold">蓝鲸跨境海外仓</span>
           </div>
 

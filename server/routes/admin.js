@@ -199,6 +199,41 @@ router.put('/users/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 店主删除分销商账号（连带清掉相关订单等级联记录会触发外键约束错误时拦下，让店主先处理）
+router.delete('/users/:id', ownerRequired, (req, res) => {
+  const u = db.prepare('SELECT id, username, display_name, is_admin FROM users WHERE id = ?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: '用户不存在' });
+  if (u.is_admin) return res.status(400).json({ error: '该用户是管理员账号，请到 管理员 页面删除' });
+  // 检查关联订单 - 有订单不允许直接删，避免历史数据丢主键
+  const orderCount = db.prepare('SELECT COUNT(*) AS c FROM purchase_orders WHERE user_id = ?').get(u.id).c;
+  if (orderCount > 0) {
+    return res.status(400).json({
+      error: `该用户名下还有 ${orderCount} 个订单。请先把订单分配给其他分销商再删除（订单管理页 → 👤 分配）。`,
+    });
+  }
+  // 检查关联售后工单
+  const ticketCount = db.prepare('SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ?').get(u.id).c;
+  if (ticketCount > 0) {
+    return res.status(400).json({ error: `该用户名下还有 ${ticketCount} 个售后工单，删除前请先处理或清理。` });
+  }
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM user_balance WHERE user_id = ?').run(u.id);
+    db.prepare('DELETE FROM balance_records WHERE user_id = ?').run(u.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+  });
+  try {
+    tx();
+  } catch (e) {
+    return res.status(500).json({ error: '删除失败：' + e.message });
+  }
+  setAudit(res, {
+    target_id: String(u.id),
+    target_name: `${u.display_name || ''}(${u.username})`,
+    summary: `删除分销商 ${u.display_name || ''}(${u.username})`,
+  });
+  res.json({ ok: true });
+});
+
 router.post('/users/:id/reset-password', (req, res) => {
   const { password } = req.body || {};
   if (!password || password.length < 6) return res.status(400).json({ error: '密码至少6位' });

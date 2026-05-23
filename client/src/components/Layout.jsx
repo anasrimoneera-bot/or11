@@ -21,7 +21,7 @@ const adminMenu = [
   { to: '/admin/purchase', icon: '🛒', label: '采购商品' },
   { to: '/admin/downloads', icon: '⬇️', label: '下载支持' },
   { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', ownerOnly: true },
-  { to: '/admin/staff', icon: '🛡️', label: '员工管理', ownerOnly: true },
+  { to: '/admin/staff', icon: '🛡️', label: '管理员', ownerOnly: true },
   { to: '/admin/api-test', icon: '🧪', label: '供应商接口测试', ownerOnly: true },
   { to: '/admin/products', icon: '📦', label: '商品库存价格管理', ownerOnly: true },
   { to: '/admin/settings', icon: '⚙️', label: '系统设置', ownerOnly: true },
@@ -42,7 +42,7 @@ export default function Layout({ user, setUser }) {
     <div className="flex h-screen bg-gray-100">
       <aside className="w-60 bg-slate-900 text-white flex flex-col">
         <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center font-bold">🐋</div>
+          <img src="/logo.png" alt="蓝鲸" className="w-10 h-10 rounded-lg bg-white p-0.5" />
           <div>
             <div className="font-semibold">蓝鲸跨境海外仓</div>
             <div className="text-xs text-gray-400">{user?.is_admin ? '管理后台' : '分销平台'}</div>
@@ -71,7 +71,7 @@ export default function Layout({ user, setUser }) {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm">🐋</div>
+            <img src="/logo.png" alt="蓝鲸" className="w-8 h-8 rounded-md bg-white p-0.5" />
             <span className="font-semibold">蓝鲸跨境海外仓分销平台</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
@@ -83,7 +83,7 @@ export default function Layout({ user, setUser }) {
             {user?.is_owner
               ? <span className="badge bg-red-100 text-red-700">👑 店主</span>
               : user?.is_admin
-                ? <span className="badge bg-purple-100 text-purple-700">员工</span>
+                ? <span className="badge bg-purple-100 text-purple-700">管理员</span>
                 : <span className="badge bg-orange-100 text-orange-600">分销商</span>}
           </div>
         </header>
