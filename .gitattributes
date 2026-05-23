@@ -1,3 +1,5 @@
 # Ensure Windows batch files always use CRLF line endings even when checked out on Linux
 *.bat text eol=crlf
 *.cmd text eol=crlf
+# Shell scripts MUST be LF (Bash chokes on CRLF) even when checked out on Windows
+*.sh text eol=lf
