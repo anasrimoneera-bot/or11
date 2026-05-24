@@ -106,9 +106,19 @@ function parseAmazonTemplate(buffer) {
   }).filter(r => r.amazon_order_id || r.sku);
 }
 
+// 国家识别：兼容 2 位代码 / 中文名 / 英文全名，统一映射到中文国家名。
+// （toUpperCase 后中文不变，所以中文名直接作为 key 也能命中）
 const COUNTRY_CODE_TO_NAME = {
-  US: '美国', GB: '英国', UK: '英国', DE: '德国', FR: '法国',
+  // 2 位国家代码
+  US: '美国', USA: '美国', GB: '英国', UK: '英国', DE: '德国', FR: '法国',
   IT: '意大利', NL: '荷兰', ES: '西班牙', PL: '波兰',
+  // 英文全名
+  'UNITED STATES': '美国', 'UNITED KINGDOM': '英国', 'GREAT BRITAIN': '英国',
+  GERMANY: '德国', FRANCE: '法国', ITALY: '意大利', NETHERLANDS: '荷兰',
+  SPAIN: '西班牙', POLAND: '波兰',
+  // 中文名（直接填中文国家名也认）
+  美国: '美国', 英国: '英国', 德国: '德国', 法国: '法国',
+  意大利: '意大利', 荷兰: '荷兰', 西班牙: '西班牙', 波兰: '波兰',
 };
 
 function inferCountryName(rawCountry) {
