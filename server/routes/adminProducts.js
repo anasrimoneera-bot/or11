@@ -574,59 +574,59 @@ router.post('/master-upload/:country', masterUploadMw, (req, res) => {
   });
   res.json({ ok: true, country, queued: true });
 
-  // 异步处理（不 await，让 response 已发送）
-  setImmediate(async () => {
+  // 解析+入库放到独立子进程跑：解析再大/再重(甚至 OOM)也只影响子进程，
+  // 主服务事件循环不被阻塞，网站照常响应。
+  setImmediate(() => {
     const job = masterImportJobs.get(country);
     const username = req.user.username;
+    const originalFilename = req.file.originalname;
     try {
       // 先把上传的临时文件原子重命名到正式目录（供下载源文件用）
       try { fs.renameSync(tempPath, storedPath); }
       catch {
-        // 跨设备 rename 失败的兜底：复制 + 删
         fs.copyFileSync(tempPath, storedPath);
         try { fs.unlinkSync(tempPath); } catch {}
       }
-
       job.status = 'writing';
-      const now = new Date().toISOString();
-      // 先清旧数据
-      db.prepare('DELETE FROM country_master_skus WHERE country = ?').run(country);
-      const ins = db.prepare(
-        'INSERT OR REPLACE INTO country_master_skus (country, sku, image_url, uploaded_at) VALUES (?, ?, ?, ?)'
-      );
-      // 分批写入：每 5000 行一个事务，释放对象给 GC
-      const BATCH = 5000;
-      let batch = [];
-      let total = 0;
-      const flushBatch = db.transaction((arr) => {
-        for (const r of arr) ins.run(country, r.sku, r.image_url, now);
-      });
-      for await (const row of iterMasterXlsxRows(storedPath)) {
-        batch.push(row);
-        if (batch.length >= BATCH) {
-          flushBatch(batch);
-          total += batch.length;
-          job.rows = total;
-          batch = [];
+
+      const { fork } = require('child_process');
+      const worker = fork(path.join(__dirname, '..', 'workers', 'masterImport.js'));
+      let settled = false;
+      worker.on('message', (m) => {
+        if (!m) return;
+        if (m.type === 'progress') {
+          job.rows = m.rows;
+        } else if (m.type === 'done') {
+          settled = true;
+          job.status = 'done';
+          job.rows = m.rows;
+          job.finished_at = new Date().toISOString();
+        } else if (m.type === 'error') {
+          settled = true;
+          job.status = 'failed';
+          job.error = m.error;
+          console.error('[master-upload] worker error', country, m.error);
         }
-      }
-      if (batch.length) { flushBatch(batch); total += batch.length; job.rows = total; }
-
-      if (total === 0) throw new Error('找到了 SKU 列但没有任何有效数据行（SKU 单元格均为空）');
-
-      db.prepare(`
-        INSERT OR REPLACE INTO country_master_uploads
-          (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(country, job.original_filename, storedFilename, total, username, now);
-
-      job.status = 'done';
-      job.rows = total;
-      job.finished_at = new Date().toISOString();
+      });
+      worker.on('exit', (codeNum) => {
+        // 子进程异常退出（如内存不足崩溃）且未上报 done/error
+        if (!settled) {
+          job.status = 'failed';
+          job.error = `导入进程异常退出（code ${codeNum}）。文件可能过大导致内存不足，请稍后重试或缩减总表列数。`;
+          console.error('[master-upload] worker exited abnormally', country, 'code', codeNum);
+        }
+      });
+      worker.on('error', (e) => {
+        settled = true;
+        job.status = 'failed';
+        job.error = '无法启动导入子进程：' + e.message;
+        console.error('[master-upload] fork error', country, e);
+      });
+      worker.send({ type: 'start', country, filePath: storedPath, storedFilename, originalFilename, username });
     } catch (e) {
-      console.error('[master-upload] failed', country, e);
       job.status = 'failed';
       job.error = String(e.message || e);
+      console.error('[master-upload] failed', country, e);
       cleanup();
     }
   });
