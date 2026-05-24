@@ -53,7 +53,7 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`DropXL ERP server listening on 0.0.0.0:${PORT}`);
   // 启动自动同步调度器（6 小时一次，跑商品+订单双同步）
   // 可通过 DISABLE_AUTO_SYNC=1 关闭
@@ -64,3 +64,10 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('[scheduler] disabled by env DISABLE_AUTO_SYNC=1');
   }
 });
+
+// 总表/库存大文件(可达 170MB+)在慢上行下可能要传好几分钟。
+// Node 18 默认 requestTimeout=5min 会把还没传完的上传连接掐断
+// （表现为"上传中"转一会儿消失、且无报错）。这里放开整请求超时。
+server.requestTimeout = 0;        // 不限制整个请求耗时（含大文件 body 上传）
+server.headersTimeout = 120000;   // 仅头部 2 分钟，防慢速头攻击
+server.keepAliveTimeout = 120000;
