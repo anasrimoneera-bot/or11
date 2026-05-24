@@ -116,7 +116,22 @@ function inferCountryName(rawCountry) {
   return COUNTRY_CODE_TO_NAME[c] || null;
 }
 
-function enrichRow(row) {
+// 预编译语句(模块级，prepare 一次复用，避免每行重复 prepare)
+const Q_PRODUCT = db.prepare('SELECT country, code, b2b_price, stock, image_url FROM dropxl_products WHERE country = ? AND code = ?');
+const Q_MASTER = db.prepare('SELECT sku, image_url FROM country_master_skus WHERE country = ? AND sku = ?');
+const Q_HAS_MASTER = db.prepare('SELECT 1 FROM country_master_uploads WHERE country = ? LIMIT 1');
+const Q_MARKUP = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?');
+
+// 每个国家只查一次的缓存(hasMaster / markup 对同一国家是固定的，不该每行重查)
+function makeEnrichCache() {
+  const hm = new Map(), mk = new Map();
+  return {
+    hasMaster(c) { if (!c) return false; if (!hm.has(c)) hm.set(c, !!Q_HAS_MASTER.get(c)); return hm.get(c); },
+    markup(c) { if (!c) return null; if (!mk.has(c)) { const m = Q_MARKUP.get(c); mk.set(c, m ? Number(m.markup_pct) : null); } return mk.get(c); },
+  };
+}
+
+function enrichRow(row, cache) {
   const errors = [];
   if (!row.amazon_order_id) errors.push('缺少 order-id');
   if (!row.sku) errors.push('缺少 sku');
@@ -125,25 +140,13 @@ function enrichRow(row) {
   const sku = String(row.sku).trim();
   const country = inferCountryName(row.ship_country);
 
-  // 商品按 (国家, SKU) 复合查询 - PR-B 调整后的库存表结构
-  const product = (sku && country)
-    ? db.prepare('SELECT country, code, b2b_price, stock, image_url FROM dropxl_products WHERE country = ? AND code = ?').get(country, sku)
-    : null;
-
+  // 商品按 (国家, SKU) 复合查询（有 (country,code) 主键索引，单条很快）
+  const product = (sku && country) ? Q_PRODUCT.get(country, sku) : null;
   // 总表白名单 + 主图（店主上传的精选 SKU 名单）
-  const masterRow = (sku && country)
-    ? db.prepare('SELECT sku, image_url FROM country_master_skus WHERE country = ? AND sku = ?').get(country, sku)
-    : null;
-  // 是否启用白名单过滤（仅当该国家上传过总表时）
-  const hasMaster = country
-    ? !!db.prepare('SELECT 1 FROM country_master_uploads WHERE country = ? LIMIT 1').get(country)
-    : false;
-
-  let markupPct = null;
-  if (country) {
-    const m = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
-    markupPct = m ? Number(m.markup_pct) : null;
-  }
+  const masterRow = (sku && country) ? Q_MASTER.get(country, sku) : null;
+  // 是否启用白名单过滤 + 加价率：每国只查一次（走缓存）
+  const hasMaster = cache.hasMaster(country);
+  const markupPct = cache.markup(country);
 
   let unitPriceUsd = null;
   if (product && markupPct != null) {
@@ -172,7 +175,7 @@ function enrichRow(row) {
 }
 
 // ============ 1. 上传 + 预览 ============
-router.post('/preview', authRequired, upload.single('file'), (req, res) => {
+router.post('/preview', authRequired, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请选择文件' });
   let rows;
   try {
@@ -182,7 +185,14 @@ router.post('/preview', authRequired, upload.single('file'), (req, res) => {
   }
   if (rows.length === 0) return res.status(400).json({ error: '文件中未找到有效数据行' });
 
-  const enriched = rows.map(enrichRow);
+  // 大表格时：每国只查一次(缓存) + 每 1024 行让出一次事件循环，
+  // 避免 O(N) 同步查询把主线程占满导致整站卡死
+  const cache = makeEnrichCache();
+  const enriched = [];
+  for (let i = 0; i < rows.length; i++) {
+    enriched.push(enrichRow(rows[i], cache));
+    if ((i & 1023) === 1023) await new Promise(r => setImmediate(r));
+  }
   // 采购汇率 = 该国亚马逊汇率 × 1.012，按订单国家取
   const { purchaseRateForCountry } = require('../settings');
   const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
@@ -349,7 +359,8 @@ router.post('/submit', authRequired, async (req, res) => {
         continue;
       }
       // 不信任客户端传的价格，服务端按 (country, sku) 重新查 DropXL 库 + country_markup
-      const markupRow = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
+      // 用预编译语句(模块级)，避免在事务里逐单/逐行重复 prepare
+      const markupRow = Q_MARKUP.get(country);
       const markupPct = Number(markupRow?.markup_pct) || 0;
 
       let realUsd = 0;
@@ -357,7 +368,7 @@ router.post('/submit', authRequired, async (req, res) => {
       let resolveError = null;
       const factor = 1 + markupPct / 100;
       for (const it of items) {
-        const p = db.prepare('SELECT b2b_price FROM dropxl_products WHERE country = ? AND code = ?').get(country, String(it.sku).trim());
+        const p = Q_PRODUCT.get(country, String(it.sku).trim());
         if (!p) { resolveError = `${country} 库存中未找到 SKU=${it.sku}`; break; }
         const qty = Number(it.quantity) || 1;
         const rawUnit = Number(p.b2b_price) || 0;
