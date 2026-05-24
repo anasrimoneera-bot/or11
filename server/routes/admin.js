@@ -543,15 +543,28 @@ async function syncOrdersFromDropxl({ sinceDays = 90, country = null } = {}) {
       const o = wrap?.order || wrap;
       const id = String(o.id || o.order_id || '');
       if (!id) continue;
-      const tracking = o.shipping_tracking || '';
+      const ref = String(o.customer_order_reference || '').trim(); // 亚马逊订单号
+      const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
       const status = mapStatus(o.status_order_name || o.status);
-      const r = db.prepare(`
+      // 先按供应商ID(dropxl_order_id)匹配
+      let r = db.prepare(`
         UPDATE purchase_orders
         SET status = ?,
             tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
             updated_at = CURRENT_TIMESTAMP
         WHERE dropxl_order_id = ?
       `).run(status, tracking, tracking, id);
+      // 匹配不到再按亚马逊订单号匹配（仅限本地还没绑定供应商ID的订单），并回填供应商ID
+      if (r.changes === 0 && ref) {
+        r = db.prepare(`
+          UPDATE purchase_orders
+          SET status = ?,
+              tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
+              dropxl_order_id = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE order_no = ? AND COALESCE(dropxl_order_id, '') = ''
+        `).run(status, tracking, tracking, id, ref);
+      }
       if (r.changes > 0) updated++; else notFound++;
     }
     totalFetched += wraps.length;
