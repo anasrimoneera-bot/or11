@@ -42,14 +42,15 @@ echo ""
 echo "=== 4/8 git pull ==="
 git config http.version HTTP/1.1
 git config --global http.lowSpeedLimit 1000
-git config --global http.lowSpeedTime 20  # 20s under 1KB/s is treated as stuck
+git config --global http.lowSpeedTime 30
 
-# NOTE: do NOT pipe through tail in the if-condition; pipe exit code = tail's = always 0
-# We capture output, check git's actual exit code, then print last 20 lines.
+# 临时关掉 set -e：否则 timeout 返回 124 会让 OUT=$(...) 直接触发退出，
+# 重试和镜像兜底永远走不到。拉取阶段自己判断退出码即可。
+set +e
 pull_ok=0
 for i in 1 2 3; do
-  echo "[attempt $i/3] git pull origin $BRANCH"
-  OUT=$(timeout 60 git pull origin "$BRANCH" 2>&1)
+  echo "[attempt $i/3] git pull origin $BRANCH (timeout 180s)"
+  OUT=$(timeout 180 git pull origin "$BRANCH" 2>&1)
   RC=$?
   echo "$OUT" | tail -20
   if [ $RC -eq 0 ]; then
@@ -62,27 +63,30 @@ done
 
 if [ $pull_ok -eq 0 ]; then
   echo ""
-  echo " direct GitHub failed all 3 attempts, trying ghproxy mirror..."
+  echo " direct GitHub failed, trying mirrors..."
   ORIG_URL=$(git remote get-url origin)
-  PROXY_URL="https://ghproxy.com/$ORIG_URL"
-  git remote set-url origin "$PROXY_URL"
-  OUT=$(timeout 90 git pull origin "$BRANCH" 2>&1)
-  RC=$?
-  echo "$OUT" | tail -20
-  if [ $RC -eq 0 ]; then
-    pull_ok=1
-    echo " ghproxy success."
-  else
-    echo " ghproxy also failed (exit $RC)."
-  fi
-  # restore origin url regardless, prefer direct on next deploy
+  for PROXY in "https://ghfast.top/" "https://ghproxy.net/" "https://mirror.ghproxy.com/" "https://ghproxy.com/"; do
+    echo " trying ${PROXY} ..."
+    git remote set-url origin "${PROXY}${ORIG_URL}"
+    OUT=$(timeout 180 git pull origin "$BRANCH" 2>&1)
+    RC=$?
+    echo "$OUT" | tail -10
+    if [ $RC -eq 0 ]; then
+      pull_ok=1
+      echo " ${PROXY} success."
+      break
+    fi
+  done
+  # 还原直连地址，下次优先直连
   git remote set-url origin "$ORIG_URL"
 fi
+set -e
 
 if [ $pull_ok -eq 0 ]; then
   echo ""
-  echo " ERROR: git pull failed via direct AND ghproxy. Network blocked?"
-  echo " manual debug on server: cd $REPO && git pull origin $BRANCH"
+  echo " ERROR: git pull failed via direct AND mirrors. Network blocked?"
+  echo " manual fallback on server:"
+  echo "   cd $REPO && git fetch origin $BRANCH && git merge --ff-only origin/$BRANCH"
   exit 1
 fi
 
