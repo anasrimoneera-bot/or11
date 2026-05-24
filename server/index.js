@@ -54,7 +54,8 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`DropXL ERP server listening on 0.0.0.0:${PORT}`);
+  const heapMB = Math.round(require('v8').getHeapStatistics().heap_size_limit / 1048576);
+  console.log(`DropXL ERP server listening on 0.0.0.0:${PORT} (堆上限 ${heapMB} MB)`);
   // 启动自动同步调度器（6 小时一次，跑商品+订单双同步）
   // 可通过 DISABLE_AUTO_SYNC=1 关闭
   if (process.env.DISABLE_AUTO_SYNC !== '1') {
