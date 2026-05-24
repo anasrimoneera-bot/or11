@@ -40,6 +40,7 @@ const AdminStaff = lazyWithRetry(() => import('./pages/admin/AdminStaff.jsx'));
 const AdminProducts = lazyWithRetry(() => import('./pages/admin/AdminProducts.jsx'));
 const AdminAfterSalesPolicy = lazyWithRetry(() => import('./pages/admin/AdminAfterSalesPolicy.jsx'));
 const AdminSettings = lazyWithRetry(() => import('./pages/admin/AdminSettings.jsx'));
+const AdminFinance = lazyWithRetry(() => import('./pages/admin/AdminFinance.jsx'));
 
 // 居中铺满主区域的加载占位，懒加载 chunk 下载时显示，避免视觉白屏
 const PageLoader = () => (
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/admin/products" element={<Lazy><AdminProducts /></Lazy>} />
             {user?.is_owner && <Route path="/admin/aftersales-policy" element={<Lazy><AdminAfterSalesPolicy /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/settings" element={<Lazy><AdminSettings /></Lazy>} />}
+            {user?.is_owner && <Route path="/admin/finance" element={<Lazy><AdminFinance /></Lazy>} />}
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/admin" />} />
           </>

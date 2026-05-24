@@ -278,6 +278,34 @@ router.get('/users/:id/balance-records', (req, res) => {
   res.json(rows);
 });
 
+// ============ 财务管理（仅店主）：全用户余额变动明细 + 按用户筛选 + 分页 ============
+router.get('/finance/records', ownerRequired, (req, res) => {
+  const { user_id, limit = 50, offset = 0 } = req.query;
+  const conds = [];
+  const args = [];
+  if (user_id) { conds.push('r.user_id = ?'); args.push(Number(user_id)); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const lim = Math.min(Number(limit) || 50, 200);
+  const off = Number(offset) || 0;
+  const rows = db.prepare(`
+    SELECT r.id, r.user_id, u.username, u.display_name, u.is_admin, u.is_owner,
+           r.type, r.amount, r.balance_after, r.description, r.related_order, r.created_at
+    FROM balance_records r
+    LEFT JOIN users u ON u.id = r.user_id
+    ${where}
+    ORDER BY r.id DESC
+    LIMIT ? OFFSET ?
+  `).all(...args, lim, off);
+  const total = db.prepare(`SELECT COUNT(*) AS c FROM balance_records r ${where}`).get(...args).c;
+  // 下拉筛选用：有财务记录的用户（含管理员/BOSS）
+  const users = db.prepare(`
+    SELECT DISTINCT u.id, u.username, u.display_name, u.is_admin, u.is_owner
+    FROM balance_records r JOIN users u ON u.id = r.user_id
+    ORDER BY u.is_owner DESC, u.is_admin DESC, u.display_name, u.username
+  `).all();
+  res.json({ rows, total, users });
+});
+
 // ============ 订单审核 ============
 router.get('/orders', (req, res) => {
   const { status, q, user_id, limit = 50, offset = 0 } = req.query;
