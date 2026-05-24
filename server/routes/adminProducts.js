@@ -78,8 +78,10 @@ const apiSyncJobs = new Map();
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function runCountryApiSync(country, job) {
-  const PAGE_SIZE = 500;
-  const RATE_LIMIT_MS = 1100;
+  // 可用环境变量调优（无需改代码）：DROPXL_PAGE_SIZE / DROPXL_SYNC_RATE_MS
+  const PAGE_SIZE = Number(process.env.DROPXL_PAGE_SIZE) || 1000;
+  const RATE_LIMIT_MS = Number(process.env.DROPXL_SYNC_RATE_MS) || 800;
+  const MAX_RETRY = 4;
   const upsert = db.prepare(`
     INSERT INTO dropxl_products (country, code, b2b_price, stock, image_url, uploaded_at)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -107,7 +109,21 @@ async function runCountryApiSync(country, job) {
     while (true) {
       // DropXL 商品 API 不支持 country 参数，但每个国家有独立 API 账户（独立 token）
       // 用对应国家的 token 调用即可拿到该国可销售的商品（DropXL 按 token 权限过滤）
-      const data = await dropxl.listProducts({ limit: PAGE_SIZE, offset }, country);
+      // 单页失败（超时/限速 429/5xx/网络抖动）自动退避重试，避免拉到一半整个同步失败
+      let data, attempt = 0;
+      while (true) {
+        try {
+          data = await dropxl.listProducts({ limit: PAGE_SIZE, offset }, country);
+          break;
+        } catch (e) {
+          attempt++;
+          if (attempt > MAX_RETRY) throw e;
+          const wait = RATE_LIMIT_MS * Math.pow(2, attempt); // 退避：1.6s,3.2s,6.4s,12.8s
+          job.progress = { fetched: job.fetched, total: total ?? job.fetched, retrying: `第${attempt}次重试` };
+          console.warn(`[api-sync] ${country} offset=${offset} 第${attempt}次重试（${e.message}），${wait}ms 后再试`);
+          await sleep(wait);
+        }
+      }
       // DropXL 响应格式：通常是数组 [{...}, ...]；少数情况会包成 { data: [...], pagination: { total } }
       const items = Array.isArray(data) ? data : (data?.data || []);
       const paginationTotal = Array.isArray(data)
@@ -131,8 +147,10 @@ async function runCountryApiSync(country, job) {
       tx(items);
       job.fetched += items.length;
       job.progress = { fetched: job.fetched, total: total ?? job.fetched };
-      if (!items.length || items.length < PAGE_SIZE || (total != null && job.fetched >= total)) break;
-      offset += PAGE_SIZE;
+      // 按实际返回条数推进 offset（健壮分页：即使 DropXL 把每页上限压到 < PAGE_SIZE 也不会漏数据/提前结束）
+      if (!items.length) break;
+      if (total != null && job.fetched >= total) break;
+      offset += items.length;
       await sleep(RATE_LIMIT_MS);
     }
     // 记录到 inventory_uploads
