@@ -346,11 +346,16 @@ router.post('/orders/:id/confirm', (req, res) => {
   const deduct = displayCny - refund;
 
   const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
-  if ((bal?.balance || 0) < deduct) {
+  // 管理员/BOSS 账号提交的订单可 0 余额(允许透支)确认采购，跳过余额不足拦截
+  const orderUser = db.prepare('SELECT is_admin, is_owner FROM users WHERE id = ?').get(order.user_id);
+  const allowOverdraft = !!(orderUser && (orderUser.is_admin || orderUser.is_owner));
+  if (!allowOverdraft && (bal?.balance || 0) < deduct) {
     return res.status(400).json({ error: `用户余额不足，需要 ¥${deduct.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}` });
   }
 
   const tx = db.transaction(() => {
+    // 管理员/BOSS 订单若无余额记录，先补一条 0 余额行，保证扣款(可为负)能落账
+    if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(order.user_id);
     const newBal = (bal?.balance || 0) - deduct;
     db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, order.user_id);
     db.prepare(`
