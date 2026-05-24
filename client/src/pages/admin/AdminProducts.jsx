@@ -321,7 +321,10 @@ function CountryUploadGrid({ status, accounts, masterStatus, onChange, activeCou
 
 function CountryUploadCard({ country, status, account, active, onClick, onUploaded }) {
   const fileRef = useRef(null);
-  const [uploading, setUploading] = useState(false);
+  const [, force] = useState(0);
+  // 跨页订阅 bgUpload：切换/返回页面都能正确显示"上传中"，且上传不被中断
+  useEffect(() => bgUpload.subscribe(() => force(n => n + 1)), []);
+  const xhrUploading = bgUpload.isActive(`inventory:${country}`);
   const hasCreds = !!(account?.has_token && account?.enabled);
   const syncing = status?.api_sync_status === 'running' || status?.api_sync_status === 'pending';
   const syncProgress = status?.api_sync_progress;
@@ -337,28 +340,28 @@ function CountryUploadCard({ country, status, account, active, onClick, onUpload
     }
   };
 
-  const onPick = async (e) => {
+  const onPick = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!confirm(`确认用 "${file.name}" 替换 ${country} 的库存数据？\n注意：原有该国库存会被全量覆盖。`)) {
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    if (!confirm(`确认用 "${file.name}" (${sizeMB}MB) 替换 ${country} 的库存数据？\n原有该国库存会被全量覆盖。\n上传后切换页面不会中断；刷新浏览器会中断上传。`)) {
       e.target.value = '';
       return;
     }
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const r = await api.post(`/admin/products/inventory-upload/${encodeURIComponent(country)}`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+    const fd = new FormData();
+    fd.append('file', file);
+    // fire-and-forget：bgUpload 跨页跟踪 XHR，切换/返回页面都不中断上传
+    const promise = api.post(`/admin/products/inventory-upload/${encodeURIComponent(country)}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,   // 大文件不设超时
+    }).then(r => {
       alert(`${country} 库存已更新：共 ${r.data.rows} 行（有库存 ${r.data.in_stock}）`);
       onUploaded();
-    } catch (err) {
-      alert(err.response?.data?.error || '上传失败');
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
+    }).catch(err => {
+      alert(`${country} 库存上传失败：${err.response?.data?.error || err.message}`);
+    });
+    bgUpload.start(`inventory:${country}`, promise, `${country} 库存 (${sizeMB}MB)`);
+    if (fileRef.current) fileRef.current.value = '';
   };
 
   const downloadSource = async (e) => {
@@ -409,12 +412,13 @@ function CountryUploadCard({ country, status, account, active, onClick, onUpload
         {syncing && (
           <div className="text-blue-600 mt-0.5">⏳ 已抓取 {syncProgress?.fetched || 0}{syncProgress?.total ? ` / ${syncProgress.total}` : ''}</div>
         )}
+        {xhrUploading && <div className="text-blue-600 mt-0.5">⬆️ 上传中（可切换页面）</div>}
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1">
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
         <button
           type="button"
-          disabled={uploading || syncing || !hasCreds}
+          disabled={xhrUploading || syncing || !hasCreds}
           onClick={apiSync}
           className="btn btn-success text-xs justify-center py-1 disabled:opacity-40"
           title={hasCreds ? `用 ${country} 账户拉取商品库存` : `请在「系统设置 → 供应商多国账户」配置 ${country} 凭据`}
@@ -423,11 +427,11 @@ function CountryUploadCard({ country, status, account, active, onClick, onUpload
         </button>
         <button
           type="button"
-          disabled={uploading || syncing}
+          disabled={xhrUploading || syncing}
           onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}
           className="btn btn-ghost border text-xs justify-center py-1"
         >
-          {uploading ? '上传中' : '📤 xlsx'}
+          {xhrUploading ? '上传中…' : '📤 xlsx'}
         </button>
       </div>
     </div>
