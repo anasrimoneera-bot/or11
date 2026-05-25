@@ -485,9 +485,9 @@ router.put('/orders/:id/assign', (req, res) => {
   res.json({ ok: true });
 });
 
-// 设置订单的 PayPal 支付汇率（店主+管理员可改）。1 CNY = ? USD
+// 设置订单的 PayPal 支付汇率（仅 BOSS 可改）。1 CNY = ? USD
 // 仅记录, 真实人民币成本/差价利润由前端按 real_amount_usd / paypal_rate 实时算
-router.put('/orders/:id/paypal-rate', (req, res) => {
+router.put('/orders/:id/paypal-rate', ownerRequired, (req, res) => {
   const { paypal_rate } = req.body || {};
   const v = paypal_rate === '' || paypal_rate == null ? null : Number(paypal_rate);
   if (v != null && (!isFinite(v) || v <= 0)) return res.status(400).json({ error: 'PayPal 汇率必须是正数' });
@@ -519,6 +519,53 @@ router.put('/orders/:id/purchase-price', ownerRequired, (req, res) => {
     summary: `订单 ${order.order_no} 用户采购价 ${Number(order.purchase_amount_usd).toFixed(2)} → ${v.toFixed(2)}`,
   });
   res.json({ ok: true, purchase_amount_cny: newCny });
+});
+
+// 仅 BOSS：按"当前系统采购汇率"重算单个订单的采购¥ = 采购USD × 当前汇率，
+// 并把该订单的 exchange_rate 更新为当前汇率（用于补全历史导入单缺失的采购¥）。
+router.post('/orders/:id/recompute-cny', ownerRequired, (req, res) => {
+  const { purchaseRateForCountry, getExchangeRate } = require('../settings');
+  const order = db.prepare('SELECT id, order_no, country, purchase_amount_usd, purchase_amount_cny, exchange_rate FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  const rate = purchaseRateForCountry(order.country) || getExchangeRate();
+  if (!(rate > 0)) return res.status(400).json({ error: `无法取得 ${order.country || '该国'} 的当前采购汇率，请先在系统设置维护该国亚马逊汇率` });
+  const newCny = (Number(order.purchase_amount_usd) || 0) * rate;
+  db.prepare('UPDATE purchase_orders SET purchase_amount_cny = ?, exchange_rate = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newCny, rate, order.id);
+  setAudit(res, {
+    target_id: String(order.id), target_name: order.order_no,
+    summary: `订单 ${order.order_no} 按当前汇率重算采购¥: ${Number(order.purchase_amount_cny || 0).toFixed(2)} → ${newCny.toFixed(2)} (汇率 ${rate.toFixed(4)})`,
+  });
+  res.json({ ok: true, purchase_amount_cny: newCny, exchange_rate: rate });
+});
+
+// 仅 BOSS：一键补算所有"采购¥为 0 / 未计算"的订单（只补缺，不动已正常的订单）。
+router.post('/orders/recompute-cny-missing', ownerRequired, (req, res) => {
+  const { purchaseRateForCountry, getExchangeRate } = require('../settings');
+  const fallback = getExchangeRate();
+  const targets = db.prepare(`
+    SELECT id, country, purchase_amount_usd FROM purchase_orders
+    WHERE purchase_amount_cny IS NULL OR purchase_amount_cny = 0
+  `).all();
+  const rateCache = new Map();
+  const rateOf = (c) => {
+    if (!rateCache.has(c)) rateCache.set(c, purchaseRateForCountry(c) || fallback);
+    return rateCache.get(c);
+  };
+  const upd = db.prepare('UPDATE purchase_orders SET purchase_amount_cny = ?, exchange_rate = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+  let updated = 0;
+  const tx = db.transaction(() => {
+    for (const o of targets) {
+      const rate = rateOf(o.country);
+      if (!(rate > 0)) continue;
+      const usd = Number(o.purchase_amount_usd) || 0;
+      if (usd <= 0) continue; // 采购USD 也为 0 的没意义，跳过
+      upd.run(usd * rate, rate, o.id);
+      updated++;
+    }
+  });
+  tx();
+  setAudit(res, { summary: `一键补算采购¥(零值单): 命中 ${targets.length} 单, 实际补算 ${updated} 单` });
+  res.json({ ok: true, scanned: targets.length, updated });
 });
 
 router.put('/orders/:id', (req, res) => {
