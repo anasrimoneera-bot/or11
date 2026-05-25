@@ -106,19 +106,26 @@ function parseAmazonTemplate(buffer) {
   }).filter(r => r.amazon_order_id || r.sku);
 }
 
-// 国家识别：兼容 2 位代码 / 中文名 / 英文全名，统一映射到中文国家名。
-// （toUpperCase 后中文不变，所以中文名直接作为 key 也能命中）
+// 国家识别：覆盖系统支持的全部 8 国，兼容 2 位代码 / 中文名 / 英文名 / 本地语言名，
+// 统一映射到中文国家名。（toUpperCase 后中文不变，所以中文/带重音字符直接作 key 也能命中）
+// 其它国家暂未开通，但识别已提前配好，开通后直接可用。
 const COUNTRY_CODE_TO_NAME = {
-  // 2 位国家代码
-  US: '美国', USA: '美国', GB: '英国', UK: '英国', DE: '德国', FR: '法国',
-  IT: '意大利', NL: '荷兰', ES: '西班牙', PL: '波兰',
-  // 英文全名
-  'UNITED STATES': '美国', 'UNITED KINGDOM': '英国', 'GREAT BRITAIN': '英国',
-  GERMANY: '德国', FRANCE: '法国', ITALY: '意大利', NETHERLANDS: '荷兰',
-  SPAIN: '西班牙', POLAND: '波兰',
-  // 中文名（直接填中文国家名也认）
-  美国: '美国', 英国: '英国', 德国: '德国', 法国: '法国',
-  意大利: '意大利', 荷兰: '荷兰', 西班牙: '西班牙', 波兰: '波兰',
+  // 美国 US
+  US: '美国', USA: '美国', 'UNITED STATES': '美国', 'UNITED STATES OF AMERICA': '美国', AMERICA: '美国', 美国: '美国',
+  // 英国 GB/UK
+  GB: '英国', UK: '英国', GBR: '英国', 'UNITED KINGDOM': '英国', 'GREAT BRITAIN': '英国', BRITAIN: '英国', ENGLAND: '英国', 英国: '英国',
+  // 德国 DE
+  DE: '德国', DEU: '德国', GERMANY: '德国', DEUTSCHLAND: '德国', 德国: '德国',
+  // 法国 FR
+  FR: '法国', FRA: '法国', FRANCE: '法国', 法国: '法国',
+  // 荷兰 NL
+  NL: '荷兰', NLD: '荷兰', NETHERLANDS: '荷兰', 'THE NETHERLANDS': '荷兰', HOLLAND: '荷兰', NEDERLAND: '荷兰', 荷兰: '荷兰',
+  // 意大利 IT
+  IT: '意大利', ITA: '意大利', ITALY: '意大利', ITALIA: '意大利', 意大利: '意大利',
+  // 西班牙 ES（含带重音/不带重音）
+  ES: '西班牙', ESP: '西班牙', SPAIN: '西班牙', 'ESPAÑA': '西班牙', ESPANA: '西班牙', 西班牙: '西班牙',
+  // 波兰 PL
+  PL: '波兰', POL: '波兰', POLAND: '波兰', POLSKA: '波兰', 波兰: '波兰',
 };
 
 function inferCountryName(rawCountry) {
