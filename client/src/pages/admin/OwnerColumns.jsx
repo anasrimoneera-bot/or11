@@ -25,7 +25,7 @@ export function OrderRealHeader() {
   );
 }
 
-export function OrderRealCells({ order, onChanged }) {
+export function OrderRealCells({ order, onChanged, isOwner }) {
   const realUsd = Number(order?.real_amount_usd) || 0;
   const markupPct = order?.markup_pct ?? 0;
   const paypalRate = Number(order?.paypal_rate) || 0;
@@ -36,16 +36,21 @@ export function OrderRealCells({ order, onChanged }) {
     <>
       <td className="px-3 py-2 text-right text-red-600">${realUsd.toFixed(2)}</td>
       <td className="px-3 py-2 text-right text-red-600">{markupPct}%</td>
-      <td className="px-3 py-2 text-right">
-        <EditableAmount
-          value={paypalRate}
-          prefix=""
-          decimals={5}
-          onSave={async (v) => {
-            await api.put(`/admin/orders/${order.id}/paypal-rate`, { paypal_rate: v });
-            onChanged && onChanged();
-          }}
-        />
+      <td className="px-3 py-2 text-right text-red-600">
+        {/* PayPal 汇率仅 BOSS 可编辑；其他管理员只读 */}
+        {isOwner ? (
+          <EditableAmount
+            value={paypalRate}
+            prefix=""
+            decimals={5}
+            onSave={async (v) => {
+              await api.put(`/admin/orders/${order.id}/paypal-rate`, { paypal_rate: v });
+              onChanged && onChanged();
+            }}
+          />
+        ) : (
+          paypalRate > 0 ? paypalRate.toFixed(5) : <span className="text-gray-400">—</span>
+        )}
       </td>
       <td className="px-3 py-2 text-right text-red-600">
         {realCny != null ? `¥${realCny.toFixed(2)}` : <span className="text-gray-400">—</span>}

@@ -5,7 +5,7 @@ import EditableAmount from '../../components/EditableAmount.jsx';
 // 店主版确认弹窗 - 通过动态 import 隔离，员工不会下载此 chunk
 const OwnerConfirmModal = lazy(() => import('./OwnerConfirmModal.jsx'));
 const OwnerCols = lazy(() => import('./OwnerColumns.jsx').then(m => ({
-  default: ({ kind, order, onChanged }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells order={order} onChanged={onChanged} />
+  default: ({ kind, order, onChanged, isOwner }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells order={order} onChanged={onChanged} isOwner={isOwner} />
 })));
 
 const statusLabel = { pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货', completed: '已完成', cancelled: '已取消', refunded: '已退款' };
@@ -63,6 +63,25 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '导入失败'); }
   };
 
+  // 仅 BOSS：按当前系统汇率重算单个订单的采购¥（补全历史导入单缺失的¥）
+  const recomputeCny = async (o) => {
+    if (!confirm(`按"当前系统采购汇率"重算订单 ${o.order_no} 的采购¥？\n采购¥ = 采购USD × 当前采购汇率，并把该订单汇率更新为当前汇率。`)) return;
+    try {
+      await api.post(`/admin/orders/${o.id}/recompute-cny`);
+      load();
+    } catch (e) { alert(e.response?.data?.error || '重算失败'); }
+  };
+
+  // 仅 BOSS：一键补算所有"采购¥为 0 / 未计算"的订单（不动已正常的订单）
+  const recomputeAllMissing = async () => {
+    if (!confirm('把所有"采购¥为 0 / 未计算"的订单按当前系统汇率补算采购¥？\n（只补缺，不影响采购¥已正常的订单）')) return;
+    try {
+      const { data } = await api.post('/admin/orders/recompute-cny-missing');
+      alert(`扫描 ${data.scanned} 单，实际补算 ${data.updated} 单`);
+      load();
+    } catch (e) { alert(e.response?.data?.error || '补算失败'); }
+  };
+
   const exportDropxlTemplate = async () => {
     if (!confirm('确认导出待处理订单为供应商采购模板？\n• 默认只导出未导出过的订单\n• 导出后会标记为"已导出"，下次不再重复\n• 导出后请前往供应商后台手动提交')) return;
     try {
@@ -91,6 +110,7 @@ export default function AdminOrders() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">📋 订单管理</h1>
         <div className="flex gap-2">
+          {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按当前汇率补算'>🔄 补算采购¥(零值单)</button>}
           <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary">🔄 从供应商同步跟踪号/状态</button>
@@ -168,7 +188,16 @@ export default function AdminOrders() {
                     <>${(o.purchase_amount_usd || 0).toFixed(2)}</>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
+                <td className="px-3 py-2 text-right text-red-600 whitespace-nowrap">
+                  ¥{(o.purchase_amount_cny || 0).toFixed(2)}
+                  {isOwner && (
+                    <button
+                      onClick={() => recomputeCny(o)}
+                      title="按当前系统汇率重算采购¥"
+                      className="ml-1 text-blue-500 hover:text-blue-700 align-middle"
+                    >🔄</button>
+                  )}
+                </td>
                 <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
                 </td>
@@ -180,7 +209,7 @@ export default function AdminOrders() {
                     title="成本利润率 = 人民币利润 / 人民币采购价">
                   {(!canComputeCny || purchaseCny <= 0) ? '—' : `${(profitCny / purchaseCny) >= 0 ? '+' : ''}${((profitCny / purchaseCny) * 100).toFixed(2)}%`}
                 </td>
-                {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} /></Suspense>}
+                {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} isOwner={isOwner} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
                 <td className="px-3 py-2 text-xs">{
                   o.tracking_no

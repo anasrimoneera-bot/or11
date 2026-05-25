@@ -11,6 +11,9 @@ const ACTIONS = [
   { re: /^POST \/orders\/(\d+)\/confirm$/, action: '确认采购订单（扣款）', target: 'order' },
   { re: /^POST \/orders\/(\d+)\/reject$/, action: '驳回订单', target: 'order' },
   { re: /^PUT \/orders\/(\d+)$/, action: '编辑订单', target: 'order' },
+  { re: /^POST \/orders\/(\d+)\/recompute-cny$/, action: '按当前汇率重算采购¥', target: 'order' },
+  { re: /^POST \/orders\/recompute-cny-missing$/, action: '一键补算采购¥(零值单)', target: 'order' },
+  { re: /^PUT \/orders\/(\d+)\/paypal-rate$/, action: '设置订单PayPal汇率', target: 'order' },
   { re: /^POST \/orders\/sync$/, action: '从DropXL同步订单状态' },
   // 售后
   { re: /^PUT \/aftersales\/(\d+)$/, action: '更新售后工单', target: 'ticket' },
