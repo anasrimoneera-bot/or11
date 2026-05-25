@@ -77,98 +77,64 @@ function parseInventoryXlsx(buffer) {
 const apiSyncJobs = new Map();
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function runCountryApiSync(country, job) {
-  // 可用环境变量调优（无需改代码）：DROPXL_PAGE_SIZE / DROPXL_SYNC_RATE_MS
-  const PAGE_SIZE = Number(process.env.DROPXL_PAGE_SIZE) || 1000;
-  const RATE_LIMIT_MS = Number(process.env.DROPXL_SYNC_RATE_MS) || 800;
-  const MAX_RETRY = 4;
-  const upsert = db.prepare(`
-    INSERT INTO dropxl_products (country, code, b2b_price, stock, image_url, uploaded_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(country, code) DO UPDATE SET
-      b2b_price = excluded.b2b_price,
-      stock = excluded.stock,
-      image_url = COALESCE(excluded.image_url, dropxl_products.image_url),
-      uploaded_at = excluded.uploaded_at
-  `);
-  // DropXL listProducts 实际字段名未知，尝试多候选取主图链接
-  const extractImage = (p) => {
-    const candidates = [p.image, p.image_url, p.main_image, p.thumbnail, p.picture, p.img];
-    for (const v of candidates) if (v && typeof v === 'string') return v;
-    if (Array.isArray(p.images) && p.images.length > 0) {
-      const first = p.images[0];
-      if (typeof first === 'string') return first;
-      if (first && typeof first === 'object') return first.url || first.src || null;
+// 商品库存 API 同步：fork 到独立子进程跑，主进程事件循环不被阻塞(DropXL 慢/超时
+// 一次可达 30-45 分钟也不卡网站)。子进程通过 IPC 回报进度,主进程更新 job 状态。
+// 返回 Promise，子进程退出时 resolve(供 scheduler / sync-all 串行 await)。
+function runCountryApiSync(country, job) {
+  return new Promise((resolve) => {
+    const { fork } = require('child_process');
+    let worker;
+    try {
+      worker = fork(path.join(__dirname, '..', 'workers', 'productSync.js'));
+    } catch (e) {
+      job.status = 'failed';
+      job.error = '无法启动同步子进程: ' + e.message;
+      job.finishedAt = new Date().toISOString();
+      return resolve();
     }
-    return null;
-  };
-  let offset = 0;
-  let total = null;
-  const now = new Date().toISOString();
-  try {
-    while (true) {
-      // DropXL 商品 API 不支持 country 参数，但每个国家有独立 API 账户（独立 token）
-      // 用对应国家的 token 调用即可拿到该国可销售的商品（DropXL 按 token 权限过滤）
-      // 单页失败（超时/限速 429/5xx/网络抖动）自动退避重试，避免拉到一半整个同步失败
-      let data, attempt = 0;
-      while (true) {
-        try {
-          data = await dropxl.listProducts({ limit: PAGE_SIZE, offset }, country);
-          break;
-        } catch (e) {
-          attempt++;
-          if (attempt > MAX_RETRY) throw e;
-          const wait = RATE_LIMIT_MS * Math.pow(2, attempt); // 退避：1.6s,3.2s,6.4s,12.8s
-          job.progress = { fetched: job.fetched, total: total ?? job.fetched, retrying: `第${attempt}次重试` };
-          console.warn(`[api-sync] ${country} offset=${offset} 第${attempt}次重试（${e.message}），${wait}ms 后再试`);
-          await sleep(wait);
-        }
+    let settled = false;
+    worker.on('message', (m) => {
+      if (!m) return;
+      if (m.type === 'progress') {
+        job.fetched = m.fetched;
+        job.upserted = m.upserted;
+        job.progress = { fetched: m.fetched, total: m.total ?? m.fetched, ...(m.retrying ? { retrying: m.retrying } : {}) };
+      } else if (m.type === 'done') {
+        settled = true;
+        job.status = 'done';
+        job.fetched = m.fetched ?? job.fetched;
+        job.upserted = m.upserted ?? job.upserted;
+        job.in_stock = m.in_stock;
+        job.total = m.total;
+        job.finishedAt = new Date().toISOString();
+      } else if (m.type === 'error') {
+        settled = true;
+        job.status = 'failed';
+        job.error = m.error;
+        job.finishedAt = new Date().toISOString();
+        console.error('[product-sync] worker error', country, m.error);
       }
-      // DropXL 响应格式：通常是数组 [{...}, ...]；少数情况会包成 { data: [...], pagination: { total } }
-      const items = Array.isArray(data) ? data : (data?.data || []);
-      const paginationTotal = Array.isArray(data)
-        ? Number(items[items.length - 1]?.pagination?.total) || null
-        : (data?.pagination?.total != null ? Number(data.pagination.total) : null);
-      if (paginationTotal != null) total = paginationTotal;
-      const tx = db.transaction((arr) => {
-        for (const p of arr) {
-          if (!p.code) continue;
-          upsert.run(
-            country,
-            String(p.code),
-            Number(p.price) || 0,
-            Number(p.quantity) || 0,
-            extractImage(p),
-            now,
-          );
-          job.upserted++;
-        }
-      });
-      tx(items);
-      job.fetched += items.length;
-      job.progress = { fetched: job.fetched, total: total ?? job.fetched };
-      // 按实际返回条数推进 offset（健壮分页：即使 DropXL 把每页上限压到 < PAGE_SIZE 也不会漏数据/提前结束）
-      if (!items.length) break;
-      if (total != null && job.fetched >= total) break;
-      offset += items.length;
-      await sleep(RATE_LIMIT_MS);
-    }
-    // 记录到 inventory_uploads
-    const inStock = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products WHERE country = ? AND stock > 0').get(country).c;
-    const totalCount = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products WHERE country = ?').get(country).c;
-    db.prepare(`
-      INSERT INTO inventory_uploads (country, original_filename, stored_filename, rows_count, in_stock_count, uploaded_by, uploaded_at, source)
-      VALUES (?, NULL, NULL, ?, ?, ?, ?, 'api')
-    `).run(country, totalCount, inStock, job.startedBy, now);
-    job.status = 'done';
-    job.finishedAt = new Date().toISOString();
-    job.in_stock = inStock;
-    job.total = totalCount;
-  } catch (e) {
-    job.status = 'failed';
-    job.error = e.message;
-    job.finishedAt = new Date().toISOString();
-  }
+    });
+    worker.on('exit', (code) => {
+      if (!settled) {
+        job.status = 'failed';
+        job.error = `同步子进程异常退出（code ${code}）`;
+        job.finishedAt = new Date().toISOString();
+        console.error('[product-sync] worker exited abnormally', country, 'code', code);
+      }
+      resolve();
+    });
+    worker.on('error', (e) => {
+      if (!settled) {
+        settled = true;
+        job.status = 'failed';
+        job.error = '同步子进程错误: ' + e.message;
+        job.finishedAt = new Date().toISOString();
+      }
+      resolve();
+    });
+    worker.send({ type: 'start', country, startedBy: job.startedBy });
+  });
 }
 
 // 一键同步全部国家：在内存中串行调用各国 API 同步任务
