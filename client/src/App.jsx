@@ -69,6 +69,7 @@ export default function App() {
   if (loading) return <div className="h-screen flex items-center justify-center text-gray-500">加载中...</div>;
 
   const home = user?.is_admin ? '/admin' : '/dashboard';
+  const perms = user?.permissions || [];
 
   return (
     <Routes>
@@ -85,9 +86,9 @@ export default function App() {
             {user?.is_owner && <Route path="/admin/staff" element={<Lazy><AdminStaff /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/api-test" element={<Lazy><AdminApiTest /></Lazy>} />}
             <Route path="/admin/products" element={<Lazy><AdminProducts /></Lazy>} />
-            {user?.is_owner && <Route path="/admin/aftersales-policy" element={<Lazy><AdminAfterSalesPolicy /></Lazy>} />}
+            {(user?.is_owner || perms.includes('aftersales_policy')) && <Route path="/admin/aftersales-policy" element={<Lazy><AdminAfterSalesPolicy /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/settings" element={<Lazy><AdminSettings /></Lazy>} />}
-            {user?.is_owner && <Route path="/admin/finance" element={<Lazy><AdminFinance /></Lazy>} />}
+            {(user?.is_owner || perms.includes('finance')) && <Route path="/admin/finance" element={<Lazy><AdminFinance /></Lazy>} />}
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/admin" />} />
           </>

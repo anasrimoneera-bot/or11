@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const dropxl = require('../dropxl');
-const { authRequired, adminRequired, ownerRequired } = require('../middleware/auth');
+const { authRequired, adminRequired, ownerRequired, permRequired, GRANTABLE_KEYS } = require('../middleware/auth');
 const { audit, setAudit } = require('../middleware/audit');
 
 const router = express.Router();
@@ -102,24 +102,49 @@ router.delete('/audit-logs', ownerRequired, (req, res) => {
 // ============ 员工管理（仅店主可见） ============
 router.get('/staff', ownerRequired, (req, res) => {
   const rows = db.prepare(`
-    SELECT id, username, display_name, email, created_at, is_owner
+    SELECT id, username, display_name, email, created_at, is_owner, permissions
     FROM users WHERE is_admin = 1 AND id != ?
     ORDER BY created_at DESC
   `).all(req.user.id);
+  // permissions 列存 JSON 字符串，返回前解析成数组并过滤掉已下线的 key
+  for (const r of rows) {
+    try {
+      const arr = JSON.parse(r.permissions || '[]');
+      r.permissions = Array.isArray(arr) ? arr.filter(k => GRANTABLE_KEYS.includes(k)) : [];
+    } catch { r.permissions = []; }
+  }
   res.json(rows);
 });
 
+// 校验并归一化传入的权限数组（去重 + 只保留已注册的 key）
+function sanitizePermissions(input) {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input.filter(k => GRANTABLE_KEYS.includes(k)))];
+}
+
 router.post('/staff', ownerRequired, (req, res) => {
-  const { username, password, display_name, email } = req.body || {};
+  const { username, password, display_name, email, permissions } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: '用户名和密码必填' });
   if (db.prepare('SELECT id FROM users WHERE username = ?').get(username)) return res.status(400).json({ error: '用户名已存在' });
   const hash = bcrypt.hashSync(password, 10);
+  const perms = sanitizePermissions(permissions);
   const info = db.prepare(`
-    INSERT INTO users (username, password_hash, display_name, email, role, is_admin, is_owner)
-    VALUES (?, ?, ?, ?, 'staff', 1, 0)
-  `).run(username, hash, display_name, email);
+    INSERT INTO users (username, password_hash, display_name, email, role, is_admin, is_owner, permissions)
+    VALUES (?, ?, ?, ?, 'staff', 1, 0, ?)
+  `).run(username, hash, display_name, email, JSON.stringify(perms));
   db.prepare('INSERT INTO user_balance (user_id, balance) VALUES (?, 0)').run(info.lastInsertRowid);
   res.json({ ok: true, id: info.lastInsertRowid });
+});
+
+// 仅 BOSS：设置某管理员的功能权限（权限分配本身不可下放，防越权）
+router.put('/staff/:id/permissions', ownerRequired, (req, res) => {
+  const u = db.prepare('SELECT id, username, display_name, is_admin, is_owner FROM users WHERE id = ?').get(req.params.id);
+  if (!u || !u.is_admin) return res.status(404).json({ error: '管理员不存在' });
+  if (u.is_owner) return res.status(400).json({ error: 'BOSS 账号默认拥有全部权限，无需分配' });
+  const perms = sanitizePermissions(req.body?.permissions);
+  db.prepare('UPDATE users SET permissions = ? WHERE id = ?').run(JSON.stringify(perms), u.id);
+  setAudit(res, { target_name: u.display_name || u.username, summary: `设置管理员 ${u.username} 功能权限: [${perms.join(', ') || '无'}]` });
+  res.json({ ok: true, permissions: perms });
 });
 
 router.delete('/staff/:id', ownerRequired, (req, res) => {
@@ -279,7 +304,7 @@ router.get('/users/:id/balance-records', (req, res) => {
 });
 
 // ============ 财务管理（仅店主）：全用户余额变动明细 + 按用户筛选 + 分页 ============
-router.get('/finance/records', ownerRequired, (req, res) => {
+router.get('/finance/records', permRequired('finance'), (req, res) => {
   const { user_id, limit = 50, offset = 0 } = req.query;
   const conds = [];
   const args = [];
@@ -936,8 +961,8 @@ router.put('/settings', ownerRequired, (req, res) => {
   res.json({ ok: true, exchange_rate_cny_per_usd: getExchangeRate() });
 });
 
-// ============ 售后政策维护（仅店主） ============
-router.get('/aftersales-policies', ownerRequired, (req, res) => {
+// ============ 售后政策维护（BOSS 或被分配 aftersales_policy 权限的管理员） ============
+router.get('/aftersales-policies', permRequired('aftersales_policy'), (req, res) => {
   const rows = db.prepare(`
     SELECT id, slug, title, body, published_title, published_body, sort_order, updated_at, published_at,
            CASE WHEN COALESCE(body, '') = COALESCE(published_body, '')
@@ -949,7 +974,7 @@ router.get('/aftersales-policies', ownerRequired, (req, res) => {
   res.json(rows);
 });
 
-router.post('/aftersales-policies', ownerRequired, (req, res) => {
+router.post('/aftersales-policies', permRequired('aftersales_policy'), (req, res) => {
   const { slug, title, body, sort_order } = req.body || {};
   if (!slug || !title) return res.status(400).json({ error: 'slug 与 title 必填' });
   if (db.prepare('SELECT id FROM aftersales_policies WHERE slug = ?').get(slug)) {
@@ -965,7 +990,7 @@ router.post('/aftersales-policies', ownerRequired, (req, res) => {
   res.json({ ok: true, id: info.lastInsertRowid });
 });
 
-router.put('/aftersales-policies/:id', ownerRequired, (req, res) => {
+router.put('/aftersales-policies/:id', permRequired('aftersales_policy'), (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT * FROM aftersales_policies WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: '章节不存在' });
@@ -982,7 +1007,7 @@ router.put('/aftersales-policies/:id', ownerRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/aftersales-policies/:id', ownerRequired, (req, res) => {
+router.delete('/aftersales-policies/:id', permRequired('aftersales_policy'), (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT title FROM aftersales_policies WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: '章节不存在' });
@@ -991,7 +1016,7 @@ router.delete('/aftersales-policies/:id', ownerRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/aftersales-policies/publish-all', ownerRequired, (req, res) => {
+router.post('/aftersales-policies/publish-all', permRequired('aftersales_policy'), (req, res) => {
   const result = db.prepare(`
     UPDATE aftersales_policies
     SET published_title = title,
