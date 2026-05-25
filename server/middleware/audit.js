@@ -20,6 +20,7 @@ const ACTIONS = [
   { re: /^POST \/staff$/, action: '创建员工账号', target: 'staff' },
   { re: /^DELETE \/staff\/(\d+)$/, action: '删除员工账号', target: 'staff' },
   { re: /^POST \/staff\/(\d+)\/reset-password$/, action: '重置员工密码', target: 'staff' },
+  { re: /^PUT \/staff\/(\d+)\/permissions$/, action: '设置管理员功能权限', target: 'staff' },
   // 测试
   { re: /^POST \/test-dropxl$/, action: 'DropXL API 测试' },
   // 系统设置

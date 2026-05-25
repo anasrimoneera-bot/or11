@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
-const { sign, authRequired } = require('../middleware/auth');
+const { sign, authRequired, getUserPermissions, GRANTABLE_KEYS } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -25,6 +25,8 @@ router.post('/login', (req, res) => {
       is_admin: !!user.is_admin,
       is_owner: !!user.is_owner,
       member_level: user.member_level,
+      // BOSS 隐式拥有全部功能；普通管理员返回已开通的功能 key
+      permissions: user.is_owner ? GRANTABLE_KEYS : getUserPermissions(user.id),
     },
   });
 });
@@ -34,6 +36,8 @@ router.get('/me', authRequired, (req, res) => {
   if (!user) return res.status(404).json({ error: '用户不存在' });
   const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(user.id);
   user.balance = bal?.balance || 0;
+  // BOSS 隐式拥有全部功能；普通管理员返回已开通的功能 key
+  user.permissions = user.is_owner ? GRANTABLE_KEYS : getUserPermissions(user.id);
   res.json(user);
 });
 

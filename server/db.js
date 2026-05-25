@@ -393,6 +393,10 @@ function ensureColumn(table, column, type) {
 // 历史库添加 PR-C 新列
 ensureColumn('purchase_orders', 'dropxl_exported_at', 'TEXT');
 
+// 管理员功能权限：BOSS 可给每个管理员单独开通的功能 key（JSON 数组）。
+// 空/NULL = 只有基础管理员功能；BOSS(is_owner) 隐式拥有全部，不依赖此列。
+ensureColumn('users', 'permissions', 'TEXT');
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {

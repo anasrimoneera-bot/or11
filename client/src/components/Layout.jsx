@@ -20,11 +20,11 @@ const adminMenu = [
   { to: '/admin/aftersales', icon: '🔧', label: '售后管理' },
   { to: '/admin/purchase', icon: '🛒', label: '采购商品' },
   { to: '/admin/downloads', icon: '⬇️', label: '下载支持' },
-  { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', ownerOnly: true },
+  { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', perm: 'aftersales_policy' },
   { to: '/admin/staff', icon: '🛡️', label: '管理员', ownerOnly: true },
   { to: '/admin/api-test', icon: '🧪', label: '供应商接口测试', ownerOnly: true },
   { to: '/admin/products', icon: '📦', label: '商品库存价格管理' },
-  { to: '/admin/finance', icon: '💰', label: '财务管理', ownerOnly: true },
+  { to: '/admin/finance', icon: '💰', label: '财务管理', perm: 'finance' },
   { to: '/admin/settings', icon: '⚙️', label: '系统设置', ownerOnly: true },
   { to: '/profile', icon: '👤', label: '个人资料' },
 ];
@@ -32,7 +32,14 @@ const adminMenu = [
 export default function Layout({ user, setUser }) {
   const nav = useNavigate();
   const location = useLocation();
-  const menu = (user?.is_admin ? adminMenu : userMenu).filter(m => !m.ownerOnly || user?.is_owner);
+  // ownerOnly: 仅 BOSS；perm: BOSS 或被分配了该功能的管理员；其余: 所有管理员
+  const perms = user?.permissions || [];
+  const canSee = (m) => {
+    if (m.ownerOnly) return !!user?.is_owner;
+    if (m.perm) return !!user?.is_owner || perms.includes(m.perm);
+    return true;
+  };
+  const menu = (user?.is_admin ? adminMenu : userMenu).filter(canSee);
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
