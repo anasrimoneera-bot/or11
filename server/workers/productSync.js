@@ -38,7 +38,7 @@ function extractImage(p) {
 async function run(msg) {
   const { country, startedBy } = msg;
   const send = (m) => { if (process.send) process.send(m); };
-  let offset = 0, total = null, fetched = 0, upserted = 0;
+  let offset = 0, total = null, fetched = 0, upserted = 0, pages = 0;
   const now = new Date().toISOString();
   try {
     while (true) {
@@ -68,6 +68,10 @@ async function run(msg) {
       });
       tx(items);
       fetched += items.length;
+      // 每 20 页主动做一次 PASSIVE checkpoint，把 WAL 折回主库，避免一次全量同步
+      // (55 万行 / 15-20 分钟) 期间 WAL 无限增长。WAL 过大时主进程的其它查询(订单等)
+      // 要扫描超长 WAL 而变慢。PASSIVE 不阻塞其它连接，拿不到锁就尽力而为后立即返回。
+      if (++pages % 20 === 0) { try { db.pragma('wal_checkpoint(PASSIVE)'); } catch {} }
       send({ type: 'progress', fetched, upserted, total: total ?? fetched });
       if (!items.length) break;
       if (total != null && fetched >= total) break;
