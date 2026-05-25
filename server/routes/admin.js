@@ -560,52 +560,32 @@ router.put('/country-amazon-rates/:country', ownerRequired, (req, res) => {
 });
 
 // 从DropXL同步所有订单状态
-// 订单状态/跟踪号同步的核心逻辑，被 /orders/sync 路由和 scheduler 共用
+// 订单状态/跟踪号同步：fork 到独立子进程跑，主进程事件循环不被阻塞(DropXL 慢/超时
+// 一次几分钟也不卡网站)。被 /orders/sync 路由和 scheduler 共用。
 // country=null 时使用 .env 默认凭据；指定国家时用该国 DropXL token
-async function syncOrdersFromDropxl({ sinceDays = 90, country = null } = {}) {
-  const since = new Date(Date.now() - sinceDays * 86400 * 1000).toISOString().slice(0, 10);
-  const PAGE = 500;
-  const RATE_MS = 1100;
-  let offset = 0;
-  let totalFetched = 0, updated = 0, notFound = 0;
-  while (true) {
-    const data = await dropxl.listOrders({ submitted_at_gteq: since, limit: PAGE, offset }, country);
-    const wraps = Array.isArray(data) ? data : (data?.orders || data?.items || []);
-    if (wraps.length === 0) break;
-    for (const wrap of wraps) {
-      const o = wrap?.order || wrap;
-      const id = String(o.id || o.order_id || '');
-      if (!id) continue;
-      const ref = String(o.customer_order_reference || '').trim(); // 亚马逊订单号
-      const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
-      const status = mapStatus(o.status_order_name || o.status);
-      // 先按供应商ID(dropxl_order_id)匹配
-      let r = db.prepare(`
-        UPDATE purchase_orders
-        SET status = ?,
-            tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE dropxl_order_id = ?
-      `).run(status, tracking, tracking, id);
-      // 匹配不到再按亚马逊订单号匹配（仅限本地还没绑定供应商ID的订单），并回填供应商ID
-      if (r.changes === 0 && ref) {
-        r = db.prepare(`
-          UPDATE purchase_orders
-          SET status = ?,
-              tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
-              dropxl_order_id = ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE order_no = ? AND COALESCE(dropxl_order_id, '') = ''
-        `).run(status, tracking, tracking, id, ref);
-      }
-      if (r.changes > 0) updated++; else notFound++;
-    }
-    totalFetched += wraps.length;
-    if (wraps.length < PAGE) break;
-    offset += PAGE;
-    await new Promise(r => setTimeout(r, RATE_MS));
-  }
-  return { total: totalFetched, updated, not_found: notFound, since };
+// 返回 Promise，解析为 { total, updated, not_found, since }；失败 reject。
+function syncOrdersFromDropxl({ sinceDays = 90, country = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const { fork } = require('child_process');
+    const path = require('path');
+    let worker;
+    try {
+      worker = fork(path.join(__dirname, '..', 'workers', 'orderSync.js'));
+    } catch (e) { return reject(e); }
+    let settled = false, result = null, errMsg = null;
+    worker.on('message', (m) => {
+      if (!m) return;
+      if (m.type === 'done') { settled = true; result = m.result; }
+      else if (m.type === 'error') { settled = true; errMsg = m.error; }
+    });
+    worker.on('exit', (code) => {
+      if (errMsg) return reject(new Error(errMsg));
+      if (settled && result) return resolve(result);
+      reject(new Error(`订单同步子进程异常退出 (code ${code})`));
+    });
+    worker.on('error', (e) => { if (!settled) { settled = true; reject(e); } });
+    worker.send({ type: 'start', sinceDays, country });
+  });
 }
 
 router.post('/orders/sync', async (req, res) => {
