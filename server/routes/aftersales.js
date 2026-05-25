@@ -51,8 +51,15 @@ router.get('/stats', authRequired, (req, res) => {
 router.get('/search-orders', authRequired, (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.json([]);
+  // 列白名单：与 /api/orders 一致，绝不返回 real_amount_usd / markup_pct / paypal_rate /
+  // raw_payload / raw_response —— 否则分销商能在售后页的接口响应里看到真实成本/加价/利润。
   const rows = db.prepare(`
-    SELECT * FROM purchase_orders
+    SELECT id, user_id, order_no, customer_ref, shop_name, country,
+           amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
+           purchase_amount_usd, purchase_amount_cny, exchange_rate,
+           distributor_refund, tracking_no, status,
+           created_at, updated_at
+    FROM purchase_orders
     WHERE user_id = ? AND (order_no LIKE ? OR shop_name LIKE ? OR country LIKE ?)
     ORDER BY created_at DESC LIMIT 10
   `).all(req.user.id, `%${q}%`, `%${q}%`, `%${q}%`);
