@@ -20,25 +20,32 @@ const statusColor = {
 
 export default function AdminOrders() {
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [me, setMe] = useState(null);
   const [filters, setFilters] = useState({ status: 'pending_purchase', q: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
   const [assignOrder, setAssignOrder] = useState(null);
   const isOwner = !!me?.is_owner;
   const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   const load = () => {
     if (filters.status === 'all' && !filters.q) {
       setRows([]);
+      setTotal(0);
       return;
     }
-    const params = {};
+    const params = { limit: pageSize, offset: page * pageSize };
     if (filters.status !== 'all') params.status = filters.status;
     if (filters.q) params.q = filters.q;
-    api.get('/admin/orders', { params }).then(r => setRows(r.data.rows));
+    api.get('/admin/orders', { params }).then(r => { setRows(r.data.rows); setTotal(r.data.total || 0); });
   };
-  useEffect(() => { load(); api.get('/auth/me').then(r => setMe(r.data)); }, []);
-  useEffect(load, [filters.status]);
+  useEffect(() => { api.get('/auth/me').then(r => setMe(r.data)); }, []);
+  useEffect(load, [filters.status, page, pageSize]);
+  // 搜索：回到第 1 页（若已在第 1 页则直接重查，因为 q 不在依赖里）
+  const doSearch = () => { if (page !== 0) setPage(0); else load(); };
 
   const sync = async () => {
     if (!confirm('从供应商同步最近 90 天订单的发货状态与跟踪号？\n（按 1 秒/请求限速，订单多时可能耗时几分钟，期间页面可切换）')) return;
@@ -119,13 +126,13 @@ export default function AdminOrders() {
 
       <div className="flex gap-2">
         {['all', 'pending_purchase', 'pending_shipment', 'shipped', 'completed', 'cancelled', 'refunded'].map(s => (
-          <button key={s} onClick={() => setFilters({ ...filters, status: s })}
+          <button key={s} onClick={() => { setFilters({ ...filters, status: s }); setPage(0); }}
             className={`px-3 py-1 rounded text-sm ${filters.status === s ? 'bg-orange-500 text-white' : 'bg-white border'}`}>
             {s === 'all' ? '全部' : statusLabel[s]}
           </button>
         ))}
-        <input className="field max-w-xs ml-auto" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} />
-        <button onClick={load} className="btn btn-warning">搜索</button>
+        <input className="field max-w-xs ml-auto" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
+        <button onClick={doSearch} className="btn btn-warning">搜索</button>
       </div>
 
       <div className="bg-white rounded-xl shadow overflow-x-auto">
@@ -288,6 +295,23 @@ export default function AdminOrders() {
           })()}
         </table>
       </div>
+
+      {!(filters.status === 'all' && !filters.q) && (
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <div>共 {total} 单</div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1">每页
+              <select className="field py-1" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
+                {[20, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              条
+            </label>
+            <button className="btn btn-ghost border disabled:opacity-40" disabled={page <= 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</button>
+            <span>{page + 1} / {pageCount}</span>
+            <button className="btn btn-ghost border disabled:opacity-40" disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</button>
+          </div>
+        </div>
+      )}
 
       {confirmOrder && (
         isOwner

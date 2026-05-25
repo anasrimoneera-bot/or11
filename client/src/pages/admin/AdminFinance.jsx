@@ -1,27 +1,26 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-const PAGE_SIZE = 50;
-
 const roleSuffix = (u) => (u?.is_owner ? '（BOSS）' : u?.is_admin ? '（管理员）' : '');
 
 export default function AdminFinance() {
   const [data, setData] = useState({ rows: [], total: 0, users: [] });
   const [userId, setUserId] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
 
   const load = () => {
-    const params = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
+    const params = { limit: pageSize, offset: page * pageSize };
     if (userId) params.user_id = userId;
     api.get('/admin/finance/records', { params }).then(r => setData(r.data));
   };
-  useEffect(load, [userId, page]);
-  useEffect(() => { setPage(0); }, [userId]);
+  useEffect(load, [userId, page, pageSize]);
+  useEffect(() => { setPage(0); }, [userId, pageSize]);
 
   const rows = data.rows || [];
   const fmt = (s) => (s ? String(s).replace('T', ' ').slice(0, 19) : '-');
   const uname = (r) => `${r.display_name || r.username || '用户#' + r.user_id}${roleSuffix(r)}`;
-  const pageCount = Math.max(1, Math.ceil((data.total || 0) / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil((data.total || 0) / pageSize));
 
   // 本页合计
   const t = rows.reduce((a, r) => {
@@ -104,7 +103,13 @@ export default function AdminFinance() {
 
       <div className="flex items-center justify-between text-sm text-gray-600">
         <div>共 {data.total || 0} 条记录</div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1">每页
+            <select className="field py-1" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
+              {[20, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            条
+          </label>
           <button className="btn btn-ghost border disabled:opacity-40" disabled={page <= 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</button>
           <span>{page + 1} / {pageCount}</span>
           <button className="btn btn-ghost border disabled:opacity-40" disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</button>
