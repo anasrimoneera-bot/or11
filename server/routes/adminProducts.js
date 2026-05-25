@@ -245,11 +245,15 @@ router.post('/inventory-upload/:country', upload.single('file'), (req, res) => {
 
 // 每个国家的最近一次更新状态（上传 or API 同步取最新）
 router.get('/inventory-status', (req, res) => {
+  // db_total / db_in_stock 直接取最近一次上传/同步记录里的快照计数，
+  // 不再每次都 COUNT(*) 扫描 dropxl_products 全表。该接口在前端同步期间每 3 秒
+  // 轮询一次，旧写法对 55 万行做 16 次相关子查询(~90ms/次)同步阻塞事件循环，
+  // 是"一点 API 同步整站卡死"的主因之一。每次上传/同步完成都会写入与全表一致的
+  // 计数(全量替换 or upsert 后重新 COUNT)，故快照值在稳定态等价于实时计数。
   const rows = db.prepare(`
     SELECT iu.country, iu.original_filename, iu.rows_count, iu.in_stock_count,
            iu.uploaded_by, iu.uploaded_at, iu.source,
-           (SELECT COUNT(*) FROM dropxl_products dp WHERE dp.country = iu.country) AS db_total,
-           (SELECT COUNT(*) FROM dropxl_products dp WHERE dp.country = iu.country AND dp.stock > 0) AS db_in_stock
+           iu.rows_count AS db_total, iu.in_stock_count AS db_in_stock
     FROM inventory_uploads iu
     INNER JOIN (
       SELECT country, MAX(uploaded_at) AS mx FROM inventory_uploads GROUP BY country

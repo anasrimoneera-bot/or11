@@ -177,6 +177,10 @@ CREATE TABLE IF NOT EXISTS dropxl_products (
 );
 CREATE INDEX IF NOT EXISTS idx_dropxl_products_country ON dropxl_products(country);
 CREATE INDEX IF NOT EXISTS idx_dropxl_products_code ON dropxl_products(code);
+-- 商品列表按 (country, 数值化的 code) 排序分页。没有这个表达式索引时，
+-- ORDER BY CAST(code AS INTEGER) 会对全国 55 万行做临时 B-tree 全排序(~350ms/次)，
+-- 同步期间被反复触发会把主线程事件循环卡死。有了它走索引区间扫描，<1ms。
+CREATE INDEX IF NOT EXISTS idx_dropxl_products_sort ON dropxl_products(country, CAST(code AS INTEGER), code);
 
 CREATE TABLE IF NOT EXISTS inventory_uploads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
