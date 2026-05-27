@@ -696,6 +696,38 @@ router.put('/orders/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 删除订单（BOSS/管理员）。若该订单对分销商余额有净扣款，按净额自动退回并记一笔，保证账目一致。
+// 用 balance_records 的净额（扣款为负、退款为正）反向冲回，天然避免对已售后退款/已退单二次退款。
+router.delete('/orders/:id', (req, res) => {
+  const order = db.prepare('SELECT id, user_id, order_no FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+
+  const net = db.prepare('SELECT IFNULL(SUM(amount), 0) AS s FROM balance_records WHERE related_order = ?').get(order.order_no).s;
+  const refund = net < 0 ? -net : 0;
+
+  const tx = db.transaction(() => {
+    if (refund > 0) {
+      const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
+      if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(order.user_id);
+      const newBal = (bal?.balance || 0) + refund;
+      db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, order.user_id);
+      db.prepare(`
+        INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
+        VALUES (?, '退款', ?, ?, ?, ?)
+      `).run(order.user_id, refund, newBal, `订单删除退款 - ${order.order_no}`, order.order_no);
+    }
+    db.prepare('DELETE FROM purchase_order_items WHERE order_id = ?').run(order.id);
+    db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(order.id);
+  });
+  tx();
+
+  setAudit(res, {
+    target_id: String(order.id), target_name: order.order_no,
+    summary: `删除订单 ${order.order_no}${refund > 0 ? `，退回分销商余额 ¥${refund.toFixed(2)}` : '（无需退款）'}`,
+  });
+  res.json({ ok: true, refunded: refund });
+});
+
 // 亚马逊各国汇率（采购汇率 = 此汇率 × 1.012 自动推导；店主可写）
 router.get('/country-amazon-rates', (req, res) => {
   const rows = db.prepare('SELECT country, rate, currency, updated_at FROM country_amazon_rate ORDER BY country').all();

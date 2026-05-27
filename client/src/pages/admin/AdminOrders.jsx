@@ -85,6 +85,15 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '重算失败'); }
   };
 
+  const deleteOrder = async (o) => {
+    if (!confirm(`确定删除订单 ${o.order_no}？\n若该订单已扣款，将按净扣款金额自动退回分销商余额。\n此操作不可恢复。`)) return;
+    try {
+      const { data } = await api.delete(`/admin/orders/${o.id}`);
+      if (data?.refunded > 0) alert(`已删除，并退回分销商余额 ¥${data.refunded.toFixed(2)}`);
+      load();
+    } catch (e) { alert(e.response?.data?.error || '删除失败'); }
+  };
+
   // 仅 BOSS：一键补算所有"采购¥为 0 / 未计算"的订单（不动已正常的订单）
   const recomputeAllMissing = async () => {
     if (!confirm('把所有"采购¥为 0 / 未计算"的订单按当前系统汇率补算采购¥？\n（只补缺，不影响采购¥已正常的订单）')) return;
@@ -226,19 +235,20 @@ export default function AdminOrders() {
                 </td>
                 {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} isOwner={isOwner} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
-                <td className="px-3 py-2 text-xs">{
-                  o.tracking_no
-                    ? o.tracking_no.split(',').map((t, i) => <div key={i} className="whitespace-nowrap">{t.trim()}</div>)
-                    : '-'
-                }</td>
-                <td className="px-3 py-2"><span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status]}</span></td>
+                <td className="px-3 py-2 text-xs">
+                  <TrackingCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { tracking_no: v }); load(); }} />
+                </td>
+                <td className="px-3 py-2">
+                  <StatusCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { status: v }); load(); }} />
+                </td>
                 <td className="px-3 py-2 text-xs whitespace-nowrap" title={o.created_at}>
                   {o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { hour12: false }) : '-'}
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-3 py-2 text-right whitespace-nowrap">
                   {o.status === 'pending_purchase' && (
                     <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
                   )}
+                  <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline text-xs ml-2">删除</button>
                 </td>
               </tr>
             );})}
@@ -355,6 +365,59 @@ const MO_COUNTRIES = Object.keys(COUNTRY_CURRENCY);
 
 function MoField({ label, children }) {
   return <div><label className="text-xs text-gray-500 block mb-0.5">{label}</label>{children}</div>;
+}
+
+// 点击就地编辑跟踪号（BOSS/管理员）。留空保存即清除跟踪号。
+function TrackingCell({ order, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(order.tracking_no || '');
+  useEffect(() => { setV(order.tracking_no || ''); }, [order.tracking_no]);
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className="border border-blue-400 rounded px-1 py-0.5 text-xs w-32 focus:outline-none"
+        value={v}
+        placeholder="多个用逗号分隔"
+        onChange={e => setV(e.target.value)}
+        onBlur={async () => { if (v !== (order.tracking_no || '')) await onSave(v); setEditing(false); }}
+        onKeyDown={async e => {
+          if (e.key === 'Enter') { if (v !== (order.tracking_no || '')) await onSave(v); setEditing(false); }
+          else if (e.key === 'Escape') { setV(order.tracking_no || ''); setEditing(false); }
+        }}
+      />
+    );
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)} title="点击填写/修改跟踪号" className="text-left hover:bg-blue-50 rounded px-1 w-full">
+      {order.tracking_no
+        ? order.tracking_no.split(',').map((t, i) => <div key={i} className="whitespace-nowrap">{t.trim()}</div>)
+        : <span className="text-blue-500">＋填写</span>}
+    </button>
+  );
+}
+
+// 点击切换为下拉，手动调整订单状态（BOSS/管理员）。
+function StatusCell({ order, onSave }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <select
+        autoFocus
+        className="border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none"
+        value={order.status}
+        onChange={async e => { if (e.target.value !== order.status) await onSave(e.target.value); setEditing(false); }}
+        onBlur={() => setEditing(false)}
+      >
+        {Object.entries(statusLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+    );
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)} title="点击调整状态" className={`badge cursor-pointer ${statusColor[order.status] || 'bg-gray-100'}`}>
+      {statusLabel[order.status] || order.status} ▾
+    </button>
+  );
 }
 
 // 手工新增订单（欧洲等未对接 API 的国家）。真实成本/加价%/PayPal汇率仅店主侧记录，
