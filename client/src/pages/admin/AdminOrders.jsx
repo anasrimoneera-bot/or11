@@ -152,7 +152,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
               <th className="px-3 py-2 text-right">采购(USD)</th>
               <th className="px-3 py-2 text-right">采购(¥)</th>
-              <th className="px-3 py-2 text-right">利润 (USD)</th>
+              <th className="px-3 py-2 text-right" title="按各订单站点币种显示：亚马逊金额 − 采购(USD)">利润(本币)</th>
               <th className="px-3 py-2 text-right" title="按订单锁定汇率（无锁定则用当前系统汇率）换算">利润 (¥)</th>
               <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
               {canSeeCost && <Suspense fallback={<><th /><th /><th /><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
@@ -213,8 +213,8 @@ export default function AdminOrders() {
                     >🔄</button>
                   )}
                 </td>
-                <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}${amazonSym(o.country)}${profit.toFixed(2)}`}
                 </td>
                 <td className={`px-3 py-2 text-right font-semibold ${!canComputeCny ? 'text-gray-400' : profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}
                     title={canComputeCny ? `按锁定汇率 ${amazonRate} 换算` : (sales === 0 ? '未填写亚马逊金额' : '该国未设置亚马逊汇率')}>
@@ -272,6 +272,9 @@ export default function AdminOrders() {
                 profitDiff: a.profitDiff + profitDiff,
               };
             }, { salesCny: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0, realUsd: 0, realCny: 0, profitDiff: 0 });
+            // 利润(本币)各单币种可能不同，仅当本页只有一种站点币种时才合计，否则以利润(¥)合计为准
+            const profitCurs = new Set(rows.filter(o => (Number(o.amazon_amount) || 0) > 0).map(o => COUNTRY_CURRENCY[o.country] || 'USD'));
+            const profitSym = profitCurs.size <= 1 ? (CURRENCY_SYMBOL[[...profitCurs][0]] || '$') : null;
             return (
               <tfoot className="bg-gray-50 border-t-2 font-semibold">
                 <tr>
@@ -279,8 +282,9 @@ export default function AdminOrders() {
                   <td className="px-3 py-2.5 text-right whitespace-nowrap" title="各国币种不同，按各订单锁定汇率折算人民币后合计">¥{t.salesCny.toFixed(2)}</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">${t.purchase.toFixed(2)}</td>
                   <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">¥{t.purchaseCny.toFixed(2)}</td>
-                  <td className={`px-3 py-2.5 text-right whitespace-nowrap ${t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                    {t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}
+                  <td className={`px-3 py-2.5 text-right whitespace-nowrap ${!profitSym ? 'text-gray-400' : t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                      title={profitSym ? '' : '本页含多种站点币种，无法直接合计，请看利润(¥)合计'}>
+                    {!profitSym ? '—' : `${t.profit >= 0 ? '+' : ''}${profitSym}${t.profit.toFixed(2)}`}
                   </td>
                   <td className={`px-3 py-2.5 text-right whitespace-nowrap ${t.profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                     {t.profitCny >= 0 ? '+' : ''}¥{t.profitCny.toFixed(2)}
