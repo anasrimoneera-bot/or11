@@ -9,6 +9,7 @@ const ACTIONS = [
   { re: /^PUT \/users\/(\d+)\/markup$/, action: '修改加价百分比', target: 'user' },
   // 订单
   { re: /^POST \/orders\/(\d+)\/confirm$/, action: '确认采购订单（扣款）', target: 'order' },
+  { re: /^POST \/orders\/manual$/, action: '手工新增订单', target: 'order' },
   { re: /^POST \/orders\/(\d+)\/reject$/, action: '驳回订单', target: 'order' },
   { re: /^PUT \/orders\/(\d+)$/, action: '编辑订单', target: 'order' },
   { re: /^POST \/orders\/(\d+)\/recompute-cny$/, action: '按当前汇率重算采购¥', target: 'order' },

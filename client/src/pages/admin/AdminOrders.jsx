@@ -27,6 +27,7 @@ export default function AdminOrders() {
   const [filters, setFilters] = useState({ status: 'pending_purchase', q: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
   const [assignOrder, setAssignOrder] = useState(null);
+  const [showManual, setShowManual] = useState(false);
   const isOwner = !!me?.is_owner;
   const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -117,6 +118,7 @@ export default function AdminOrders() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">📋 订单管理</h1>
         <div className="flex gap-2">
+          <button onClick={() => setShowManual(true)} className="btn btn-primary" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
           {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按当前汇率补算'>🔄 补算采购¥(零值单)</button>}
           <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
@@ -137,7 +139,7 @@ export default function AdminOrders() {
 
       <div className="bg-white rounded-xl shadow overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-600">
+          <thead className="bg-gray-50 text-gray-600 text-xs [&_th]:whitespace-nowrap">
             <tr>
               <th className="px-3 py-2 text-left">订单号</th>
               <th className="px-3 py-2 text-left">用户</th>
@@ -326,6 +328,149 @@ export default function AdminOrders() {
           onDone={() => { setAssignOrder(null); load(); }}
         />
       )}
+
+      {showManual && (
+        <ManualOrderModal
+          onClose={() => setShowManual(false)}
+          onDone={() => { setShowManual(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const MO_COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+
+function MoField({ label, children }) {
+  return <div><label className="text-xs text-gray-500 block mb-0.5">{label}</label>{children}</div>;
+}
+
+// 手工新增订单（欧洲等未对接 API 的国家）。真实成本/加价%/PayPal汇率仅店主侧记录，
+// 分销商 /api/orders 列白名单不返回这些字段，分销商绝对看不到。
+function ManualOrderModal({ onClose, onDone }) {
+  const [users, setUsers] = useState([]);
+  const [uq, setUq] = useState('');
+  const [f, setF] = useState({
+    user_id: '', order_no: '', country: '德国', shop_name: '',
+    amazon_amount: '', real_amount_usd: '', markup_pct: '', exchange_rate: '',
+    paypal_rate: '', tracking_no: '', status: 'pending_shipment',
+  });
+  const [items, setItems] = useState([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { api.get('/admin/users').then(r => setUsers(r.data || [])); }, []);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const realUsd = Number(f.real_amount_usd) || 0;
+  const markup = Number(f.markup_pct) || 0;
+  const displayUsd = realUsd * (1 + markup / 100);
+  const filtered = users.filter(u => {
+    const k = uq.trim().toLowerCase();
+    if (!k) return true;
+    return (u.username || '').toLowerCase().includes(k) || (u.display_name || '').toLowerCase().includes(k);
+  });
+  const addItem = () => setItems(p => [...p, { sku: '', product_name: '', quantity: 1, unit_price: '' }]);
+  const setItem = (i, k, v) => setItems(p => p.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
+  const rmItem = (i) => setItems(p => p.filter((_, idx) => idx !== i));
+
+  const submit = async () => {
+    if (!f.user_id) return alert('请选择分销商');
+    if (!f.order_no.trim()) return alert('请填写订单号');
+    if (f.real_amount_usd === '' || !(realUsd >= 0)) return alert('请填写真实采购成本(USD)');
+    if (f.markup_pct === '') return alert('请填写加价%');
+    setSaving(true);
+    try {
+      await api.post('/admin/orders/manual', {
+        user_id: Number(f.user_id),
+        order_no: f.order_no.trim(),
+        country: f.country,
+        shop_name: f.shop_name || null,
+        amazon_amount: Number(f.amazon_amount) || 0,
+        real_amount_usd: realUsd,
+        markup_pct: markup,
+        exchange_rate: f.exchange_rate === '' ? undefined : Number(f.exchange_rate),
+        paypal_rate: f.paypal_rate === '' ? null : Number(f.paypal_rate),
+        tracking_no: f.tracking_no || null,
+        status: f.status,
+        items: items.filter(it => it.sku.trim()).map(it => ({
+          sku: it.sku.trim(), product_name: it.product_name,
+          quantity: Number(it.quantity) || 1, unit_price: Number(it.unit_price) || 0,
+        })),
+      });
+      onDone();
+    } catch (e) { alert(e.response?.data?.error || '新增失败'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+        <div className="flex justify-between items-center p-4 border-b">
+          <div className="font-bold">➕ 手工新增订单<span className="text-xs text-gray-500 font-normal ml-2">用于欧洲等未对接 API、在其他系统采购的订单</span></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div>
+            <label className="text-xs text-gray-500 block mb-0.5">归属分销商 *</label>
+            <input className="field w-full mb-1" placeholder="搜索用户名 / 姓名" value={uq} onChange={e => setUq(e.target.value)} />
+            <div className="border rounded max-h-32 overflow-y-auto">
+              {filtered.map(u => (
+                <label key={u.id} className={`flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-blue-50 ${Number(f.user_id) === u.id ? 'bg-blue-100' : ''}`}>
+                  <input type="radio" name="mo-user" checked={Number(f.user_id) === u.id} onChange={() => set('user_id', String(u.id))} />
+                  <span className="text-sm">{u.display_name || u.username} <span className="text-gray-400 text-xs">@{u.username}</span></span>
+                </label>
+              ))}
+              {filtered.length === 0 && <div className="text-xs text-gray-400 p-2">无匹配用户</div>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <MoField label="订单号(亚马逊) *"><input className="field w-full" value={f.order_no} onChange={e => set('order_no', e.target.value)} /></MoField>
+            <MoField label="国家 *">
+              <select className="field w-full" value={f.country} onChange={e => set('country', e.target.value)}>
+                {MO_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </MoField>
+            <MoField label="店铺"><input className="field w-full" value={f.shop_name} onChange={e => set('shop_name', e.target.value)} /></MoField>
+            <MoField label="状态">
+              <select className="field w-full" value={f.status} onChange={e => set('status', e.target.value)}>
+                {Object.entries(statusLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </MoField>
+            <MoField label="亚马逊金额(USD)"><input type="number" step="0.01" className="field w-full" value={f.amazon_amount} onChange={e => set('amazon_amount', e.target.value)} /></MoField>
+            <MoField label="跟踪号"><input className="field w-full" value={f.tracking_no} onChange={e => set('tracking_no', e.target.value)} placeholder="多个用逗号分隔" /></MoField>
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded p-3">
+            <div className="text-xs text-red-600 mb-2">⚠️ 以下成本/利润信息分销商绝对看不到：</div>
+            <div className="grid grid-cols-2 gap-3">
+              <MoField label="真实采购成本(USD) *"><input type="number" step="0.01" className="field w-full" value={f.real_amount_usd} onChange={e => set('real_amount_usd', e.target.value)} /></MoField>
+              <MoField label="加价% *"><input type="number" step="0.01" className="field w-full" value={f.markup_pct} onChange={e => set('markup_pct', e.target.value)} /></MoField>
+              <MoField label="采购汇率"><input type="number" step="0.0001" className="field w-full" value={f.exchange_rate} onChange={e => set('exchange_rate', e.target.value)} placeholder="留空=当前国家汇率" /></MoField>
+              <MoField label="PayPal汇率"><input type="number" step="0.00001" className="field w-full" value={f.paypal_rate} onChange={e => set('paypal_rate', e.target.value)} placeholder="可选" /></MoField>
+            </div>
+            <div className="text-sm mt-2 text-gray-700">
+              分销商采购价(USD) = <b className="text-green-700">${displayUsd.toFixed(2)}</b>
+              <span className="text-xs text-gray-500 ml-1">(= 真实 ×(1+加价%)；保存后按采购汇率折成¥并从该分销商余额扣款)</span>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-500">商品明细（可选）</label>
+              <button type="button" onClick={addItem} className="text-xs text-blue-600 hover:underline">+ 添加商品行</button>
+            </div>
+            {items.map((it, i) => (
+              <div key={i} className="flex gap-1 mt-1">
+                <input className="field flex-1" placeholder="SKU" value={it.sku} onChange={e => setItem(i, 'sku', e.target.value)} />
+                <input className="field flex-1" placeholder="名称" value={it.product_name} onChange={e => setItem(i, 'product_name', e.target.value)} />
+                <input type="number" className="field w-16" placeholder="数量" value={it.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
+                <input type="number" className="field w-20" placeholder="单价" value={it.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} />
+                <button type="button" onClick={() => rmItem(i)} className="text-red-500 px-1">×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="border-t p-3 flex justify-end gap-2">
+          <button onClick={onClose} className="btn btn-ghost border">取消</button>
+          <button onClick={submit} disabled={saving} className="btn btn-primary">{saving ? '保存中...' : '✓ 新增并扣款'}</button>
+        </div>
+      </div>
     </div>
   );
 }
