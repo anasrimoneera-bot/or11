@@ -18,6 +18,11 @@ const statusColor = {
   refunded: 'bg-yellow-100 text-yellow-700',
 };
 
+// 各国亚马逊站点的结算币种与符号（与 server/db.js seedAmazonRates 保持一致）
+const COUNTRY_CURRENCY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+const CURRENCY_SYMBOL = { USD: '$', GBP: '£', EUR: '€', PLN: 'zł' };
+const amazonSym = (country) => CURRENCY_SYMBOL[COUNTRY_CURRENCY[country]] || '$';
+
 export default function AdminOrders() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -184,6 +189,7 @@ export default function AdminOrders() {
                 <td className="px-3 py-2 text-right">
                   <EditableAmount
                     value={o.amazon_amount || 0}
+                    prefix={amazonSym(o.country)}
                     onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { amazon_amount: v }); load(); }}
                   />
                 </td>
@@ -247,14 +253,16 @@ export default function AdminOrders() {
               const purchaseCny = Number(o.purchase_amount_cny) || 0;
               const profit = sales > 0 ? sales - purchase : 0;
               const amazonRate = Number(o.amazon_rate_locked) || 0;
-              const profitCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate - purchaseCny : 0;
+              // 各国币种不同，亚马逊金额无法直接相加，统一按各自锁定汇率折人民币再合计
+              const salesCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate : 0;
+              const profitCny = (sales > 0 && amazonRate > 0) ? salesCny - purchaseCny : 0;
               // 店主成本列合计：真实(USD) / 真实采购价(¥) / 差价利润(¥)
               const realUsd = Number(o.real_amount_usd) || 0;
               const paypalRate = Number(o.paypal_rate) || 0;
               const realCny = paypalRate > 0 ? realUsd / paypalRate : 0; // 未填 PayPal 汇率的不计入
               const profitDiff = paypalRate > 0 ? purchaseCny - realCny : 0;
               return {
-                sales: a.sales + sales,
+                salesCny: a.salesCny + salesCny,
                 purchase: a.purchase + purchase,
                 purchaseCny: a.purchaseCny + purchaseCny,
                 profit: a.profit + profit,
@@ -263,30 +271,30 @@ export default function AdminOrders() {
                 realCny: a.realCny + realCny,
                 profitDiff: a.profitDiff + profitDiff,
               };
-            }, { sales: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0, realUsd: 0, realCny: 0, profitDiff: 0 });
+            }, { salesCny: 0, purchase: 0, purchaseCny: 0, profit: 0, profitCny: 0, realUsd: 0, realCny: 0, profitDiff: 0 });
             return (
               <tfoot className="bg-gray-50 border-t-2 font-semibold">
                 <tr>
                   <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({rows.length} 单)</td>
-                  <td className="px-3 py-2.5 text-right">${t.sales.toFixed(2)}</td>
-                  <td className="px-3 py-2.5 text-right">${t.purchase.toFixed(2)}</td>
-                  <td className="px-3 py-2.5 text-right text-red-600">¥{t.purchaseCny.toFixed(2)}</td>
-                  <td className={`px-3 py-2.5 text-right ${t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap" title="各国币种不同，按各订单锁定汇率折算人民币后合计">¥{t.salesCny.toFixed(2)}</td>
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap">${t.purchase.toFixed(2)}</td>
+                  <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">¥{t.purchaseCny.toFixed(2)}</td>
+                  <td className={`px-3 py-2.5 text-right whitespace-nowrap ${t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                     {t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}
                   </td>
-                  <td className={`px-3 py-2.5 text-right ${t.profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  <td className={`px-3 py-2.5 text-right whitespace-nowrap ${t.profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                     {t.profitCny >= 0 ? '+' : ''}¥{t.profitCny.toFixed(2)}
                   </td>
-                  <td className={`px-3 py-2.5 text-right ${(t.purchaseCny > 0 && t.profitCny >= 0) ? 'text-green-700' : t.purchaseCny > 0 ? 'text-red-600' : 'text-gray-400'}`}
+                  <td className={`px-3 py-2.5 text-right whitespace-nowrap ${(t.purchaseCny > 0 && t.profitCny >= 0) ? 'text-green-700' : t.purchaseCny > 0 ? 'text-red-600' : 'text-gray-400'}`}
                       title="本页合计：总人民币利润 / 总人民币采购价">
                     {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
                   </td>
                   {canSeeCost && <>
-                    <td className="px-3 py-2.5 text-right text-red-600">${t.realUsd.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">${t.realUsd.toFixed(2)}</td>
                     <td />
                     <td />
-                    <td className="px-3 py-2.5 text-right text-red-600">¥{t.realCny.toFixed(2)}</td>
-                    <td className={`px-3 py-2.5 text-right ${t.profitDiff >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">¥{t.realCny.toFixed(2)}</td>
+                    <td className={`px-3 py-2.5 text-right whitespace-nowrap ${t.profitDiff >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {t.profitDiff >= 0 ? '+' : ''}¥{t.profitDiff.toFixed(2)}
                     </td>
                   </>}
@@ -339,7 +347,7 @@ export default function AdminOrders() {
   );
 }
 
-const MO_COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+const MO_COUNTRIES = Object.keys(COUNTRY_CURRENCY);
 
 function MoField({ label, children }) {
   return <div><label className="text-xs text-gray-500 block mb-0.5">{label}</label>{children}</div>;
@@ -434,7 +442,7 @@ function ManualOrderModal({ onClose, onDone }) {
                 {Object.entries(statusLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </MoField>
-            <MoField label="亚马逊金额(USD)"><input type="number" step="0.01" className="field w-full" value={f.amazon_amount} onChange={e => set('amazon_amount', e.target.value)} /></MoField>
+            <MoField label={`亚马逊金额(${COUNTRY_CURRENCY[f.country] || 'USD'})`}><input type="number" step="0.01" className="field w-full" value={f.amazon_amount} onChange={e => set('amazon_amount', e.target.value)} /></MoField>
             <MoField label="跟踪号"><input className="field w-full" value={f.tracking_no} onChange={e => set('tracking_no', e.target.value)} placeholder="多个用逗号分隔" /></MoField>
           </div>
           <div className="bg-red-50 border border-red-200 rounded p-3">
