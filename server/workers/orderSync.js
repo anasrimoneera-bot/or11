@@ -18,10 +18,13 @@ function mapStatus(s) {
   return 'pending_shipment';
 }
 
+// DropXL 列表返回的订单 id 形如 "B2BDS15810358"(带前缀)，而本地 dropxl_order_id
+// 可能存的是纯数字 "15810358"(下单接口返回的) 或带前缀(历史导入的)。所以按两种形式都匹配，
+// 否则前缀对不上 → 永远命不中 → 跟踪号/状态同步不进来(踩过的坑)。
 const byId = db.prepare(`
   UPDATE purchase_orders
   SET status = ?, tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END, updated_at = CURRENT_TIMESTAMP
-  WHERE dropxl_order_id = ?
+  WHERE dropxl_order_id = ? OR dropxl_order_id = ?
 `);
 const byRef = db.prepare(`
   UPDATE purchase_orders
@@ -44,13 +47,15 @@ async function run(msg) {
       if (wraps.length === 0) break;
       for (const wrap of wraps) {
         const o = wrap?.order || wrap;
-        const id = String(o.id || o.order_id || '');
-        if (!id) continue;
+        const rawId = String(o.id || o.order_id || '').trim();
+        if (!rawId) continue;
+        // 末尾数字段：去掉 "B2BDS" 前缀拿到纯数字核心(注意不能用 \D 全删，"B2BDS" 里的 2 会混进来)
+        const numId = (rawId.match(/\d+$/) || [''])[0] || rawId;
         const ref = String(o.customer_order_reference || '').trim();
         const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
         const status = mapStatus(o.status_order_name || o.status);
-        let r = byId.run(status, tracking, tracking, id);
-        if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, id, ref);
+        let r = byId.run(status, tracking, tracking, rawId, numId);
+        if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, rawId, ref);
         if (r.changes > 0) updated++; else notFound++;
       }
       totalFetched += wraps.length;
