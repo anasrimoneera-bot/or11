@@ -568,6 +568,97 @@ router.post('/orders/recompute-cny-missing', ownerRequired, (req, res) => {
   res.json({ ok: true, scanned: targets.length, updated });
 });
 
+// 手动新增订单（欧洲等未对接 API 的国家：货在别的系统采购，这里只录入落库，不推 DropXL）。
+// 价格用 真实成本 + 加价% 模型；按采购¥从分销商余额扣款（同确认采购，admin/BOSS 订单允许透支）。
+// 真实成本/加价%/PayPal汇率 仅存库，分销商 /api/orders 是列白名单，天然看不到。
+router.post('/orders/manual', (req, res) => {
+  const {
+    user_id, order_no, country, shop_name,
+    amazon_amount = 0, real_amount_usd, markup_pct,
+    exchange_rate, paypal_rate, tracking_no,
+    status = 'pending_shipment', distributor_refund = 0, items = [],
+  } = req.body || {};
+
+  const uid = Number(user_id);
+  if (!uid) return res.status(400).json({ error: '请选择分销商' });
+  const target = db.prepare('SELECT id, is_admin, is_owner FROM users WHERE id = ?').get(uid);
+  if (!target) return res.status(404).json({ error: '分销商不存在' });
+  const orderNo = String(order_no || '').trim();
+  if (!orderNo) return res.status(400).json({ error: '请填写订单号' });
+  if (!country) return res.status(400).json({ error: '请选择国家' });
+  const realUsd = Number(real_amount_usd);
+  const markup = Number(markup_pct);
+  if (!isFinite(realUsd) || realUsd < 0) return res.status(400).json({ error: '请填写真实采购成本(USD)' });
+  if (!isFinite(markup) || markup < 0) return res.status(400).json({ error: '请填写加价%' });
+  if (db.prepare('SELECT id FROM purchase_orders WHERE order_no = ?').get(orderNo)) {
+    return res.status(400).json({ error: '该订单号已存在' });
+  }
+
+  const { purchaseRateForCountry } = require('../settings');
+  const rate = Number(exchange_rate) || purchaseRateForCountry(country) || getExchangeRate();
+  if (!(rate > 0)) return res.status(400).json({ error: '无法确定采购汇率，请手动填写汇率' });
+
+  const displayUsd = realUsd * (1 + markup / 100);
+  const displayCny = displayUsd * rate;
+  const refund = Number(distributor_refund) || 0;
+  const deduct = displayCny - refund;
+  const ppRate = (paypal_rate === '' || paypal_rate == null) ? null : Number(paypal_rate);
+  if (ppRate != null && (!isFinite(ppRate) || ppRate <= 0)) return res.status(400).json({ error: 'PayPal 汇率必须是正数' });
+
+  const amzAmt = Number(amazon_amount) || 0;
+  let amazonRateLocked = null;
+  if (amzAmt > 0) {
+    const r = db.prepare('SELECT rate FROM country_amazon_rate WHERE country = ?').get(country);
+    amazonRateLocked = (r && Number(r.rate) > 0) ? Number(r.rate) : null;
+  }
+
+  const VALID = ['pending_purchase', 'pending_shipment', 'shipped', 'completed', 'cancelled', 'refunded'];
+  const st = VALID.includes(status) ? status : 'pending_shipment';
+
+  const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(uid);
+  const allowOverdraft = !!(target.is_admin || target.is_owner);
+  if (!allowOverdraft && (bal?.balance || 0) < deduct) {
+    return res.status(400).json({ error: `用户余额不足，需要 ¥${deduct.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}` });
+  }
+
+  let newId;
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO purchase_orders
+        (user_id, order_no, customer_ref, shop_name, country,
+         amazon_amount, amazon_rate_locked,
+         real_amount_usd, purchase_amount_usd, purchase_amount_cny, exchange_rate, markup_pct, paypal_rate,
+         distributor_refund, tracking_no, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(uid, orderNo, orderNo, shop_name || null, country,
+      amzAmt, amazonRateLocked,
+      realUsd, displayUsd, displayCny, rate, markup, ppRate,
+      refund, tracking_no || null, st);
+    newId = info.lastInsertRowid;
+
+    const insItem = db.prepare('INSERT INTO purchase_order_items (order_id, sku, product_name, quantity, unit_price) VALUES (?, ?, ?, ?, ?)');
+    for (const it of (Array.isArray(items) ? items : [])) {
+      if (!it || !String(it.sku || '').trim()) continue;
+      insItem.run(newId, String(it.sku).trim(), it.product_name || '', Math.round(Number(it.quantity) || 1), Number(it.unit_price) || 0);
+    }
+
+    if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(uid);
+    const newBal = (bal?.balance || 0) - deduct;
+    db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, uid);
+    db.prepare(`
+      INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
+      VALUES (?, '扣除', ?, ?, ?, ?)
+    `).run(uid, -deduct, newBal, `手工录入订单采购 - ${orderNo}`, orderNo);
+  });
+  tx();
+
+  setAudit(res, {
+    target_id: String(newId), target_name: orderNo,
+    summary: `手工新增订单 ${orderNo}：真实 $${realUsd.toFixed(2)} ×(1+${markup}%)×${rate.toFixed(4)} = ¥${displayCny.toFixed(2)}，扣款 ¥${deduct.toFixed(2)}`,
+  });
+  res.json({ ok: true, id: newId });
+});
+
 router.put('/orders/:id', (req, res) => {
   const { status, tracking_no, amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
   const amazonAmt = amazon_amount === undefined ? null : Number(amazon_amount);
