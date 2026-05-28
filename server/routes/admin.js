@@ -911,9 +911,24 @@ router.post('/orders/import-from-dropxl', async (req, res) => {
       const existing = db.prepare('SELECT id FROM purchase_orders WHERE dropxl_order_id = ?').get(dropxlId);
       if (existing) { skipped++; continue; }
 
-      const orderNo = o.customer_order_reference || `DROPXL-${dropxlId}`;
-      const noConflict = db.prepare('SELECT id FROM purchase_orders WHERE order_no = ?').get(orderNo);
-      const finalOrderNo = noConflict ? `${orderNo}-${dropxlId}` : orderNo;
+      // 同一订单号(= Amazon 订单号)已在本地（多为"采购商品"下单生成、但推送时未回填供应商订单号）：
+      // 视为同一单，跳过并回填供应商订单号/跟踪号，避免再插入带 -<id> 后缀的重复单
+      const ref = o.customer_order_reference || '';
+      if (ref) {
+        const local = db.prepare('SELECT id, dropxl_order_id FROM purchase_orders WHERE order_no = ?').get(ref);
+        if (local) {
+          if (!local.dropxl_order_id) {
+            db.prepare(`UPDATE purchase_orders
+              SET dropxl_order_id = ?,
+                  tracking_no = CASE WHEN IFNULL(tracking_no, '') = '' THEN ? ELSE tracking_no END,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?`).run(dropxlId, o.shipping_tracking || '', local.id);
+          }
+          skipped++;
+          continue;
+        }
+      }
+      const orderNo = ref || `DROPXL-${dropxlId}`;
 
       const grossTotal = Number(o.gross_total) || Number(o.total_products_after_vat) || 0;
       const tracking = o.shipping_tracking || '';
@@ -922,7 +937,7 @@ router.post('/orders/import-from-dropxl', async (req, res) => {
 
       try {
         const r = insertOrder.run(
-          ownerId, finalOrderNo, o.customer_order_reference || null,
+          ownerId, orderNo, o.customer_order_reference || null,
           o.customer_company || null, o.country || null,
           grossTotal, grossTotal,
           tracking, status, dropxlId,
