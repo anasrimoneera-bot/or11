@@ -58,24 +58,17 @@ export default function Downloads() {
     }
   };
 
+  // 110MB 安装包走浏览器原生下载（先取短期票据，再用 <a> 触发）。
+  // 旧实现把整个二进制塞进 axios Blob，导致点完按钮长时间无任何反馈、也无法分段/续传。
   const downloadInstaller = async () => {
     setBusy('installer');
     try {
-      const r = await api.get('/tools/installer', { responseType: 'blob' });
-      const url = URL.createObjectURL(r.data);
+      const { data } = await api.post('/tools/installer/ticket');
       const a = document.createElement('a');
-      const cd = r.headers['content-disposition'] || '';
-      const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i);
-      a.href = url;
-      a.download = match ? decodeURIComponent(match[1]) : 'lanjing-installer.exe';
+      a.href = `/api/tools/installer?ticket=${encodeURIComponent(data.ticket)}`;
       document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
     } catch (e) {
-      let msg = '下载失败';
-      if (e.response?.data instanceof Blob) {
-        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
-      } else { msg = e.response?.data?.error || e.message; }
-      alert(msg);
+      alert(e.response?.data?.error || e.message || '下载失败');
     } finally { setBusy(null); }
   };
 

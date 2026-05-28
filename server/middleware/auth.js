@@ -26,6 +26,17 @@ function sign(payload) {
   return jwt.sign(payload, SECRET, { expiresIn: '30d' });
 }
 
+// 签发用途绑定的短期下载票据（用于让浏览器原生下载器直连大文件接口）。
+// 票据只携带用途+用户 id，无会话级权限，泄漏影响面有限。
+function signTicket(purpose, payload = {}, ttl = '60s') {
+  return jwt.sign({ ...payload, purpose }, SECRET, { expiresIn: ttl });
+}
+function verifyTicket(token, expectedPurpose) {
+  const p = jwt.verify(token, SECRET);
+  if (p.purpose !== expectedPurpose) throw new Error('purpose mismatch');
+  return p;
+}
+
 function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : req.cookies?.token;
@@ -59,6 +70,7 @@ function permRequired(key) {
 }
 
 module.exports = {
-  sign, authRequired, adminRequired, ownerRequired, permRequired,
+  sign, signTicket, verifyTicket,
+  authRequired, adminRequired, ownerRequired, permRequired,
   getUserPermissions, GRANTABLE_PERMISSIONS, GRANTABLE_KEYS,
 };
