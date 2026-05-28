@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { authRequired, ownerRequired } = require('../middleware/auth');
+const { authRequired, ownerRequired, signTicket, verifyTicket } = require('../middleware/auth');
 
 const router = express.Router();
 const TOOLS_DIR = path.join(__dirname, '..', '..', 'data', 'tools');
@@ -29,14 +29,38 @@ router.get('/installer/status', authRequired, (req, res) => {
   });
 });
 
-// 任何登录用户可下载
-router.get('/installer', authRequired, (req, res) => {
+// 申请下载票据：让浏览器原生下载器直连下方 GET（带 Content-Length/Range，无需 axios 把 110MB 灌进 Blob）
+router.post('/installer/ticket', authRequired, (req, res) => {
+  if (!fs.existsSync(FILE)) return res.status(404).json({ error: '尚未上传安装包' });
+  res.json({ ticket: signTicket('installer', { uid: req.user.id }, '60s') });
+});
+
+// 任何登录用户可下载；支持 Authorization 头 或 ?ticket=<jwt>（供浏览器原生下载使用）
+router.get('/installer', (req, res) => {
+  let authed = false;
+  const ticket = req.query.ticket;
+  if (ticket) {
+    try { verifyTicket(String(ticket), 'installer'); authed = true; } catch {}
+  }
+  if (!authed) {
+    const header = req.headers.authorization || '';
+    if (header.startsWith('Bearer ')) {
+      try { require('jsonwebtoken').verify(header.slice(7), process.env.JWT_SECRET || 'dev-secret-change-me'); authed = true; } catch {}
+    }
+  }
+  if (!authed) return res.status(401).json({ error: '未授权' });
+
   if (!fs.existsSync(FILE)) return res.status(404).json({ error: '尚未上传安装包' });
   const meta = readMeta() || {};
   const downloadName = meta.original_name || 'lanjing-installer.exe';
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}; filename="lanjing-installer.exe"`);
-  res.setHeader('Content-Type', 'application/octet-stream');
-  fs.createReadStream(FILE).pipe(res);
+  // express 内部用 send：自动设置 Content-Length / Last-Modified，并响应 Range 请求（支持续传/分段）
+  res.sendFile(FILE, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}; filename="lanjing-installer.exe"`,
+      'Cache-Control': 'private, max-age=0',
+    },
+  });
 });
 
 // 仅店主可上传
