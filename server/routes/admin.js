@@ -361,7 +361,8 @@ router.get('/orders/:id', (req, res) => {
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: '订单不存在' });
   const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
-  res.json({ ...stripSensitive(row), items });
+  const shipping = db.prepare('SELECT name, address1, address2, city, state, postal, country, phone, buyer_email FROM purchase_order_shipping WHERE order_id = ?').get(row.id) || null;
+  res.json({ ...stripSensitive(row), items, shipping });
 });
 
 // 管理员确认订单：店主可调整真实价/加价，员工仅能按系统已算好的金额扣款
@@ -399,17 +400,19 @@ router.post('/orders/:id/confirm', (req, res) => {
   const deduct = displayCny - refund;
 
   const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
-  // 管理员/BOSS 账号提交的订单可 0 余额(允许透支)确认采购，跳过余额不足拦截
-  const orderUser = db.prepare('SELECT is_admin, is_owner FROM users WHERE id = ?').get(order.user_id);
-  const allowOverdraft = !!(orderUser && (orderUser.is_admin || orderUser.is_owner));
-  if (!allowOverdraft && (bal?.balance || 0) < deduct) {
-    return res.status(400).json({ error: `用户余额不足，需要 ¥${deduct.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}` });
-  }
 
   const tx = db.transaction(() => {
-    // 管理员/BOSS 订单若无余额记录，先补一条 0 余额行，保证扣款(可为负)能落账
     if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(order.user_id);
-    const newBal = (bal?.balance || 0) - deduct;
+    // 确认采购时自动把采购¥充值到下单用户余额，免去 BOSS/管理员为该单手动充值后再扣款
+    const afterRecharge = (bal?.balance || 0) + displayCny;
+    db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(afterRecharge, order.user_id);
+    db.prepare(`
+      INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
+      VALUES (?, '充值', ?, ?, ?, ?)
+    `).run(order.user_id, displayCny, afterRecharge, `订单采购自动充值 - ${order.order_no}`, order.order_no);
+
+    // 再按采购金额扣款（扣除额可含分销商退回额）
+    const newBal = afterRecharge - deduct;
     db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, order.user_id);
     db.prepare(`
       INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
@@ -693,6 +696,30 @@ router.put('/orders/:id', (req, res) => {
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(status, tracking_no, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
+  res.json({ ok: true });
+});
+
+// 修改买家收货地址（BOSS/管理员）。分销商填错邮编/省份等时用于订正。
+// 注意：仅更新本地记录，不会自动同步到供应商系统（DropXL 无修改订单接口），
+// 已推送到供应商的订单如需改地址需另行联系供应商。
+router.put('/orders/:id/shipping', (req, res) => {
+  const order = db.prepare('SELECT id, order_no FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  const b = req.body || {};
+  const s = (v) => (v == null ? null : String(v).trim());
+  db.prepare(`
+    INSERT INTO purchase_order_shipping (order_id, name, address1, address2, city, state, postal, country, phone, buyer_email)
+    VALUES (@order_id, @name, @address1, @address2, @city, @state, @postal, @country, @phone, @buyer_email)
+    ON CONFLICT(order_id) DO UPDATE SET
+      name=@name, address1=@address1, address2=@address2, city=@city, state=@state,
+      postal=@postal, country=@country, phone=@phone, buyer_email=@buyer_email
+  `).run({
+    order_id: order.id,
+    name: s(b.name), address1: s(b.address1), address2: s(b.address2),
+    city: s(b.city), state: s(b.state), postal: s(b.postal),
+    country: s(b.country), phone: s(b.phone), buyer_email: s(b.buyer_email),
+  });
+  setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `修改收货地址 ${order.order_no}` });
   res.json({ ok: true });
 });
 

@@ -33,6 +33,7 @@ export default function AdminOrders() {
   const [confirmOrder, setConfirmOrder] = useState(null);
   const [assignOrder, setAssignOrder] = useState(null);
   const [showManual, setShowManual] = useState(false);
+  const [detailOrder, setDetailOrder] = useState(null);
   const isOwner = !!me?.is_owner;
   const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -246,7 +247,10 @@ export default function AdminOrders() {
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
                   {o.status === 'pending_purchase' && (
-                    <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
+                    <>
+                      <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
+                      <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs ml-2">详情</button>
+                    </>
                   )}
                   <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline text-xs ml-2">删除</button>
                 </td>
@@ -357,6 +361,107 @@ export default function AdminOrders() {
           onDone={() => { setShowManual(false); load(); }}
         />
       )}
+
+      {detailOrder && (
+        <OrderDetailModal
+          orderId={detailOrder.id}
+          onClose={() => setDetailOrder(null)}
+          onSaved={() => load()}
+        />
+      )}
+    </div>
+  );
+}
+
+// 订单详情（BOSS/管理员，待采购单）。可订正分销商填错的买家收货地址。
+function OrderDetailModal({ orderId, onClose, onSaved }) {
+  const [data, setData] = useState(null);
+  const [ship, setShip] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get(`/admin/orders/${orderId}`).then(r => {
+      setData(r.data);
+      setShip({
+        name: '', phone: '', buyer_email: '', address1: '', address2: '',
+        city: '', state: '', postal: '', country: '',
+        ...(r.data.shipping || {}),
+      });
+    }).catch(() => setData({ error: true }));
+  }, [orderId]);
+  const setS = (k, v) => setShip(p => ({ ...p, [k]: v }));
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/admin/orders/${orderId}/shipping`, ship);
+      alert('收货地址已保存（仅更新本地记录，不会自动同步到供应商系统）');
+      onSaved?.();
+    } catch (e) { alert(e.response?.data?.error || '保存失败'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-4 flex flex-col" style={{ maxHeight: 'calc(100vh - 32px)' }}>
+        <div className="flex justify-between items-center p-4 border-b">
+          <div className="font-bold">订单详情 {data?.order_no && <span className="font-mono text-sm text-gray-500 ml-2">{data.order_no}</span>}</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        {!data ? <div className="p-8 text-center text-gray-400">加载中...</div>
+          : data.error ? <div className="p-8 text-center text-red-500">加载失败</div>
+          : (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700">
+              <div>用户: <b>{data.display_name || data.username}</b></div>
+              <div>国家/店铺: <b>{data.country} / {data.shop_name || '-'}</b></div>
+              <div>采购(USD): ${Number(data.purchase_amount_usd || 0).toFixed(2)}</div>
+              <div>采购(¥): <span className="text-red-600">¥{Number(data.purchase_amount_cny || 0).toFixed(2)}</span></div>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">商品明细</div>
+              <table className="w-full text-xs border-t">
+                <thead className="text-gray-500"><tr>
+                  <th className="px-2 py-1 text-left">SKU</th>
+                  <th className="px-2 py-1 text-left">名称</th>
+                  <th className="px-2 py-1 text-right">数量</th>
+                  <th className="px-2 py-1 text-right">单价</th>
+                </tr></thead>
+                <tbody>
+                  {(data.items || []).map(it => (
+                    <tr key={it.id} className="border-t">
+                      <td className="px-2 py-1 font-mono">{it.sku}</td>
+                      <td className="px-2 py-1">{it.product_name || '—'}</td>
+                      <td className="px-2 py-1 text-right">{it.quantity}</td>
+                      <td className="px-2 py-1 text-right">${Number(it.unit_price || 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {(data.items || []).length === 0 && <tr><td colSpan={4} className="px-2 py-3 text-center text-gray-400">无商品明细</td></tr>}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">📍 买家收货地址（可订正邮编/省份等）</div>
+              <div className="grid grid-cols-2 gap-2">
+                <MoField label="收件人"><input className="field w-full" value={ship.name || ''} onChange={e => setS('name', e.target.value)} /></MoField>
+                <MoField label="电话"><input className="field w-full" value={ship.phone || ''} onChange={e => setS('phone', e.target.value)} /></MoField>
+                <MoField label="邮箱"><input className="field w-full" value={ship.buyer_email || ''} onChange={e => setS('buyer_email', e.target.value)} /></MoField>
+                <MoField label="国家代码"><input className="field w-full" value={ship.country || ''} onChange={e => setS('country', e.target.value)} /></MoField>
+                <MoField label="地址1"><input className="field w-full" value={ship.address1 || ''} onChange={e => setS('address1', e.target.value)} /></MoField>
+                <MoField label="地址2"><input className="field w-full" value={ship.address2 || ''} onChange={e => setS('address2', e.target.value)} /></MoField>
+                <MoField label="城市"><input className="field w-full" value={ship.city || ''} onChange={e => setS('city', e.target.value)} /></MoField>
+                <MoField label="州/省"><input className="field w-full" value={ship.state || ''} onChange={e => setS('state', e.target.value)} /></MoField>
+                <MoField label="邮编"><input className="field w-full" value={ship.postal || ''} onChange={e => setS('postal', e.target.value)} /></MoField>
+              </div>
+              <div className="text-xs text-amber-600 mt-2">⚠️ 地址修改只更新本地记录，不会自动同步到供应商系统（DropXL 无修改订单接口）；如订单已推送，请另行联系供应商。</div>
+            </div>
+          </div>
+        )}
+        <div className="border-t p-3 flex justify-end gap-2">
+          <button onClick={onClose} className="btn btn-ghost border">关闭</button>
+          {data && !data.error && <button onClick={save} disabled={saving} className="btn btn-primary">{saving ? '保存中...' : '✓ 保存地址'}</button>}
+        </div>
+      </div>
     </div>
   );
 }
