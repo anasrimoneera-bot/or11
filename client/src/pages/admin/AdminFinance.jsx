@@ -37,9 +37,9 @@ export default function AdminFinance() {
           <h1 className="text-2xl font-bold">💰 财务管理</h1>
           <p className="text-gray-500 text-sm mt-1">所有用户的余额增减变动明细，可按用户筛选。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">按用户筛选</label>
-          <select className="field" value={userId} onChange={e => setUserId(e.target.value)}>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <label className="text-sm text-gray-600 whitespace-nowrap">按用户筛选</label>
+          <select className="field flex-1 sm:flex-none" value={userId} onChange={e => setUserId(e.target.value)}>
             <option value="">全部用户</option>
             {(data.users || []).map(u => (
               <option key={u.id} value={u.id}>{(u.display_name || u.username)}{roleSuffix(u)}</option>
@@ -48,7 +48,38 @@ export default function AdminFinance() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow border overflow-x-auto">
+      {/* 手机端：卡片视图 */}
+      <div className="md:hidden space-y-2">
+        {rows.map(r => {
+          const amt = Number(r.amount) || 0;
+          return (
+            <div key={r.id} className="bg-white rounded-lg shadow p-3 text-sm">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-xs text-gray-700 truncate">{uname(r)}</span>
+                <span className={`font-semibold whitespace-nowrap ${amt >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {amt >= 0 ? '+' : ''}¥{amt.toFixed(2)}
+                </span>
+              </div>
+              <div className="text-xs text-gray-500 mb-0.5">{r.type} · 余额：¥{(Number(r.balance_after) || 0).toFixed(2)}</div>
+              {r.description && <div className="text-xs text-gray-700">{r.description}</div>}
+              <div className="text-[11px] text-gray-400 flex justify-between mt-1">
+                <span>{fmt(r.created_at)}</span>
+                {r.related_order && <span className="font-mono">{r.related_order}</span>}
+              </div>
+            </div>
+          );
+        })}
+        {rows.length === 0 && <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">暂无财务记录</div>}
+        {rows.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-3 text-xs">
+            📊 本页合计 ({rows.length} 条) · 净额{' '}
+            <b className={t.net >= 0 ? 'text-green-700' : 'text-red-600'}>{t.net >= 0 ? '+' : ''}¥{t.net.toFixed(2)}</b>
+            <span className="text-gray-500"> · +¥{t.inc.toFixed(2)} / ¥{t.dec.toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow border overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-600">
             <tr>
@@ -101,9 +132,9 @@ export default function AdminFinance() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-gray-600">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-gray-600">
         <div>共 {data.total || 0} 条记录</div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <label className="flex items-center gap-1">每页
             <select className="field py-1" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
               {[20, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}

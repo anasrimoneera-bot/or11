@@ -35,14 +35,14 @@ export default function AdminAfterSalesPolicy() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold">📄 售后政策维护</h1>
           <p className="text-gray-500 text-sm mt-1">
             在此编辑售后政策。每个章节单独保存后，点击右上角"一键发布"才会推送到所有分销商端。
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setShowCreate(true)} className="btn btn-ghost border">+ 新增章节</button>
           <button
             onClick={publishAll}

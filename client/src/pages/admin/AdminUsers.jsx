@@ -21,12 +21,44 @@ export default function AdminUsers() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <h1 className="text-2xl font-bold">👥 用户管理</h1>
         <button onClick={() => setShowCreate(true)} className="btn btn-primary">+ 创建分销商账户</button>
       </div>
 
-      <div className="bg-white rounded-xl shadow overflow-x-auto">
+      {/* 手机端：卡片视图 */}
+      <div className="md:hidden space-y-2">
+        {users.map(u => (
+          <div key={u.id} className="bg-white rounded-lg shadow p-3 text-sm">
+            <div className="flex justify-between items-start gap-2 mb-1">
+              <div className="min-w-0">
+                <div className="font-mono text-xs">{u.username}</div>
+                <div className="font-semibold truncate">{u.display_name || '-'}</div>
+                <div className="text-xs text-gray-500 truncate">{u.email || '-'}</div>
+              </div>
+              <div className={`font-semibold whitespace-nowrap ${u.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>¥{(u.balance || 0).toFixed(2)}</div>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 mb-2">
+              <span>等级：{u.member_level}</span>
+              <span>SKU：{u.sku_limit}</span>
+              <span className="text-gray-400">{(u.created_at || '').slice(0, 10)}</span>
+            </div>
+            <div className="flex gap-3 text-xs">
+              <button onClick={() => setBalanceUser(u)} className="text-blue-600 hover:underline">充值/扣款</button>
+              <button onClick={() => setEditUser(u)} className="text-gray-700 hover:underline">编辑</button>
+              {isOwner && (
+                <button onClick={async () => {
+                  if (!confirm(`确认删除分销商 ${u.display_name || ''}(${u.username})？`)) return;
+                  try { await api.delete(`/admin/users/${u.id}`); load(); } catch (e) { alert(e.response?.data?.error || '删除失败'); }
+                }} className="text-red-500 hover:underline">🗑️ 删除</button>
+              )}
+            </div>
+          </div>
+        ))}
+        {users.length === 0 && <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">暂无用户</div>}
+      </div>
+
+      <div className="bg-white rounded-xl shadow overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-600">
             <tr>
@@ -165,7 +197,7 @@ function EditModal({ user, isOwner, onClose, onDone }) {
   };
   return (
     <Modal title={`编辑用户 - ${user.username}`} onClose={onClose}>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <input className="field" placeholder="姓名" value={f.display_name} onChange={e => setF({ ...f, display_name: e.target.value })} />
         <input className="field" placeholder="邮箱" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
         <input className="field" placeholder="电话" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} />
@@ -193,7 +225,7 @@ function EditModal({ user, isOwner, onClose, onDone }) {
 function Modal({ title, children, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl p-6 w-[480px] max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="font-semibold text-lg mb-4 flex justify-between">
           {title}
           <button onClick={onClose} className="text-gray-400">×</button>

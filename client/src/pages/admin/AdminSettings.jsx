@@ -55,7 +55,7 @@ function AutoSyncCard() {
         </button>
       </div>
       {status && (
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <div className="text-xs text-gray-500">状态</div>
             <div className={`font-semibold ${status.busy ? 'text-blue-600' : 'text-gray-700'}`}>
@@ -75,7 +75,7 @@ function AutoSyncCard() {
             </div>
           </div>
           {last && (
-            <div className="col-span-2 grid grid-cols-2 gap-2 text-xs">
+            <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               <div className="bg-gray-50 rounded p-2">
                 <div className="text-gray-500 mb-1">商品同步结果</div>
                 {last.products?.length > 0 ? last.products.map(p => (

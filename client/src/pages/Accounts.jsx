@@ -15,7 +15,7 @@ export default function Accounts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold">账户管理</h1>
           <p className="text-sm text-gray-500">管理子账户和权限设置</p>
@@ -32,7 +32,24 @@ export default function Accounts() {
             <button onClick={() => setShowSub(true)} className="btn btn-primary mt-4">+ 创建子账户</button>
           </div>
         ) : (
-          <table className="w-full text-sm">
+        <>
+          {/* 手机端：卡片 */}
+          <div className="md:hidden divide-y">
+            {subs.map(s => (
+              <div key={s.id} className="py-3 flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-sm">{s.username}</div>
+                  <div className="text-xs text-gray-600">{s.display_name} · {s.role}</div>
+                  <div className="text-xs text-gray-500 truncate">{s.email}</div>
+                  <div className="text-[11px] text-gray-400">{s.created_at}</div>
+                </div>
+                <button className="text-red-500 hover:underline text-xs shrink-0" onClick={async () => {
+                  if (confirm(`确认删除 ${s.username}?`)) { await api.delete(`/accounts/sub/${s.id}`); load(); }
+                }}>删除</button>
+              </div>
+            ))}
+          </div>
+          <table className="w-full text-sm hidden md:table">
             <thead className="text-gray-500 bg-gray-50">
               <tr>
                 <th className="px-3 py-2 text-left">用户名</th>
@@ -60,6 +77,7 @@ export default function Accounts() {
               ))}
             </tbody>
           </table>
+        </>
         )}
       </div>
 
@@ -68,7 +86,7 @@ export default function Accounts() {
           <div className="font-medium text-orange-600">🏪 店铺管理</div>
           <button onClick={() => setShowShop(true)} className="btn btn-warning text-sm">+ 添加店铺</button>
         </div>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {shops.map(s => (
             <div key={s.id} className="border rounded p-3 flex justify-between items-center">
               <div>
@@ -78,7 +96,7 @@ export default function Accounts() {
               <button className="text-red-500 text-xs" onClick={async () => { await api.delete(`/accounts/shops/${s.id}`); load(); }}>删除</button>
             </div>
           ))}
-          {shops.length === 0 && <div className="col-span-4 text-center text-gray-400 py-4">暂无店铺</div>}
+          {shops.length === 0 && <div className="col-span-full text-center text-gray-400 py-4">暂无店铺</div>}
         </div>
       </div>
 
@@ -95,8 +113,8 @@ function SubModal({ onClose, onDone }) {
     catch (e) { alert(e.response?.data?.error || '提交失败'); }
   };
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-96">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md">
         <div className="font-semibold text-lg mb-4">创建子账户</div>
         <input className="field mb-2" placeholder="用户名" value={f.username} onChange={e => setF({ ...f, username: e.target.value })} />
         <input className="field mb-2" type="password" placeholder="密码" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} />
@@ -119,8 +137,8 @@ function SubModal({ onClose, onDone }) {
 function ShopModal({ onClose, onDone }) {
   const [f, setF] = useState({ name: '', country: '美国' });
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-80">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-6 w-full max-w-sm">
         <div className="font-semibold text-lg mb-4">添加店铺</div>
         <input className="field mb-2" placeholder="店铺名" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
         <select className="field mb-4" value={f.country} onChange={e => setF({ ...f, country: e.target.value })}>

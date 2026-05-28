@@ -130,9 +130,9 @@ export default function AdminOrders() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <h1 className="text-2xl font-bold">📋 订单管理</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setShowManual(true)} className="btn btn-primary" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
           {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按当前汇率补算'>🔄 补算采购¥(零值单)</button>}
           <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
@@ -141,18 +141,71 @@ export default function AdminOrders() {
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {['all', 'pending_purchase', 'pending_shipment', 'shipped', 'completed', 'cancelled', 'refunded'].map(s => (
           <button key={s} onClick={() => { setFilters({ ...filters, status: s }); setPage(0); }}
             className={`px-3 py-1 rounded text-sm ${filters.status === s ? 'bg-orange-500 text-white' : 'bg-white border'}`}>
             {s === 'all' ? '全部' : statusLabel[s]}
           </button>
         ))}
-        <input className="field max-w-xs ml-auto" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
-        <button onClick={doSearch} className="btn btn-warning">搜索</button>
+        <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
+          <input className="field flex-1 sm:max-w-xs" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
+          <button onClick={doSearch} className="btn btn-warning">搜索</button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow overflow-x-auto">
+      {/* 手机端：卡片视图（关键字段+操作；详细数据走详情/确认弹窗） */}
+      <div className="md:hidden space-y-2">
+        {rows.map(o => {
+          const sales = Number(o.amazon_amount) || 0;
+          const purchase = Number(o.purchase_amount_usd) || 0;
+          const purchaseCny = Number(o.purchase_amount_cny) || 0;
+          const profit = sales > 0 ? sales - purchase : 0;
+          return (
+            <div key={o.id} className="bg-white rounded-lg shadow p-3 text-sm">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="font-mono text-xs truncate">{o.order_no}</span>
+                <span className={`badge ${statusColor[o.status] || 'bg-gray-100'} text-xs`}>{statusLabel[o.status] || o.status}</span>
+              </div>
+              <div className="text-xs text-gray-600 mb-1 truncate">
+                {o.display_name || o.username} · {o.country} / {o.shop_name || '-'}
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                <div>亚马逊：<b>{amazonSym(o.country)}{sales.toFixed(2)}</b></div>
+                <div>采购：${purchase.toFixed(2)}</div>
+                <div className="text-red-600">采购¥：¥{purchaseCny.toFixed(2)}</div>
+                <div className={profit >= 0 ? 'text-green-700' : 'text-red-600'}>
+                  利润：{sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}${amazonSym(o.country)}${profit.toFixed(2)}`}
+                </div>
+              </div>
+              {(o.dropxl_order_id || o.tracking_no) && (
+                <div className="text-[11px] text-gray-500 font-mono mt-1 truncate">
+                  {o.dropxl_order_id && <>供应商：{o.dropxl_order_id}　</>}
+                  {o.tracking_no && <>📮{o.tracking_no}</>}
+                </div>
+              )}
+              <div className="text-[11px] text-gray-400 mt-1">{o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { hour12: false }) : ''}</div>
+              <div className="flex gap-3 text-xs mt-2">
+                {o.status === 'pending_purchase' && (
+                  <>
+                    <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline">确认采购</button>
+                    <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline">详情</button>
+                  </>
+                )}
+                <button onClick={() => setAssignOrder(o)} className="text-blue-600 hover:underline">👤 分配</button>
+                <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline">删除</button>
+              </div>
+            </div>
+          );
+        })}
+        {rows.length === 0 && (
+          <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">
+            {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-600 text-xs [&_th]:whitespace-nowrap">
             <tr>
@@ -423,7 +476,7 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
           : data.error ? <div className="p-8 text-center text-red-500">加载失败</div>
           : (
           <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700">
               <div>用户: <b>{data.display_name || data.username}</b></div>
               <div>国家/店铺: <b>{data.country} / {data.shop_name || '-'}</b></div>
               <div>采购(USD): ${Number(data.purchase_amount_usd || 0).toFixed(2)}</div>
@@ -455,7 +508,7 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
 
             <div>
               <div className="font-medium mb-1">📍 买家收货地址（可订正邮编/省份等）</div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <MoField label="收件人"><input className="field w-full" value={ship.name || ''} onChange={e => setS('name', e.target.value)} /></MoField>
                 <MoField label="电话"><input className="field w-full" value={ship.phone || ''} onChange={e => setS('phone', e.target.value)} /></MoField>
                 <MoField label="邮箱"><input className="field w-full" value={ship.buyer_email || ''} onChange={e => setS('buyer_email', e.target.value)} /></MoField>
@@ -630,7 +683,7 @@ function ManualOrderModal({ onClose, onDone }) {
               {filtered.length === 0 && <div className="text-xs text-gray-400 p-2">无匹配用户</div>}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <MoField label="订单号(亚马逊) *"><input className="field w-full" value={f.order_no} onChange={e => set('order_no', e.target.value)} /></MoField>
             <MoField label="国家 *">
               <select className="field w-full" value={f.country} onChange={e => set('country', e.target.value)}>
@@ -648,7 +701,7 @@ function ManualOrderModal({ onClose, onDone }) {
           </div>
           <div className="bg-red-50 border border-red-200 rounded p-3">
             <div className="text-xs text-red-600 mb-2">⚠️ 以下成本/利润信息分销商绝对看不到：</div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <MoField label="真实采购成本(USD) *"><input type="number" step="0.01" className="field w-full" value={f.real_amount_usd} onChange={e => set('real_amount_usd', e.target.value)} /></MoField>
               <MoField label="加价% *"><input type="number" step="0.01" className="field w-full" value={f.markup_pct} onChange={e => set('markup_pct', e.target.value)} /></MoField>
               <MoField label="采购汇率"><input type="number" step="0.0001" className="field w-full" value={f.exchange_rate} onChange={e => set('exchange_rate', e.target.value)} placeholder="留空=当前国家汇率" /></MoField>
@@ -798,7 +851,7 @@ function StaffConfirmModal({ order, onClose, onDone }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl p-6 w-[480px]">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="font-semibold text-lg mb-4">确认采购订单</div>
         <div className="bg-gray-50 rounded p-3 mb-4 text-sm space-y-1">
           <div>订单号：<span className="font-mono">{order.order_no}</span></div>

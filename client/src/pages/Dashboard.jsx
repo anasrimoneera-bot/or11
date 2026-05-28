@@ -52,7 +52,7 @@ export default function Dashboard() {
         <span className="badge bg-cyan-100 text-cyan-700 font-medium">DISTRIBUTOR</span>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" />
         <Stat title="我的订单" value={d.orders_total} bg="bg-blue-500" icon="🛒" />
         <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" />
@@ -60,7 +60,7 @@ export default function Dashboard() {
 
       <div>
         <h2 className="text-lg font-semibold mb-3 text-orange-600">📈 数据统计</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl p-4 shadow">
             <div className="font-medium mb-2">订单状态分布</div>
             {pieData.length > 0 ? <ReactECharts option={pieOpt} style={{ height: 320 }} /> : <Empty />}

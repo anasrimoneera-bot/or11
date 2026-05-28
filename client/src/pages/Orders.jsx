@@ -49,7 +49,7 @@ export default function Orders() {
         <h1 className="text-2xl font-bold">🛒 订单管理</h1>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
         <StatCard label="全部订单" value={stats.all} color="bg-slate-700" active={filters.status === 'all'} onClick={() => setFilters({ ...filters, status: 'all' })} />
         <StatCard label="待采购" value={stats.pending_purchase} color="bg-orange-500" active={filters.status === 'pending_purchase'} onClick={() => setFilters({ ...filters, status: 'pending_purchase' })} />
         <StatCard label="待发货" value={stats.pending_shipment} color="bg-blue-500" active={filters.status === 'pending_shipment'} onClick={() => setFilters({ ...filters, status: 'pending_shipment' })} />
@@ -61,7 +61,7 @@ export default function Orders() {
       </div>
 
       <div className="bg-white rounded-xl p-4 shadow">
-        <div className="grid grid-cols-3 gap-4 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
           <div>
             <label className="text-sm">国家</label>
             <select className="field" value={filters.country} onChange={e => setFilters({ ...filters, country: e.target.value })}>
@@ -100,7 +100,50 @@ export default function Orders() {
         <div className="flex items-center justify-between p-4 border-b">
           <h3 className="font-medium">📦 订单列表 ({total} 条)</h3>
         </div>
-        <div className="overflow-x-auto">
+        {/* 手机端：卡片式列表 */}
+        <div className="md:hidden divide-y">
+          {orders.map(o => {
+            const sales = Number(o.amazon_amount) || 0;
+            const purchase = Number(o.purchase_amount_usd) || 0;
+            const purchaseCny = Number(o.purchase_amount_cny) || 0;
+            const amazonRate = Number(o.amazon_rate_locked) || 0;
+            const profit = sales > 0 ? sales - purchase : 0;
+            const profitCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate - purchaseCny : 0;
+            return (
+              <div key={o.id} className="p-3 hover:bg-gray-50 active:bg-gray-100" onClick={() => setDetailId(o.id)}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="font-mono text-xs truncate flex-1">{o.order_no}</div>
+                  <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
+                  <span className="px-1.5 py-0.5 rounded bg-gray-100 font-mono">{countryCode[o.country] || o.country || '-'}</span>
+                  <span className="truncate">{o.shop_name || '-'}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                  <div>亚马逊：<b>${sales.toFixed(2)}</b></div>
+                  <div>采购：${purchase.toFixed(2)}</div>
+                  <div className="text-red-600">采购¥：¥{purchaseCny.toFixed(2)}</div>
+                  <div className={profit >= 0 ? 'text-green-700' : 'text-red-600'}>
+                    利润：{sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                  </div>
+                  {profitCny !== 0 && (
+                    <div className={`col-span-2 ${profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      ¥利润：{profitCny >= 0 ? '+' : ''}¥{profitCny.toFixed(2)}
+                    </div>
+                  )}
+                </div>
+                <div className="text-[11px] text-gray-400 mt-1 flex justify-between">
+                  <span>{(o.created_at || '').replace('T', ' ').slice(0, 16)}</span>
+                  {o.tracking_no && <span className="font-mono truncate ml-2 max-w-[12rem]">📮{o.tracking_no}</span>}
+                </div>
+              </div>
+            );
+          })}
+          {orders.length === 0 && <div className="p-8 text-center text-gray-400">暂无订单数据</div>}
+        </div>
+
+        {/* 桌面端：完整表格 */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
@@ -249,7 +292,7 @@ function OrderDetailModal({ id, onClose }) {
                 <div className="font-semibold">订单号: <span className="font-mono">{order.order_no}</span></div>
                 <div className="text-xs text-gray-500">商品数量: {order.items?.length || 0}</div>
               </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
                 <div>国家: <b>{order.country || '-'}</b></div>
                 <div>店铺: <b>{order.shop_name || '-'}</b></div>
                 <div>币别: <b>{currency} ({symbol})</b></div>
@@ -259,7 +302,7 @@ function OrderDetailModal({ id, onClose }) {
               {order.shipping && (
                 <>
                   <div className="font-medium mb-2">收货信息：</div>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
                     <div>客户名称: <b>{order.shipping.name || '-'}</b></div>
                     <div>客户电话: {order.shipping.phone || '-'}</div>
                     <div className="col-span-2">地址1: {order.shipping.address1 || '-'}{order.shipping.address2 ? <><br/>地址2: {order.shipping.address2}</> : null}</div>
@@ -310,7 +353,7 @@ function OrderDetailModal({ id, onClose }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-600">
               <div>状态：<span className="font-medium text-gray-800">{order.status}</span></div>
               <div>创建时间：{(order.created_at || '').replace('T', ' ').slice(0, 19)}</div>
               {order.tracking_no && <div className="col-span-2">物流跟踪号：<span className="font-mono">{order.tracking_no}</span></div>}

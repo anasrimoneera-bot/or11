@@ -152,7 +152,7 @@ export default function PurchaseProducts() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <h1 className="text-2xl font-bold">+ 新建采购订单</h1>
         <div className="flex gap-2">
           <button onClick={downloadTemplate} className="btn btn-ghost">⬇️ 下载模板</button>
@@ -164,12 +164,12 @@ export default function PurchaseProducts() {
         ℹ️ 请先选择订单国家，然后填写其他信息，系统将自动计算汇率人民币金额。
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-xl shadow border border-dashed border-orange-300 p-4">
             <h3 className="font-semibold mb-2">📋 批量采购</h3>
             <div className="text-sm mb-1">上传采购订单CSV文件</div>
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -211,7 +211,7 @@ export default function PurchaseProducts() {
 
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold mb-3">📝 基本信息</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2 flex justify-between items-center">
                 <label className="text-sm">订单号 *</label>
                 <button onClick={useAmazonNo} className="text-xs text-blue-600">使用亚马逊订单号</button>
@@ -255,7 +255,7 @@ export default function PurchaseProducts() {
 
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold mb-3">📍 收货地址</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input className="field" placeholder="收件人姓名" value={form.shipping_address.name} onChange={e => setForm({ ...form, shipping_address: { ...form.shipping_address, name: e.target.value } })} />
               <input className="field" placeholder="电话" value={form.shipping_address.phone} onChange={e => setForm({ ...form, shipping_address: { ...form.shipping_address, phone: e.target.value } })} />
               <input className="col-span-2 field" placeholder="街道地址" value={form.shipping_address.street} onChange={e => setForm({ ...form, shipping_address: { ...form.shipping_address, street: e.target.value } })} />
@@ -271,7 +271,8 @@ export default function PurchaseProducts() {
               <h3 className="font-semibold">🛍️ 商品列表</h3>
               <button onClick={addItem} className="btn btn-ghost text-sm">+ 添加商品</button>
             </div>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[480px]">
               <thead className="text-gray-500 bg-gray-50">
                 <tr>
                   <th className="px-2 py-2 text-left">SKU</th>
@@ -293,11 +294,12 @@ export default function PurchaseProducts() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
         <div className="space-y-4">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 sticky top-0">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 lg:sticky lg:top-0">
             <h3 className="font-semibold mb-3">💰 费用信息</h3>
             <div className="space-y-2 text-sm">
               <Row label="币别"><b>{currentCurrency}</b> <span className="text-xs text-gray-500 ml-1">({currencySymbol[currentCurrency]})</span></Row>
@@ -377,7 +379,7 @@ function BatchConfirmModal({ preview, onClose, onSubmit, onEditShipping, submitt
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        <div className="p-5 grid grid-cols-3 gap-3 border-b">
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3 border-b">
           <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
             <div className="text-xs text-blue-600">商品总数</div>
             <div className="text-2xl font-bold mt-1">{summary.total_items}</div>
@@ -408,7 +410,7 @@ function BatchConfirmModal({ preview, onClose, onSubmit, onEditShipping, submitt
           {visibleGroups.length === 0 && <div className="text-center text-gray-400 py-12">所有订单都被移除了</div>}
         </div>
 
-        <div className="border-t p-4 flex items-center justify-between gap-4 bg-gray-50">
+        <div className="border-t p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-gray-50">
           <div className="text-sm text-gray-600">
             <div>所有订单总金额：<b className="text-xl text-gray-900 ml-1">{liveTotalUsd.toFixed(2)}</b></div>
           </div>
@@ -453,7 +455,7 @@ function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
           )}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
         <div>国家: <b>{group.country_code || '-'}</b></div>
         <div>订单号: <span className="font-mono">{group.amazon_order_id}</span></div>
       </div>
@@ -464,7 +466,7 @@ function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
         )}
       </div>
       {!editAddr ? (
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
           <div>店铺名称: <b>{group.shop_name || '-'}</b></div>
           <div>客户名称: <b>{group.shipping.name || '-'}</b></div>
           <div>客户电话: {group.shipping.phone || '-'}</div>
@@ -476,7 +478,7 @@ function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
         </div>
       ) : (
         <div className="border rounded p-3 mb-3 bg-blue-50/50">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <AddrField label="收件人" value={addr.name} onChange={v => setA('name', v)} />
             <AddrField label="电话" value={addr.phone} onChange={v => setA('phone', v)} />
             <AddrField label="邮箱" value={addr.email} onChange={v => setA('email', v)} />
