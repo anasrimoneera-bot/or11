@@ -106,6 +106,26 @@ export default function PurchaseProducts() {
     }
   };
 
+  // 在订单组详情里订正买家地址：同步更新该组 shipping 和底层提交用的 rows（按 amazon_order_id 匹配）
+  const updateGroupShipping = (amazonOrderId, shipping) => {
+    setPreview(prev => {
+      if (!prev) return prev;
+      const groups = prev.groups.map(g => g.amazon_order_id === amazonOrderId ? { ...g, shipping: { ...g.shipping, ...shipping } } : g);
+      const rows = prev.rows.map(r => r.amazon_order_id === amazonOrderId ? {
+        ...r,
+        recipient_name: shipping.name,
+        ship_phone: shipping.phone,
+        buyer_email: shipping.email,
+        ship_address1: shipping.address1,
+        ship_address2: shipping.address2,
+        ship_city: shipping.city,
+        ship_state: shipping.state,
+        ship_postal: shipping.postal,
+      } : r);
+      return { ...prev, groups, rows };
+    });
+  };
+
   const addItem = () => setForm({ ...form, items: [...form.items, { sku: '', product_name: '', quantity: 1, unit_price: 0 }] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
   const updateItem = (i, k, v) => {
@@ -304,10 +324,20 @@ export default function PurchaseProducts() {
           preview={preview}
           onClose={() => setShowConfirmModal(false)}
           onSubmit={submitBatch}
+          onEditShipping={updateGroupShipping}
           submitting={batchSubmitting}
         />
       )}
     </div>
+  );
+}
+
+function AddrField({ label, value, onChange }) {
+  return (
+    <label className="block">
+      <span className="text-xs text-gray-500">{label}</span>
+      <input className="field w-full" value={value || ''} onChange={e => onChange(e.target.value)} />
+    </label>
   );
 }
 
@@ -320,7 +350,7 @@ function Row({ label, children }) {
   );
 }
 
-function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
+function BatchConfirmModal({ preview, onClose, onSubmit, onEditShipping, submitting }) {
   const { groups = [], summary, exchange_rate } = preview;
   // 被用户手动删除的订单组 amazon_order_id 集合（不传给后端）
   const [excluded, setExcluded] = useState(() => new Set());
@@ -369,6 +399,7 @@ function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
               key={g.amazon_order_id}
               group={g}
               exchangeRate={exchange_rate}
+              onEditShipping={onEditShipping}
               onRemove={() => {
                 if (confirm(`从本次批量中移除订单 ${g.amazon_order_id}？（不影响文件本身）`)) toggleExclude(g.amazon_order_id);
               }}
@@ -397,8 +428,13 @@ function BatchConfirmModal({ preview, onClose, onSubmit, submitting }) {
   );
 }
 
-function OrderGroupCard({ group, exchangeRate, onRemove }) {
+function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
   const allOk = group.all_matched && group.errors.length === 0;
+  const [editAddr, setEditAddr] = useState(false);
+  const [addr, setAddr] = useState(group.shipping);
+  const setA = (k, v) => setAddr(p => ({ ...p, [k]: v }));
+  const saveAddr = () => { onEditShipping?.(group.amazon_order_id, addr); setEditAddr(false); };
+  const cancelAddr = () => { setAddr(group.shipping); setEditAddr(false); };
   return (
     <div className={`rounded-lg border ${allOk ? 'border-gray-200' : 'border-red-300 bg-red-50'} p-4 text-sm`}>
       <div className="flex justify-between items-start mb-2">
@@ -421,17 +457,42 @@ function OrderGroupCard({ group, exchangeRate, onRemove }) {
         <div>国家: <b>{group.country_code || '-'}</b></div>
         <div>订单号: <span className="font-mono">{group.amazon_order_id}</span></div>
       </div>
-      <div className="font-medium mb-2">订单详情：</div>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
-        <div>店铺名称: <b>{group.shop_name || '-'}</b></div>
-        <div>客户名称: <b>{group.shipping.name || '-'}</b></div>
-        <div>客户电话: {group.shipping.phone || '-'}</div>
-        <div>地址1: {group.shipping.address1 || '-'}<br/>地址2: {group.shipping.address2 || ''}</div>
-        <div>城市: {group.shipping.city || '-'}</div>
-        <div>州/省: {group.shipping.state || '-'}</div>
-        <div>邮编: {group.shipping.postal || '-'}</div>
-        <div></div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-medium">订单详情：</div>
+        {onEditShipping && !editAddr && (
+          <button type="button" onClick={() => { setAddr(group.shipping); setEditAddr(true); }} className="text-xs text-blue-600 hover:underline">✏️ 编辑买家地址</button>
+        )}
       </div>
+      {!editAddr ? (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">
+          <div>店铺名称: <b>{group.shop_name || '-'}</b></div>
+          <div>客户名称: <b>{group.shipping.name || '-'}</b></div>
+          <div>客户电话: {group.shipping.phone || '-'}</div>
+          <div>客户邮箱: {group.shipping.email || '-'}</div>
+          <div>地址1: {group.shipping.address1 || '-'}<br/>地址2: {group.shipping.address2 || ''}</div>
+          <div>城市: {group.shipping.city || '-'}</div>
+          <div>州/省: {group.shipping.state || '-'}</div>
+          <div>邮编: {group.shipping.postal || '-'}</div>
+        </div>
+      ) : (
+        <div className="border rounded p-3 mb-3 bg-blue-50/50">
+          <div className="grid grid-cols-2 gap-2">
+            <AddrField label="收件人" value={addr.name} onChange={v => setA('name', v)} />
+            <AddrField label="电话" value={addr.phone} onChange={v => setA('phone', v)} />
+            <AddrField label="邮箱" value={addr.email} onChange={v => setA('email', v)} />
+            <AddrField label="城市" value={addr.city} onChange={v => setA('city', v)} />
+            <AddrField label="地址1" value={addr.address1} onChange={v => setA('address1', v)} />
+            <AddrField label="地址2" value={addr.address2} onChange={v => setA('address2', v)} />
+            <AddrField label="州/省" value={addr.state} onChange={v => setA('state', v)} />
+            <AddrField label="邮编" value={addr.postal} onChange={v => setA('postal', v)} />
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <button type="button" onClick={cancelAddr} className="text-xs px-3 py-1 rounded border">取消</button>
+            <button type="button" onClick={saveAddr} className="text-xs px-3 py-1 rounded bg-blue-600 text-white">✓ 应用到本订单</button>
+          </div>
+          <div className="text-xs text-gray-500 mt-1">修改后将用新地址提交并推送到供应商。</div>
+        </div>
+      )}
       <div className="font-medium mb-2">商品列表：</div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
