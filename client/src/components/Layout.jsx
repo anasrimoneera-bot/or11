@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary.jsx';
 
@@ -32,6 +33,7 @@ const adminMenu = [
 export default function Layout({ user, setUser }) {
   const nav = useNavigate();
   const location = useLocation();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   // ownerOnly: 仅 BOSS；perm: BOSS 或被分配了该功能的管理员；其余: 所有管理员
   const perms = user?.permissions || [];
   const canSee = (m) => {
@@ -46,13 +48,38 @@ export default function Layout({ user, setUser }) {
     nav('/login');
   };
 
+  // 路由变化时收起抽屉，并锁定 body 滚动（抽屉打开时）
+  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (drawerOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [drawerOpen]);
+
   return (
     <div className="flex h-screen bg-gray-100">
-      <aside className="w-60 bg-slate-900 text-white flex flex-col">
+      {/* 移动端抽屉打开时的半透明遮罩；点击关闭 */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setDrawerOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      <aside
+        className={`
+          fixed md:static inset-y-0 left-0 z-40 w-60 bg-slate-900 text-white flex flex-col
+          transform transition-transform duration-200 ease-out
+          ${drawerOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
+        `}
+      >
         <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
           <img src="/logo.png" alt="蓝鲸" className="w-10 h-10 rounded-lg bg-white p-0.5" />
-          <div>
-            <div className="font-semibold">蓝鲸跨境海外仓</div>
+          <div className="min-w-0">
+            <div className="font-semibold truncate">蓝鲸跨境海外仓</div>
             <div className="text-xs text-gray-400">{user?.is_admin ? '管理后台' : '分销平台'}</div>
           </div>
         </div>
@@ -76,18 +103,27 @@ export default function Layout({ user, setUser }) {
         </button>
       </aside>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="蓝鲸" className="w-8 h-8 rounded-md bg-white p-0.5" />
-            <span className="font-semibold">蓝鲸跨境海外仓分销平台</span>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header className="h-14 md:h-16 bg-white border-b flex items-center justify-between px-3 md:px-6 shadow-sm gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="md:hidden inline-flex items-center justify-center w-10 h-10 -ml-2 rounded-md hover:bg-gray-100 text-xl"
+              aria-label="打开菜单"
+            >
+              ☰
+            </button>
+            <img src="/logo.png" alt="蓝鲸" className="w-7 h-7 md:w-8 md:h-8 rounded-md bg-white p-0.5" />
+            <span className="font-semibold truncate hidden sm:inline">蓝鲸跨境海外仓分销平台</span>
+            <span className="font-semibold truncate sm:hidden text-sm">蓝鲸海外仓</span>
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-gray-500">欢迎，</span>
-            <div className={`w-9 h-9 rounded-full text-white flex items-center justify-center font-semibold ${user?.is_admin ? 'bg-purple-600' : 'bg-red-500'}`}>
+          <div className="flex items-center gap-2 md:gap-3 text-sm">
+            <span className="text-gray-500 hidden md:inline">欢迎，</span>
+            <div className={`w-8 h-8 md:w-9 md:h-9 rounded-full text-white flex items-center justify-center font-semibold ${user?.is_admin ? 'bg-purple-600' : 'bg-red-500'}`}>
               {(user?.display_name || user?.username || '?').slice(0, 1)}
             </div>
-            <span className="font-medium">{user?.display_name || user?.username}</span>
+            <span className="font-medium truncate max-w-[6rem] md:max-w-none hidden sm:inline">{user?.display_name || user?.username}</span>
             {user?.is_owner
               ? <span className="badge bg-red-100 text-red-700">👑 BOSS</span>
               : user?.is_admin
@@ -95,7 +131,7 @@ export default function Layout({ user, setUser }) {
                 : <span className="badge bg-orange-100 text-orange-600">分销商</span>}
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-3 md:p-6">
           <ErrorBoundary key={location.pathname}>
             <Outlet />
           </ErrorBoundary>

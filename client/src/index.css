@@ -10,6 +10,9 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   background: #f3f4f6;
   color: #1f2937;
+  /* 防止部分组件越界把整页拉出横向滚动条（手机端尤其影响阅读） */
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .stat-card {
