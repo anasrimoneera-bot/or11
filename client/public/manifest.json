@@ -1,0 +1,16 @@
+{
+  "name": "蓝鲸跨境海外仓分销平台",
+  "short_name": "蓝鲸海外仓",
+  "description": "蓝鲸跨境海外仓 B2B 分销 ERP",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a23",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/logo.png", "sizes": "318x318", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/favicon.png", "sizes": "64x64", "type": "image/png", "purpose": "any" }
+  ]
+}
