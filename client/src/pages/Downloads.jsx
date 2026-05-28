@@ -75,45 +75,24 @@ export default function Downloads() {
   const downloadMaster = async (country) => {
     setBusy('master-' + country);
     try {
-      const r = await api.get(`/inventory/master/${encodeURIComponent(country)}`, { responseType: 'blob' });
-      const url = URL.createObjectURL(r.data);
+      const { data } = await api.post(`/inventory/master/${encodeURIComponent(country)}/ticket`);
       const a = document.createElement('a');
-      const cd = r.headers['content-disposition'] || '';
-      const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i);
-      a.href = url;
-      a.download = match ? decodeURIComponent(match[1]) : `${country}-master.xlsx`;
+      a.href = `/api/inventory/master/${encodeURIComponent(country)}?ticket=${encodeURIComponent(data.ticket)}`;
       document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
     } catch (e) {
-      let msg = '下载失败';
-      if (e.response?.data instanceof Blob) {
-        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
-      } else { msg = e.response?.data?.error || e.message; }
-      alert(msg);
+      alert(e.response?.data?.error || e.message || '下载失败');
     } finally { setBusy(null); }
   };
 
   const downloadFeed = async (country) => {
     setBusy(country);
     try {
-      const r = await api.get(`/inventory/${encodeURIComponent(country)}`, { responseType: 'blob' });
-      const url = URL.createObjectURL(r.data);
+      const { data } = await api.post(`/inventory/${encodeURIComponent(country)}/ticket`);
       const a = document.createElement('a');
-      // 后端 Content-Disposition 会带原始文件名；前端做兜底
-      const cd = r.headers['content-disposition'] || '';
-      const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i);
-      a.href = url;
-      a.download = match ? decodeURIComponent(match[1]) : `${country}-inventory.xlsx`;
+      a.href = `/api/inventory/${encodeURIComponent(country)}?ticket=${encodeURIComponent(data.ticket)}`;
       document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
     } catch (e) {
-      let msg = '下载失败';
-      if (e.response?.data instanceof Blob) {
-        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
-      } else {
-        msg = e.response?.data?.error || e.message;
-      }
-      alert(msg);
+      alert(e.response?.data?.error || e.message || '下载失败');
     } finally {
       setBusy(null);
     }

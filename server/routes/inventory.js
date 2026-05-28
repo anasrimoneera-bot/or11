@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { fork } = require('child_process');
 const db = require('../db');
-const { authRequired } = require('../middleware/auth');
+const { authRequired, authOrTicket, signTicket } = require('../middleware/auth');
 
 const router = express.Router();
 const MASTER_DIR = path.join(__dirname, '..', '..', 'data', 'master');
@@ -36,8 +36,20 @@ router.get('/master-status', authRequired, (req, res) => {
   })));
 });
 
+// 申请下载票据：让浏览器原生下载器直连下方 GET（避免 axios 把整个 xlsx 灌进 Blob、缺 Content-Length/Range）
+router.post('/master/:country/ticket', authRequired, (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
+  if (!meta) return res.status(404).json({ error: '该国家总表暂未上传' });
+  res.json({ ticket: signTicket('inv-master', { country, uid: req.user.id }, '60s') });
+});
+
 // 分销商下载总表源文件 (统一文件名: 国家 销售总表.xlsx, UTF-8 + RFC5987 编码避免中文乱码)
-router.get('/master/:country', authRequired, (req, res) => {
+router.get('/master/:country', authOrTicket('inv-master', (req, p) => {
+  const c = resolveCountry(req.params.country);
+  return c && p.country !== c ? '票据与请求国家不符' : null;
+}), (req, res) => {
   const country = resolveCountry(req.params.country);
   if (!country) return res.status(400).json({ error: '不支持的国家' });
   const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
@@ -45,10 +57,17 @@ router.get('/master/:country', authRequired, (req, res) => {
   const file = path.join(MASTER_DIR, meta.stored_filename);
   if (!fs.existsSync(file)) return res.status(410).json({ error: '源文件不存在' });
   const fileName = `${country} 销售总表.xlsx`;
-  // filename*= 放前面，前端正则取到 UTF-8 版本而不是 ASCII fallback
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}; filename="${country}-master.xlsx"`);
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  fs.createReadStream(file).pipe(res);
+  // ASCII 降级名必须不含非 Latin-1 字符，否则 Node 22+ 的 setHeader 会 ERR_INVALID_CHAR
+  // (原实现把中文国家名直接塞进降级 filename=)。用国家码代替。
+  const asciiName = `${COUNTRY_TO_CODE[country]}-master.xlsx`;
+  // express/send 自动设置 Content-Length / Last-Modified 并响应 HTTP Range（支持续传/分段并发）
+  res.sendFile(file, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}; filename="${asciiName}"`,
+      'Cache-Control': 'private, max-age=0',
+    },
+  });
 });
 
 router.get('/status', authRequired, (req, res) => {
@@ -71,10 +90,22 @@ router.get('/status', authRequired, (req, res) => {
   }));
 });
 
+// 库存价格更新下载的票据（用于浏览器原生下载）
+router.post('/:country/ticket', authRequired, (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const has = db.prepare('SELECT COUNT(*) AS c FROM dropxl_products WHERE country = ?').get(country).c;
+  if (has === 0) return res.status(404).json({ error: '该国家库存暂未上传' });
+  res.json({ ticket: signTicket('inv-feed', { country, uid: req.user.id }, '60s') });
+});
+
 // 分销商下载该国家库存 - 现场从 DB 生成 xlsx，价格已加价。
 // 生成放到独立子进程：德国等 24 万行的国家生成 xlsx 要 2-4 秒 CPU，放主线程会把
 // 事件循环卡死、下载像"卡住没反应"。子进程把文件写到临时目录后，这里再流式回传并清理。
-router.get('/:country', authRequired, (req, res) => {
+router.get('/:country', authOrTicket('inv-feed', (req, p) => {
+  const c = resolveCountry(req.params.country);
+  return c && p.country !== c ? '票据与请求国家不符' : null;
+}), (req, res) => {
   const country = resolveCountry(req.params.country);
   if (!country) return res.status(400).json({ error: '不支持的国家' });
 
@@ -103,12 +134,15 @@ router.get('/:country', authRequired, (req, res) => {
       settled = true;
       const cnName = `${country} ${ts}.xlsx`;   // 中文文件名 给浏览器显示
       const asciiName = `${code}_${ts}.xlsx`;    // ASCII 降级名 防老浏览器乱码
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(cnName)}; filename="${asciiName}"`);
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      const stream = fs.createReadStream(tmpFile);
-      stream.on('error', () => { cleanup(); if (!res.headersSent) res.status(500).json({ error: '导出文件读取失败' }); else res.end(); });
-      stream.on('close', cleanup);
-      stream.pipe(res);
+      // express/send：自动设置 Content-Length（浏览器进度条/ETA 依赖它）+ 响应 Range（续传/分段）。
+      // 回调在传输结束或出错时触发，统一在此清理临时文件。
+      res.sendFile(tmpFile, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(cnName)}; filename="${asciiName}"`,
+          'Cache-Control': 'private, max-age=0',
+        },
+      }, () => cleanup());
     } else if (m.type === 'error') {
       settled = true;
       cleanup();

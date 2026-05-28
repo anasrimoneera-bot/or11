@@ -49,6 +49,27 @@ function authRequired(req, res, next) {
   }
 }
 
+// 中间件工厂：允许 Authorization 头(完整会话)或 ?ticket=<jwt>(用途绑定短期票据)二选一通过。
+// resourceCheck(req, ticketPayload) 返回错误字符串则拒绝(403)，用于把票据绑定到具体资源(如国家)，
+// 防止同一张票据被改 URL 去下别的国家。仅票据失败时才回退到 authRequired，给出标准的 401 错误。
+function authOrTicket(purpose, resourceCheck) {
+  return (req, res, next) => {
+    const t = req.query.ticket;
+    if (t) {
+      try {
+        const payload = verifyTicket(String(t), purpose);
+        if (resourceCheck) {
+          const err = resourceCheck(req, payload);
+          if (err) return res.status(403).json({ error: err });
+        }
+        req.user = { id: payload.uid || null, _viaTicket: true };
+        return next();
+      } catch { /* fall through to header auth */ }
+    }
+    return authRequired(req, res, next);
+  };
+}
+
 function adminRequired(req, res, next) {
   if (!req.user?.is_admin) return res.status(403).json({ error: '需要管理员权限' });
   next();
@@ -71,6 +92,6 @@ function permRequired(key) {
 
 module.exports = {
   sign, signTicket, verifyTicket,
-  authRequired, adminRequired, ownerRequired, permRequired,
+  authRequired, authOrTicket, adminRequired, ownerRequired, permRequired,
   getUserPermissions, GRANTABLE_PERMISSIONS, GRANTABLE_KEYS,
 };
