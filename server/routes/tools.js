@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { authRequired, ownerRequired, signTicket, verifyTicket } = require('../middleware/auth');
+const { authRequired, authOrTicket, ownerRequired, signTicket } = require('../middleware/auth');
 
 const router = express.Router();
 const TOOLS_DIR = path.join(__dirname, '..', '..', 'data', 'tools');
@@ -36,20 +36,7 @@ router.post('/installer/ticket', authRequired, (req, res) => {
 });
 
 // 任何登录用户可下载；支持 Authorization 头 或 ?ticket=<jwt>（供浏览器原生下载使用）
-router.get('/installer', (req, res) => {
-  let authed = false;
-  const ticket = req.query.ticket;
-  if (ticket) {
-    try { verifyTicket(String(ticket), 'installer'); authed = true; } catch {}
-  }
-  if (!authed) {
-    const header = req.headers.authorization || '';
-    if (header.startsWith('Bearer ')) {
-      try { require('jsonwebtoken').verify(header.slice(7), process.env.JWT_SECRET || 'dev-secret-change-me'); authed = true; } catch {}
-    }
-  }
-  if (!authed) return res.status(401).json({ error: '未授权' });
-
+router.get('/installer', authOrTicket('installer'), (req, res) => {
   if (!fs.existsSync(FILE)) return res.status(404).json({ error: '尚未上传安装包' });
   const meta = readMeta() || {};
   const downloadName = meta.original_name || 'lanjing-installer.exe';
