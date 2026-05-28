@@ -12,6 +12,7 @@ const ACTIONS = [
   { re: /^POST \/orders\/manual$/, action: '手工新增订单', target: 'order' },
   { re: /^DELETE \/orders\/(\d+)$/, action: '删除订单', target: 'order' },
   { re: /^PUT \/orders\/(\d+)\/shipping$/, action: '修改收货地址', target: 'order' },
+  { re: /^POST \/orders\/(\d+)\/push-dropxl$/, action: '重试推送供应商', target: 'order' },
   { re: /^POST \/orders\/(\d+)\/reject$/, action: '驳回订单', target: 'order' },
   { re: /^PUT \/orders\/(\d+)$/, action: '编辑订单', target: 'order' },
   { re: /^POST \/orders\/(\d+)\/recompute-cny$/, action: '按当前汇率重算采购¥', target: 'order' },

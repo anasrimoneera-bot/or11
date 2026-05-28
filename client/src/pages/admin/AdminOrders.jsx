@@ -378,16 +378,18 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
   const [data, setData] = useState(null);
   const [ship, setShip] = useState(null);
   const [saving, setSaving] = useState(false);
-  useEffect(() => {
+  const [pushing, setPushing] = useState(false);
+  const load = () => {
     api.get(`/admin/orders/${orderId}`).then(r => {
       setData(r.data);
-      setShip({
+      setShip(prev => prev || {
         name: '', phone: '', buyer_email: '', address1: '', address2: '',
         city: '', state: '', postal: '', country: '',
         ...(r.data.shipping || {}),
       });
     }).catch(() => setData({ error: true }));
-  }, [orderId]);
+  };
+  useEffect(() => { load(); }, [orderId]);
   const setS = (k, v) => setShip(p => ({ ...p, [k]: v }));
   const save = async () => {
     setSaving(true);
@@ -397,6 +399,17 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
       onSaved?.();
     } catch (e) { alert(e.response?.data?.error || '保存失败'); }
     finally { setSaving(false); }
+  };
+  const pushDropxl = async () => {
+    if (!confirm('把该订单（按当前买家地址）推送到供应商创建？\n建议先保存订正后的省份/地址再推送。')) return;
+    setPushing(true);
+    try {
+      const { data: r } = await api.post(`/admin/orders/${orderId}/push-dropxl`);
+      alert(`推送成功${r.dropxl_order_id ? `，供应商订单号：${r.dropxl_order_id}` : ''}`);
+      load();
+      onSaved?.();
+    } catch (e) { alert(e.response?.data?.error || '推送失败'); }
+    finally { setPushing(false); }
   };
 
   return (
@@ -453,7 +466,23 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
                 <MoField label="州/省"><input className="field w-full" value={ship.state || ''} onChange={e => setS('state', e.target.value)} /></MoField>
                 <MoField label="邮编"><input className="field w-full" value={ship.postal || ''} onChange={e => setS('postal', e.target.value)} /></MoField>
               </div>
-              <div className="text-xs text-amber-600 mt-2">⚠️ 地址修改只更新本地记录，不会自动同步到供应商系统（DropXL 无修改订单接口）；如订单已推送，请另行联系供应商。</div>
+              <div className="text-xs text-amber-600 mt-2">⚠️ 地址修改只更新本地记录，不会自动同步到供应商系统（DropXL 无修改订单接口）；已成功推送的订单如需改地址，请另行联系供应商。</div>
+            </div>
+
+            <div className="border-t pt-3">
+              <div className="font-medium mb-1">🚚 供应商(DropXL)推送</div>
+              {data.dropxl_order_id ? (
+                <div className="text-green-700">已成功推送，供应商订单号：<b className="font-mono">{data.dropxl_order_id}</b></div>
+              ) : (
+                <>
+                  <div className={data.dropxl_push_status === 'failed' ? 'text-red-600' : 'text-gray-500'}>
+                    {data.dropxl_push_status === 'failed' ? '推送失败（订单尚未在供应商创建）' : '尚未推送到供应商'}
+                  </div>
+                  {data.dropxl_push_error && <div className="text-xs text-red-500 mt-1 break-all">错误：{data.dropxl_push_error}</div>}
+                  <div className="text-xs text-gray-500 mt-1">省份需填供应商要求的简写（如 CA / NY）。订正省份并保存后，点下方「推送到供应商」即可创建订单。</div>
+                  <button onClick={pushDropxl} disabled={pushing} className="btn btn-success mt-2 text-sm">{pushing ? '推送中...' : '🚚 推送到供应商'}</button>
+                </>
+              )}
             </div>
           </div>
         )}
