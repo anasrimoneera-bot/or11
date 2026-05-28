@@ -26,7 +26,7 @@ export default function AfterSales() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <h1 className="text-2xl font-bold">🔧 售后管理</h1>
         <div className="flex gap-2">
           <button onClick={() => setShowCreate(true)} className="btn btn-primary">+ 发起售后</button>
@@ -34,7 +34,7 @@ export default function AfterSales() {
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard label="总工单数" value={stats.total} color="bg-blue-500" />
         <StatCard label="待处理" value={stats.pending} color="bg-orange-500" />
         <StatCard label="处理中" value={stats.processing} color="bg-teal-500" />
@@ -43,15 +43,15 @@ export default function AfterSales() {
       </div>
 
       <div className="bg-white rounded-xl shadow p-4">
-        <div className="flex gap-2 mb-4">
-          <input className="field max-w-md" placeholder="搜索订单号、标题或描述" value={q} onChange={e => setQ(e.target.value)} />
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <input className="field sm:max-w-md" placeholder="搜索订单号、标题或描述" value={q} onChange={e => setQ(e.target.value)} />
           <button className="btn btn-primary" onClick={load}>搜索</button>
         </div>
         <div className="space-y-3">
           {list.map(t => (
             <div key={t.id} className="border rounded-lg p-4 hover:shadow">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                <div className="flex-1 min-w-0">
                   <div className="font-semibold">
                     售后申请 - {t.reason || '其他原因'}
                     <span className="ml-2 badge bg-yellow-100 text-yellow-700">{t.priority || '中优先级'}</span>
@@ -63,9 +63,9 @@ export default function AfterSales() {
                     创建: {t.created_at} &nbsp; 更新: {t.updated_at}
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-2 sm:text-right shrink-0">
                   <span className={`badge ${statusColor[t.status]}`}>{statusLabel[t.status]}</span>
-                  <div className="mt-2"><button onClick={() => setDetailId(t.id)} className="btn btn-ghost text-xs">👁️ 查看</button></div>
+                  <button onClick={() => setDetailId(t.id)} className="btn btn-ghost text-xs">👁️ 查看</button>
                 </div>
               </div>
             </div>
@@ -205,7 +205,7 @@ function CreateWizard({ onClose, onCreated }) {
               {order && (
                 <div className="border-2 border-green-300 bg-green-50 rounded-lg mt-4 p-4">
                   <div className="font-semibold text-green-700 mb-3">✓ 已选择订单</div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <Info label="订单国家" value={order.country} />
                     <Info label="运费" value={`USD ${order.shipping_fee || 0}`} />
                     <Info label="亚马逊订单号" value={order.order_no} />
@@ -238,7 +238,7 @@ function CreateWizard({ onClose, onCreated }) {
               </div>
 
               <div className="mb-2 font-medium">售后问题原因 <span className="text-red-500">*</span></div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                 {REASONS.map(r => (
                   <label key={r.value} className={`border rounded-lg p-3 cursor-pointer flex items-center gap-2 ${reason === r.value ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}>
                     <input type="radio" name="reason" checked={reason === r.value} onChange={() => setReason(r.value)} />
@@ -354,7 +354,7 @@ function DetailModal({ id, onClose }) {
           <button onClick={onClose} className="text-gray-400 text-xl">×</button>
         </div>
         <div className="p-6 space-y-3">
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <Info label="订单号" value={t.order_no} />
             <Info label="状态" value={statusLabel[t.status]} />
             <Info label="原因" value={t.reason} />

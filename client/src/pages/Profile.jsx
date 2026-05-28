@@ -45,7 +45,7 @@ export default function Profile({ user, setUser }) {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">👤 个人资料</h1>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-xl shadow p-6 text-center">
           <div className="w-24 h-24 mx-auto rounded-full bg-blue-500 text-white flex items-center justify-center text-3xl font-bold">{initial}</div>
           <div className="text-xl font-semibold mt-3">{profile.display_name || user?.username}</div>
@@ -59,10 +59,10 @@ export default function Profile({ user, setUser }) {
           </div>
         </div>
 
-        <div className="col-span-2 space-y-4">
+        <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-xl shadow p-6">
             <h3 className="font-semibold mb-4">编辑个人信息</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm">用户名</label>
                 <input className="field bg-gray-50" disabled value={user?.username || ''} />
@@ -71,7 +71,7 @@ export default function Profile({ user, setUser }) {
                 <label className="text-sm">邮箱地址</label>
                 <input className="field" value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="text-sm">姓名 (显示名)</label>
                 <input className="field" value={profile.display_name} onChange={e => setProfile({ ...profile, display_name: e.target.value })} />
               </div>
@@ -83,7 +83,7 @@ export default function Profile({ user, setUser }) {
                 <label className="text-sm">联系电话</label>
                 <input className="field" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="text-sm">地址</label>
                 <textarea className="field" rows="3" placeholder="请输入详细地址" value={profile.address} onChange={e => setProfile({ ...profile, address: e.target.value })} />
               </div>
@@ -92,7 +92,7 @@ export default function Profile({ user, setUser }) {
 
           <div className="bg-white rounded-xl shadow p-6">
             <h3 className="font-semibold mb-4">🔒 修改密码</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm">新密码</label>
                 <input className="field" type="password" value={newPass} onChange={e => setNewPass(e.target.value)} />

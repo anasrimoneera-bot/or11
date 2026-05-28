@@ -14,7 +14,7 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">👨‍💼 管理控制台</h1>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         <Stat title="分销商总数" value={d.totalUsers} bg="bg-blue-500" icon="👥" />
         <Stat title="待确认订单" value={d.pendingOrders} bg="bg-orange-500" icon="📋" />
         <Stat title="待处理工单" value={d.pendingTickets} bg="bg-pink-500" icon="🔧" />

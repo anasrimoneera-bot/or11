@@ -125,7 +125,38 @@ export default function AdminProducts() {
           </div>
         </div>
 
-        <div className="overflow-auto">
+        {/* 手机端：卡片视图 */}
+        <div className="md:hidden divide-y">
+          {loading && <div className="p-6 text-center text-gray-400">加载中...</div>}
+          {!loading && rows.length === 0 && (
+            <div className="p-6 text-center text-gray-400">
+              {activeStatus?.uploaded_at == null
+                ? `${activeCountry} 还未同步/上传库存`
+                : '当前筛选条件无匹配商品'}
+            </div>
+          )}
+          {!loading && rows.map(r => {
+            const markupPct = activeMarkup?.markup_pct ?? 0;
+            const display = r.b2b_price * (1 + markupPct / 100);
+            return (
+              <div key={r.code} className="p-3 flex gap-3">
+                {r.image_url
+                  ? <img src={r.image_url} alt="" className="w-14 h-14 object-cover rounded bg-gray-100 border shrink-0" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                  : <div className="w-14 h-14 rounded bg-gray-100 border flex items-center justify-center text-gray-300 text-xl shrink-0">📦</div>}
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-xs truncate">{r.code}</div>
+                  <div className="text-sm flex items-center gap-2 mt-0.5">
+                    <span>B2B ${r.b2b_price.toFixed(2)}</span>
+                    <span className="font-semibold text-green-700">→ ${display.toFixed(2)}</span>
+                  </div>
+                  <div className={`text-xs ${r.stock === 0 ? 'text-gray-400' : 'text-gray-700'}`}>库存：{r.stock}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="overflow-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
               <tr>
@@ -169,7 +200,7 @@ export default function AdminProducts() {
         </div>
 
         {total > 0 && (
-          <div className="border-t p-3 flex items-center justify-between text-sm text-gray-500">
+          <div className="border-t p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-gray-500">
             <div>共 {total} 条，第 {page + 1} / {pageCount} 页</div>
             <div className="flex gap-2">
               <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))} className="btn btn-ghost border">上一页</button>

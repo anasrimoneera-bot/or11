@@ -25,7 +25,7 @@ export default function AdminStaff() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <div>
           <h1 className="text-2xl font-bold">🛡️ 管理员</h1>
           <p className="text-sm text-gray-500 mt-1">管理员可登录后台日常操作，但<b className="text-red-600">看不到加价百分比、真实采购价、利润等敏感数据</b></p>
@@ -43,7 +43,33 @@ export default function AdminStaff() {
         </ul>
       </div>
 
-      <div className="bg-white rounded-xl shadow overflow-x-auto">
+      {/* 手机端：卡片视图 */}
+      <div className="md:hidden space-y-2">
+        {list.map(s => (
+          <div key={s.id} className="bg-white rounded-lg shadow p-3 text-sm">
+            <div className="font-mono text-xs">{s.username}</div>
+            <div className="font-semibold">{s.display_name || '-'}</div>
+            <div className="text-xs text-gray-500 truncate">{s.email || '-'}</div>
+            <div className="my-1.5">
+              {(s.permissions || []).length === 0
+                ? <span className="text-gray-400 text-xs">基础功能</span>
+                : <span className="flex flex-wrap gap-1">
+                    {s.permissions.map(k => (
+                      <span key={k} className="badge bg-blue-100 text-blue-700 text-xs">{FEATURE_LABEL[k] || k}</span>
+                    ))}
+                  </span>}
+            </div>
+            <div className="flex gap-3 text-xs">
+              <button onClick={() => setPermUser(s)} className="text-emerald-600 hover:underline">权限</button>
+              <button onClick={() => setResetUser(s)} className="text-blue-600 hover:underline">重置密码</button>
+              <button onClick={() => del(s)} className="text-red-500 hover:underline">删除</button>
+            </div>
+          </div>
+        ))}
+        {list.length === 0 && <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">暂无管理员账号</div>}
+      </div>
+
+      <div className="bg-white rounded-xl shadow overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-600">
             <tr>
@@ -174,7 +200,7 @@ function ResetModal({ user, onClose, onDone }) {
 function Modal({ title, children, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl p-6 w-[420px]">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="font-semibold text-lg mb-4 flex justify-between">
           {title}
           <button onClick={onClose} className="text-gray-400">×</button>

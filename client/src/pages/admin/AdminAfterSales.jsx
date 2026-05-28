@@ -77,12 +77,12 @@ export default function AdminAfterSales() {
       <div className="space-y-3">
         {rows.map(t => (
           <div key={t.id} className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-400">
-            <div className="flex justify-between">
-              <div className="flex-1">
-                <div className="font-semibold">
-                  #{t.id} {t.title}
-                  <span className="ml-2 badge bg-yellow-100 text-yellow-700">{t.priority}</span>
-                  <span className="ml-2 badge bg-gray-100">{statusLabel[t.status]}</span>
+            <div className="flex flex-col sm:flex-row gap-3 sm:justify-between">
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold flex flex-wrap items-center gap-2">
+                  <span>#{t.id} {t.title}</span>
+                  <span className="badge bg-yellow-100 text-yellow-700">{t.priority}</span>
+                  <span className="badge bg-gray-100">{statusLabel[t.status]}</span>
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   用户: <b>{t.display_name || t.username}</b> &nbsp;
@@ -93,7 +93,7 @@ export default function AdminAfterSales() {
                 <div className="text-sm text-gray-700 mt-1 line-clamp-2">{t.description}</div>
                 <div className="text-xs text-gray-400 mt-1">{t.created_at}</div>
               </div>
-              <div className="flex flex-col gap-2 self-start">
+              <div className="flex sm:flex-col gap-2 sm:self-start shrink-0">
                 <button onClick={() => setDetailId(t.id)} className="btn btn-primary text-sm">处理工单</button>
                 {isOwner && (
                   <button onClick={() => onDelete(t)} className="text-xs text-red-600 border border-red-200 rounded px-2 py-1 hover:bg-red-50">🗑️ 删除</button>
@@ -150,9 +150,9 @@ function Detail({ id, onClose, onChanged }) {
           <div className="font-bold">售后工单 #{id}</div>
           <button onClick={onClose} className="text-gray-400 text-xl">×</button>
         </div>
-        <div className="p-6 grid grid-cols-3 gap-6">
-          <div className="col-span-2 space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <Field label="订单号" value={t.order_no} />
               <Field label="国家" value={t.country} />
               <Field label="原因" value={t.reason} />
@@ -165,7 +165,7 @@ function Detail({ id, onClose, onChanged }) {
             {t.attachments?.length > 0 && (
               <div>
                 <div className="text-sm font-medium mb-2">附件 ({t.attachments.length})</div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {t.attachments.map(a => (
                     <a key={a.id} href={`/api/aftersales/attachments/${a.id}`} target="_blank" rel="noreferrer" className="border rounded p-2 text-xs hover:bg-gray-50 truncate">
                       📎 {a.original_name}
