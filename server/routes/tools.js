@@ -38,8 +38,10 @@ router.post('/installer/ticket', authRequired, (req, res) => {
 // 任何登录用户可下载；支持 Authorization 头 或 ?ticket=<jwt>（供浏览器原生下载使用）
 router.get('/installer', authOrTicket('installer'), (req, res) => {
   if (!fs.existsSync(FILE)) return res.status(404).json({ error: '尚未上传安装包' });
-  const meta = readMeta() || {};
-  const downloadName = meta.original_name || 'lanjing-installer.exe';
+  // 下载文件名固定为中文「蓝鲸工具安装EXE.exe」（通过 RFC 5987 filename* 携带），
+  // 不再用上传时的原始文件名（busboy 老 bug 把 UTF-8 当 latin1 解，会导致乱码；
+  // 即便上传侧已修复，统一文件名也避免不同上传者带来五花八门的命名）。
+  const downloadName = '蓝鲸工具安装EXE.exe';
   // express 内部用 send：自动设置 Content-Length / Last-Modified，并响应 Range 请求（支持续传/分段）
   res.sendFile(FILE, {
     headers: {
@@ -63,8 +65,11 @@ router.post('/installer/upload', authRequired, ownerRequired, upload.single('fil
   try {
     if (fs.existsSync(FILE)) fs.unlinkSync(FILE);
     fs.renameSync(req.file.path, FILE);
+    // busboy 1.x 把 multipart filename 字节当 latin1 字符串解，导致中文名乱码；
+    // 反向 latin1→utf8 还原（纯 ASCII 情况下是无损 round-trip）。
+    const fixedName = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8');
     fs.writeFileSync(META, JSON.stringify({
-      original_name: req.file.originalname,
+      original_name: fixedName,
       size: req.file.size,
       uploaded_by: req.user.username,
       uploaded_at: new Date().toISOString(),
