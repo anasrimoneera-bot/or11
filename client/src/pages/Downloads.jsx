@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api';
+import { bgUpload, emitUploadFinished, onUploadFinished } from '../lib/bgUpload.js';
 
 const countries = [
   { name: '美国', code: 'US' }, { name: '英国', code: 'GB' }, { name: '德国', code: 'DE' },
@@ -13,8 +14,10 @@ export default function Downloads() {
   const [busy, setBusy] = useState(null);
   const [me, setMe] = useState(null);
   const [installer, setInstaller] = useState(null);
-  const [uploadingInstaller, setUploadingInstaller] = useState(false);
+  const [, forceTick] = useState(0); // 订阅 bgUpload 状态变化，让"上传中"指示在切页回来后仍可见
   const installerInputRef = useRef(null);
+  // 后台上传：切换页面/导航不会中断上传，刷新浏览器才会（XHR 被浏览器取消）
+  const uploadingInstaller = bgUpload.isActive('installer-upload');
   const isOwner = !!me?.is_owner;
 
   const loadInstaller = () => api.get('/tools/installer/status').then(r => setInstaller(r.data)).catch(() => {});
@@ -34,28 +37,39 @@ export default function Downloads() {
     loadInstaller();
   }, []);
 
-  const onPickInstaller = async (e) => {
+  // 跨页订阅 bgUpload：切到别的页面再回来时，仍能看到「上传中...」状态
+  useEffect(() => bgUpload.subscribe(() => forceTick(n => n + 1)), []);
+  // 监听上传完成事件：刷新状态、给出成功/失败提示
+  useEffect(() => onUploadFinished(({ key, ok, error }) => {
+    if (key !== 'installer-upload') return;
+    loadInstaller();
+    if (ok) alert('安装包上传成功');
+    else alert('安装包上传失败：' + (error || '未知错误'));
+  }), []);
+
+  const onPickInstaller = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!/\.exe$/i.test(f.name)) {
-      if (!confirm(`选中的文件 ${f.name} 不是 .exe，仍然上传吗？`)) {
-        e.target.value = '';
-        return;
-      }
+    if (!/\.exe$/i.test(f.name) && !confirm(`选中的文件 ${f.name} 不是 .exe，仍然上传吗？`)) {
+      e.target.value = '';
+      return;
     }
-    setUploadingInstaller(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', f);
-      await api.post('/tools/installer/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      await loadInstaller();
-      alert('上传成功');
-    } catch (err) {
-      alert(err.response?.data?.error || '上传失败：' + err.message);
-    } finally {
-      setUploadingInstaller(false);
-      if (installerInputRef.current) installerInputRef.current.value = '';
-    }
+    const sizeMB = (f.size / 1024 / 1024).toFixed(1);
+    const fd = new FormData();
+    fd.append('file', f);
+    // fire-and-forget：上传交给 bgUpload 跟踪，组件切换/卸载不影响请求；
+    // 完成后通过 emitUploadFinished 通知当前挂载的 Downloads 页刷新状态。
+    const promise = api.post('/tools/installer/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+    })
+      .then(() => emitUploadFinished({ key: 'installer-upload', ok: true }))
+      .catch(err => emitUploadFinished({
+        key: 'installer-upload', ok: false,
+        error: err.response?.data?.error || err.message,
+      }));
+    bgUpload.start('installer-upload', promise, `蓝鲸工具安装包 (${sizeMB}MB)`);
+    if (installerInputRef.current) installerInputRef.current.value = '';
   };
 
   // 110MB 安装包走浏览器原生下载（先取短期票据，再用 <a> 触发）。
