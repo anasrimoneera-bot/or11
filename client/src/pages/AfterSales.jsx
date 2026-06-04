@@ -345,6 +345,19 @@ function DetailModal({ id, onClose }) {
     setT(r.data);
   };
 
+  // 附件直链无法带 Authorization 头，先换票据再打开。先同步开空白标签页避免被拦截弹窗。
+  const openAttachment = async (attId) => {
+    const w = window.open('', '_blank');
+    try {
+      const { data } = await api.post(`/aftersales/attachments/${attId}/ticket`);
+      const url = `/api/aftersales/attachments/${attId}?ticket=${encodeURIComponent(data.ticket)}`;
+      if (w) w.location = url; else window.location = url;
+    } catch (e) {
+      if (w) w.close();
+      alert(e.response?.data?.error || '附件打开失败');
+    }
+  };
+
   if (!t) return null;
   return (
     <div className="fixed inset-0 bg-black/40 z-50 overflow-y-auto p-4">
@@ -369,9 +382,9 @@ function DetailModal({ id, onClose }) {
               <div className="text-sm font-medium mb-2">附件：</div>
               <div className="grid grid-cols-3 gap-2">
                 {t.attachments.map(a => (
-                  <a key={a.id} href={`/api/aftersales/attachments/${a.id}`} target="_blank" rel="noreferrer" className="border rounded p-2 text-xs hover:bg-gray-50">
+                  <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="border rounded p-2 text-xs hover:bg-gray-50 text-left">
                     📎 {a.original_name}
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>

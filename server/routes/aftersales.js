@@ -3,7 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db');
-const { authRequired } = require('../middleware/auth');
+const { authRequired, authOrTicket, signTicket } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -74,14 +74,30 @@ router.get('/:id', authRequired, (req, res) => {
   res.json({ ...t, messages, attachments });
 });
 
-router.get('/attachments/:id', authRequired, (req, res) => {
+// 签发短期下载票据：浏览器 <a>/新标签页直连附件接口时无法带 Authorization 头，
+// 故先用已登录会话换一张绑定到该附件 id 的票据（权限在此处校验，下载接口凭票放行）。
+router.post('/attachments/:id/ticket', authRequired, (req, res) => {
+  const att = db.prepare(`
+    SELECT a.id, t.user_id FROM aftersales_attachments a
+    JOIN aftersales_tickets t ON t.id = a.ticket_id
+    WHERE a.id = ?
+  `).get(req.params.id);
+  if (!att) return res.status(404).json({ error: '附件不存在' });
+  if (!req.user.is_admin && att.user_id !== req.user.id) return res.status(403).json({ error: '无权访问' });
+  res.json({ ticket: signTicket('aftersales-att', { aid: att.id }, '60s') });
+});
+
+router.get('/attachments/:id', authOrTicket('aftersales-att', (req, p) => (
+  String(p.aid) === String(req.params.id) ? null : '票据与请求附件不符'
+)), (req, res) => {
   const att = db.prepare(`
     SELECT a.*, t.user_id FROM aftersales_attachments a
     JOIN aftersales_tickets t ON t.id = a.ticket_id
     WHERE a.id = ?
   `).get(req.params.id);
   if (!att) return res.status(404).end();
-  if (!req.user.is_admin && att.user_id !== req.user.id) return res.status(403).end();
+  // 凭票访问时权限已在签发环节校验，无需再比对所有者（票据用户无 is_admin 字段）。
+  if (!req.user._viaTicket && !req.user.is_admin && att.user_id !== req.user.id) return res.status(403).end();
   res.setHeader('Content-Type', att.mimetype || 'application/octet-stream');
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.original_name || att.filename)}"`);
   res.sendFile(path.join(UPLOAD_DIR, att.filename));
