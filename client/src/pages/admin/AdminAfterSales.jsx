@@ -15,6 +15,19 @@ export default function AdminAfterSales() {
 
   useEffect(() => { api.get('/auth/me').then(r => setIsOwner(!!r.data?.is_owner)).catch(() => {}); }, []);
 
+  // 附件直链无法带 Authorization 头，先换票据再打开。先同步开空白标签页避免被拦截弹窗。
+  const openAttachment = async (id) => {
+    const w = window.open('', '_blank');
+    try {
+      const { data } = await api.post(`/aftersales/attachments/${id}/ticket`);
+      const url = `/api/aftersales/attachments/${id}?ticket=${encodeURIComponent(data.ticket)}`;
+      if (w) w.location = url; else window.location = url;
+    } catch (e) {
+      if (w) w.close();
+      alert(e.response?.data?.error || '附件打开失败');
+    }
+  };
+
   const onDelete = async (t) => {
     if (!confirm(`确认删除工单 #${t.id}「${t.title || '(无标题)'}」？\n该操作不可恢复，沟通记录与附件记录会一并清除。`)) return;
     try {
@@ -167,9 +180,9 @@ function Detail({ id, onClose, onChanged }) {
                 <div className="text-sm font-medium mb-2">附件 ({t.attachments.length})</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {t.attachments.map(a => (
-                    <a key={a.id} href={`/api/aftersales/attachments/${a.id}`} target="_blank" rel="noreferrer" className="border rounded p-2 text-xs hover:bg-gray-50 truncate">
+                    <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="border rounded p-2 text-xs hover:bg-gray-50 truncate text-left">
                       📎 {a.original_name}
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>
