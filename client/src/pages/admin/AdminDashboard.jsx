@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../api';
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [d, setD] = useState(null);
   const [me, setMe] = useState(null);
   useEffect(() => {
@@ -15,9 +17,9 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">👨‍💼 管理控制台</h1>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-        <Stat title="分销商总数" value={d.totalUsers} bg="bg-blue-500" icon="👥" />
-        <Stat title="待确认订单" value={d.pendingOrders} bg="bg-orange-500" icon="📋" />
-        <Stat title="待处理工单" value={d.pendingTickets} bg="bg-pink-500" icon="🔧" />
+        <Stat title="分销商总数" value={d.totalUsers} bg="bg-blue-500" icon="👥" onClick={() => navigate('/admin/users')} />
+        <Stat title="待确认订单" value={d.pendingOrders} bg="bg-orange-500" icon="📋" onClick={() => navigate('/admin/orders')} />
+        <Stat title="待处理工单" value={d.pendingTickets} bg="bg-pink-500" icon="🔧" onClick={() => navigate('/admin/aftersales')} />
         <Stat title="用户余额总计" value={`¥${(d.totalBalance || 0).toFixed(2)}`} bg="bg-green-500" icon="💰" />
       </div>
 
@@ -43,9 +45,12 @@ export default function AdminDashboard() {
   );
 }
 
-function Stat({ title, value, bg, icon }) {
+function Stat({ title, value, bg, icon, onClick }) {
   return (
-    <div className={`${bg} text-white rounded-xl p-5 flex items-center justify-between`}>
+    <div
+      onClick={onClick}
+      className={`${bg} text-white rounded-xl p-5 flex items-center justify-between ${onClick ? 'cursor-pointer hover:opacity-90 transition' : ''}`}
+    >
       <div>
         <div className="text-sm opacity-80">{title}</div>
         <div className="text-2xl font-bold mt-1">{value}</div>
