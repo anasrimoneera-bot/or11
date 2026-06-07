@@ -100,11 +100,16 @@ const REASONS = [
   { value: '无物流信息', desc: '' },
 ];
 
+const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+
 function CreateWizard({ onClose, onCreated }) {
   const [step, setStep] = useState(1);
   const [searchQ, setSearchQ] = useState('');
   const [results, setResults] = useState([]);
   const [order, setOrder] = useState(null);
+  const [manual, setManual] = useState(false);
+  const [manualOrderNo, setManualOrderNo] = useState('');
+  const [manualCountry, setManualCountry] = useState('美国');
   const [reason, setReason] = useState('');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState([]);
@@ -115,6 +120,12 @@ function CreateWizard({ onClose, onCreated }) {
     const { data } = await api.get('/aftersales/search-orders', { params: { q: searchQ } });
     setResults(data);
     if (data.length === 1) setOrder(data[0]);
+  };
+
+  // 历史订单（未在系统内采购）手动填写订单号+国家提交售后
+  const confirmManual = () => {
+    if (!manualOrderNo.trim()) return;
+    setOrder({ order_no: manualOrderNo.trim(), country: manualCountry, _manual: true });
   };
 
   const handleFiles = (fileList) => {
@@ -175,14 +186,37 @@ function CreateWizard({ onClose, onCreated }) {
           {step === 1 && (
             <div className="bg-white border rounded-lg p-6">
               <div className="text-lg font-bold mb-4">第一步：选择订单</div>
-              <label className="text-sm">搜索并选择订单</label>
-              <div className="flex gap-2 mt-1">
-                <input className="field" placeholder="请输入订单号、品牌或国家来搜索..." value={searchQ} onChange={e => setSearchQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} />
-                <button onClick={doSearch} className="btn btn-warning">搜索</button>
-              </div>
-              <div className="text-xs text-gray-500 mt-1">请输入订单号、品牌或国家名进行搜索，找到订单后点击"选择"按钮</div>
 
-              {!results.length && !order && (
+              {!manual && !order && (
+                <>
+                  <label className="text-sm">搜索并选择订单</label>
+                  <div className="flex gap-2 mt-1">
+                    <input className="field" placeholder="请输入订单号、品牌或国家来搜索..." value={searchQ} onChange={e => setSearchQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} />
+                    <button onClick={doSearch} className="btn btn-warning">搜索</button>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">请输入订单号、品牌或国家名进行搜索，找到订单后点击"选择"按钮</div>
+                  <button className="text-sm text-blue-600 mt-2" onClick={() => setManual(true)}>找不到订单？手动填写历史订单 →</button>
+                </>
+              )}
+
+              {manual && !order && (
+                <div className="border rounded-lg p-4 mt-1">
+                  <div className="font-medium mb-3">手动填写历史订单</div>
+                  <div className="text-xs text-gray-500 mb-3">适用于未在本系统内采购的历史订单，请填写亚马逊订单号与国家。</div>
+                  <label className="text-sm">亚马逊订单号 <span className="text-red-500">*</span></label>
+                  <input className="field mt-1 mb-3" placeholder="如 114-9833198-4400216" value={manualOrderNo} onChange={e => setManualOrderNo(e.target.value)} />
+                  <label className="text-sm">国家</label>
+                  <select className="field mt-1" value={manualCountry} onChange={e => setManualCountry(e.target.value)}>
+                    {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <div className="flex gap-2 mt-4">
+                    <button className="btn btn-ghost" onClick={() => setManual(false)}>返回搜索</button>
+                    <button disabled={!manualOrderNo.trim()} onClick={confirmManual} className={`btn ${manualOrderNo.trim() ? 'btn-primary' : 'btn-ghost opacity-50'}`}>使用此订单</button>
+                  </div>
+                </div>
+              )}
+
+              {!manual && !results.length && !order && (
                 <div className="bg-blue-50 text-blue-700 text-sm rounded p-3 mt-4">
                   💡 使用说明：请在上方搜索框中输入订单号、品牌名或国家名来查找您要申请售后的订单。
                 </div>
@@ -205,20 +239,28 @@ function CreateWizard({ onClose, onCreated }) {
               {order && (
                 <div className="border-2 border-green-300 bg-green-50 rounded-lg mt-4 p-4">
                   <div className="font-semibold text-green-700 mb-3">✓ 已选择订单</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <Info label="订单国家" value={order.country} />
-                    <Info label="运费" value={`USD ${order.shipping_fee || 0}`} />
-                    <Info label="亚马逊订单号" value={order.order_no} />
-                    <Info label="实际运费" value={`USD ${order.shipping_fee || 0}`} />
-                    <Info label="亚马逊订单金额" value={`USD ${order.amazon_amount || 0}`} />
-                    <Info label="实际运费(人民币)" value={`¥ ${((order.shipping_fee || 0) * (order.exchange_rate || 7)).toFixed(2)}`} />
-                    <Info label="进货价(人民币)" value={`¥ ${(order.purchase_amount_cny || 0).toFixed(2)}`} />
-                    <Info label="汇率" value={order.exchange_rate || '-'} />
-                    <Info label="SKU列表" value={'-'} />
-                    <Info label="进货价总额" value={`USD ${order.purchase_amount_usd || 0}`} />
-                    <Info label="订单时间" value={order.created_at} />
-                    <Info label="用户名" value={order.shop_name} />
-                  </div>
+                  {order._manual ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <Info label="亚马逊订单号" value={order.order_no} />
+                      <Info label="订单国家" value={order.country} />
+                      <div className="sm:col-span-2 text-xs text-gray-500">历史订单（未在系统内采购）</div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <Info label="订单国家" value={order.country} />
+                      <Info label="运费" value={`USD ${order.shipping_fee || 0}`} />
+                      <Info label="亚马逊订单号" value={order.order_no} />
+                      <Info label="实际运费" value={`USD ${order.shipping_fee || 0}`} />
+                      <Info label="亚马逊订单金额" value={`USD ${order.amazon_amount || 0}`} />
+                      <Info label="实际运费(人民币)" value={`¥ ${((order.shipping_fee || 0) * (order.exchange_rate || 7)).toFixed(2)}`} />
+                      <Info label="进货价(人民币)" value={`¥ ${(order.purchase_amount_cny || 0).toFixed(2)}`} />
+                      <Info label="汇率" value={order.exchange_rate || '-'} />
+                      <Info label="SKU列表" value={'-'} />
+                      <Info label="进货价总额" value={`USD ${order.purchase_amount_usd || 0}`} />
+                      <Info label="订单时间" value={order.created_at} />
+                      <Info label="用户名" value={order.shop_name} />
+                    </div>
+                  )}
                   <button className="text-xs text-blue-600 mt-3" onClick={() => setOrder(null)}>重新选择</button>
                 </div>
               )}
