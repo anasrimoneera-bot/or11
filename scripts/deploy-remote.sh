@@ -39,56 +39,45 @@ rm -f package-lock.json client/package-lock.json
 echo " OK"
 
 echo ""
-echo "=== 4/8 git pull ==="
+echo "=== 4/8 sync code (fetch + reset, 直连/镜像自动切换) ==="
+# 非交互兜底：公开仓 fetch 本是匿名的，但万一仍要凭据 / 编辑器，立刻失败而不是永久卡住。
+export GIT_TERMINAL_PROMPT=0
+export GIT_EDITOR=true
 git config http.version HTTP/1.1
 git config --global http.lowSpeedLimit 1000
-git config --global http.lowSpeedTime 30
+git config --global http.lowSpeedTime 20
 
-# 临时关掉 set -e：否则 timeout 返回 124 会让 OUT=$(...) 直接触发退出，
-# 重试和镜像兜底永远走不到。拉取阶段自己判断退出码即可。
+# 直连放第一位；被墙时 60s 内快速失败，自动逐个走镜像（已剔除关停的 ghproxy.com / mirror.ghproxy.com）。
+ORIG_URL=$(git remote get-url origin)
+ENDPOINTS=("" "https://ghfast.top/" "https://ghproxy.net/" "https://gh-proxy.com/")
+
+# 临时关掉 set -e：timeout 返回 124 不应直接退出，要让镜像兜底跑完，自己判断退出码。
 set +e
-pull_ok=0
-for i in 1 2 3; do
-  echo "[attempt $i/3] git pull origin $BRANCH (timeout 180s)"
-  OUT=$(timeout 180 git pull origin "$BRANCH" 2>&1)
+fetch_ok=0
+for PFX in "${ENDPOINTS[@]}"; do
+  LABEL=${PFX:-"直连 GitHub"}
+  git remote set-url origin "${PFX}${ORIG_URL}"
+  echo " fetch via ${LABEL} (timeout 60s) ..."
+  OUT=$(timeout 60 git fetch --prune origin "$BRANCH" 2>&1)
   RC=$?
-  echo "$OUT" | tail -20
-  if [ $RC -eq 0 ]; then
-    pull_ok=1
-    break
-  fi
-  echo " attempt $i FAILED (exit $RC), retrying in 3s..."
-  sleep 3
+  echo "$OUT" | tail -8
+  if [ $RC -eq 0 ]; then fetch_ok=1; echo " ${LABEL} OK"; break; fi
+  echo " ${LABEL} FAILED (exit $RC)"
 done
-
-if [ $pull_ok -eq 0 ]; then
-  echo ""
-  echo " direct GitHub failed, trying mirrors..."
-  ORIG_URL=$(git remote get-url origin)
-  for PROXY in "https://ghfast.top/" "https://ghproxy.net/" "https://mirror.ghproxy.com/" "https://ghproxy.com/"; do
-    echo " trying ${PROXY} ..."
-    git remote set-url origin "${PROXY}${ORIG_URL}"
-    OUT=$(timeout 180 git pull origin "$BRANCH" 2>&1)
-    RC=$?
-    echo "$OUT" | tail -10
-    if [ $RC -eq 0 ]; then
-      pull_ok=1
-      echo " ${PROXY} success."
-      break
-    fi
-  done
-  # 还原直连地址，下次优先直连
-  git remote set-url origin "$ORIG_URL"
-fi
+git remote set-url origin "$ORIG_URL"   # 还原直连地址，不把镜像写死
 set -e
 
-if [ $pull_ok -eq 0 ]; then
+if [ $fetch_ok -eq 0 ]; then
   echo ""
-  echo " ERROR: git pull failed via direct AND mirrors. Network blocked?"
-  echo " manual fallback on server:"
-  echo "   cd $REPO && git fetch origin $BRANCH && git merge --ff-only origin/$BRANCH"
+  echo " ERROR: 直连与所有镜像都拉取失败，请检查服务器到 GitHub/镜像的网络。"
+  echo " 手动兜底：cd $REPO && git fetch origin $BRANCH && git reset --hard origin/$BRANCH"
   exit 1
 fi
+
+# 部署机始终硬对齐远端：彻底避免本地分叉触发的合并提交 / 编辑器卡死
+# （本地改动第 2 步已 stash，数据库第 1 步已备份）。
+git reset --hard "origin/$BRANCH"
+echo " synced to: $(git log -1 --oneline)"
 
 echo ""
 echo "=== 5/8 npm install (root) ==="
