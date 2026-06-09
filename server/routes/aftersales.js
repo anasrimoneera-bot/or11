@@ -70,7 +70,7 @@ router.get('/:id', authRequired, (req, res) => {
   const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!t) return res.status(404).json({ error: '工单不存在' });
   const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
-  const attachments = db.prepare('SELECT id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
+  const attachments = db.prepare('SELECT id, message_id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
   res.json({ ...t, messages, attachments });
 });
 
