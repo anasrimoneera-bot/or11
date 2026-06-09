@@ -419,11 +419,11 @@ function DetailModal({ id, onClose }) {
             <div className="text-sm font-medium">详细说明：</div>
             <div className="bg-gray-50 p-3 rounded mt-1 whitespace-pre-wrap text-sm">{t.description}</div>
           </div>
-          {t.attachments?.length > 0 && (
+          {t.attachments?.filter(a => !a.message_id).length > 0 && (
             <div>
               <div className="text-sm font-medium mb-2">附件：</div>
               <div className="grid grid-cols-3 gap-2">
-                {t.attachments.map(a => (
+                {t.attachments.filter(a => !a.message_id).map(a => (
                   <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="border rounded p-2 text-xs hover:bg-gray-50 text-left">
                     📎 {a.original_name}
                   </button>
@@ -443,7 +443,12 @@ function DetailModal({ id, onClose }) {
               {t.messages?.map(m => (
                 <div key={m.id} className={`p-2 rounded text-sm ${m.is_admin ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
                   <div className="text-xs text-gray-500">{m.is_admin ? '管理员' : '用户'} {m.author} · {m.created_at}</div>
-                  <div className="mt-1 whitespace-pre-wrap">{m.content}</div>
+                  {m.content && <div className="mt-1 whitespace-pre-wrap">{m.content}</div>}
+                  {t.attachments?.filter(a => a.message_id === m.id).map(a => (
+                    <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="mt-1 mr-1 inline-block border rounded px-2 py-1 text-xs bg-white hover:bg-gray-50">
+                      📎 {a.original_name}
+                    </button>
+                  ))}
                 </div>
               ))}
               {(!t.messages || t.messages.length === 0) && <div className="text-gray-400 text-sm">暂无沟通记录</div>}

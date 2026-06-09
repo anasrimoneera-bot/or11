@@ -397,6 +397,9 @@ ensureColumn('purchase_orders', 'dropxl_exported_at', 'TEXT');
 // 空/NULL = 只有基础管理员功能；BOSS(is_owner) 隐式拥有全部，不依赖此列。
 ensureColumn('users', 'permissions', 'TEXT');
 
+// 售后附件挂到具体的沟通消息上（NULL = 用户建单时的原始附件）。管理员/用户回复可带附件。
+ensureColumn('aftersales_attachments', 'message_id', 'INTEGER');
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {

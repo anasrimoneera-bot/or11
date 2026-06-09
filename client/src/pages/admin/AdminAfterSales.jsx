@@ -113,9 +113,11 @@ export default function AdminAfterSales() {
 function Detail({ id, onClose, onChanged }) {
   const [t, setT] = useState(null);
   const [reply, setReply] = useState('');
+  const [replyFiles, setReplyFiles] = useState([]);
   const [status, setStatus] = useState('');
   const [adminNote, setAdminNote] = useState('');
   const [refundAmount, setRefundAmount] = useState('');
+  const [savedTip, setSavedTip] = useState('');
 
   const load = () => {
     api.get(`/admin/aftersales/${id}`).then(r => {
@@ -140,13 +142,26 @@ function Detail({ id, onClose, onChanged }) {
   if (!t) return null;
 
   const updateStatus = async () => {
-    await api.put(`/admin/aftersales/${id}`, { status, admin_note: adminNote });
-    onChanged(); load();
+    try {
+      await api.put(`/admin/aftersales/${id}`, { status, admin_note: adminNote });
+      onChanged(); load();
+      setSavedTip('✓ 已更新');
+      setTimeout(() => setSavedTip(''), 2000);
+    } catch (e) {
+      alert(e.response?.data?.error || '更新失败');
+    }
   };
   const sendReply = async () => {
-    if (!reply.trim()) return;
-    await api.post(`/admin/aftersales/${id}/reply`, { content: reply });
-    setReply(''); load();
+    if (!reply.trim() && replyFiles.length === 0) return;
+    try {
+      const fd = new FormData();
+      fd.append('content', reply);
+      for (const f of replyFiles) fd.append('files', f);
+      await api.post(`/admin/aftersales/${id}/reply`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setReply(''); setReplyFiles([]); load();
+    } catch (e) {
+      alert(e.response?.data?.error || '发送失败');
+    }
   };
   const doRefund = async () => {
     const amt = Number(refundAmount);
@@ -175,11 +190,11 @@ function Detail({ id, onClose, onChanged }) {
               <div className="text-sm font-medium">详细说明</div>
               <div className="bg-gray-50 p-3 rounded mt-1 whitespace-pre-wrap text-sm">{t.description}</div>
             </div>
-            {t.attachments?.length > 0 && (
+            {t.attachments?.filter(a => !a.message_id).length > 0 && (
               <div>
-                <div className="text-sm font-medium mb-2">附件 ({t.attachments.length})</div>
+                <div className="text-sm font-medium mb-2">附件 ({t.attachments.filter(a => !a.message_id).length})</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {t.attachments.map(a => (
+                  {t.attachments.filter(a => !a.message_id).map(a => (
                     <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="border rounded p-2 text-xs hover:bg-gray-50 truncate text-left">
                       📎 {a.original_name}
                     </button>
@@ -193,15 +208,34 @@ function Detail({ id, onClose, onChanged }) {
                 {t.messages?.map(m => (
                   <div key={m.id} className={`p-2 rounded text-sm ${m.is_admin ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
                     <div className="text-xs text-gray-500">{m.is_admin ? '👨‍💼 管理员' : '👤 用户'} {m.author} · {m.created_at}</div>
-                    <div className="mt-1 whitespace-pre-wrap">{m.content}</div>
+                    {m.content && <div className="mt-1 whitespace-pre-wrap">{m.content}</div>}
+                    {t.attachments?.filter(a => a.message_id === m.id).map(a => (
+                      <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="mt-1 mr-1 inline-block border rounded px-2 py-1 text-xs bg-white hover:bg-gray-50">
+                        📎 {a.original_name}
+                      </button>
+                    ))}
                   </div>
                 ))}
                 {(!t.messages || t.messages.length === 0) && <div className="text-gray-400 text-sm">暂无沟通记录</div>}
               </div>
               <div className="flex gap-2 mt-2">
                 <input className="field" value={reply} onChange={e => setReply(e.target.value)} placeholder="回复用户..." />
+                <label className="btn btn-ghost border cursor-pointer" title="添加附件">📎
+                  <input type="file" multiple accept="image/*,application/pdf" className="hidden"
+                    onChange={e => { setReplyFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+                </label>
                 <button className="btn btn-primary" onClick={sendReply}>发送</button>
               </div>
+              {replyFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {replyFiles.map((f, i) => (
+                    <span key={i} className="text-xs border rounded px-2 py-1 flex items-center gap-1">
+                      📎 {f.name}
+                      <button className="text-red-500" onClick={() => setReplyFiles(replyFiles.filter((_, j) => j !== i))}>✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -223,6 +257,7 @@ function Detail({ id, onClose, onChanged }) {
                 <textarea className="field" rows="3" value={adminNote} onChange={e => setAdminNote(e.target.value)} placeholder="与供应商沟通进度..." />
               </div>
               <button className="btn btn-primary w-full" onClick={updateStatus}>更新状态</button>
+              {savedTip && <div className="text-center text-sm text-green-600">{savedTip}</div>}
             </div>
 
             <div className="bg-orange-50 rounded p-4 space-y-3">

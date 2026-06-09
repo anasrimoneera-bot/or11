@@ -1,5 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db');
 const dropxl = require('../dropxl');
 const { authRequired, adminRequired, ownerRequired, permRequired, GRANTABLE_KEYS } = require('../middleware/auth');
@@ -7,6 +10,17 @@ const { audit, setAudit } = require('../middleware/audit');
 
 const router = express.Router();
 router.use(authRequired, adminRequired, audit);
+
+// 售后回复附件：与用户端共用 data/uploads 目录、同样的随机文件名规则。
+const UPLOAD_DIR = path.join(__dirname, '..', '..', 'data', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(file.originalname)}`),
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 // 工具：剥离真正的内部字段（DropXL 原始请求/响应）。
 // 真实成本/加价/PayPal 汇率等对所有管理员（店主+管理员）可见，仅用户端 /orders 接口不返回。
@@ -1017,7 +1031,7 @@ router.get('/aftersales/:id', (req, res) => {
   `).get(req.params.id);
   if (!t) return res.status(404).json({ error: '工单不存在' });
   const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
-  const attachments = db.prepare('SELECT id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
+  const attachments = db.prepare('SELECT id, message_id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
   res.json({ ...t, messages, attachments });
 });
 
@@ -1048,12 +1062,20 @@ router.delete('/aftersales/:id', ownerRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/aftersales/:id/reply', (req, res) => {
+router.post('/aftersales/:id/reply', upload.array('files', 10), (req, res) => {
   const { content } = req.body || {};
   const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ?').get(req.params.id);
   if (!t) return res.status(404).json({ error: '工单不存在' });
-  db.prepare('INSERT INTO aftersales_messages (ticket_id, author, is_admin, content) VALUES (?, ?, 1, ?)').run(t.id, req.user.username, content);
-  db.prepare('UPDATE aftersales_tickets SET has_new_message = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(t.id);
+  const files = req.files || [];
+  if (!(content && content.trim()) && files.length === 0) return res.status(400).json({ error: '请填写回复或添加附件' });
+  const tx = db.transaction(() => {
+    const info = db.prepare('INSERT INTO aftersales_messages (ticket_id, author, is_admin, content) VALUES (?, ?, 1, ?)').run(t.id, req.user.username, content || '');
+    const msgId = info.lastInsertRowid;
+    const insAtt = db.prepare('INSERT INTO aftersales_attachments (ticket_id, message_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const f of files) insAtt.run(t.id, msgId, f.filename, Buffer.from(f.originalname, 'latin1').toString('utf8'), f.mimetype, f.size);
+    db.prepare('UPDATE aftersales_tickets SET has_new_message = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(t.id);
+  });
+  tx();
   res.json({ ok: true });
 });
 
