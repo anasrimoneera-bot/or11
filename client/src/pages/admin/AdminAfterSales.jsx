@@ -222,7 +222,7 @@ function Detail({ id, onClose, onChanged }) {
                 <input className="field" value={reply} onChange={e => setReply(e.target.value)} placeholder="回复用户..." />
                 <label className="btn btn-ghost border cursor-pointer" title="添加附件">📎
                   <input type="file" multiple accept="image/*,application/pdf" className="hidden"
-                    onChange={e => { setReplyFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+                    onChange={e => { const picked = Array.from(e.target.files || []); setReplyFiles(prev => [...prev, ...picked]); e.target.value = ''; }} />
                 </label>
                 <button className="btn btn-primary" onClick={sendReply}>发送</button>
               </div>
