@@ -172,7 +172,7 @@ export default function AdminOrders() {
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
                 <div>亚马逊：<b>{amazonSym(o.country)}{sales.toFixed(2)}</b></div>
-                <div>采购：${purchase.toFixed(2)}</div>
+                <div>采购：{amazonSym(o.country)}{purchase.toFixed(2)}</div>
                 <div className="text-red-600">采购¥：¥{purchaseCny.toFixed(2)}</div>
                 <div className={profit >= 0 ? 'text-green-700' : 'text-red-600'}>
                   利润：{sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}${amazonSym(o.country)}${profit.toFixed(2)}`}
@@ -181,7 +181,7 @@ export default function AdminOrders() {
               {(o.dropxl_order_id || o.tracking_no) && (
                 <div className="text-[11px] text-gray-500 font-mono mt-1 truncate">
                   {o.dropxl_order_id && <>供应商：{o.dropxl_order_id}　</>}
-                  {o.tracking_no && <>📮{o.tracking_no}</>}
+                  {o.tracking_no && <>{o.shipping_carrier ? `[${o.shipping_carrier}] ` : ''}📮{o.tracking_no}</>}
                 </div>
               )}
               <div className="text-[11px] text-gray-400 mt-1">{o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { hour12: false }) : ''}</div>
@@ -213,7 +213,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-left">用户</th>
               <th className="px-3 py-2 text-left">国家/店铺</th>
               <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
-              <th className="px-3 py-2 text-right">采购(USD)</th>
+              <th className="px-3 py-2 text-right">采购(原币)</th>
               <th className="px-3 py-2 text-right">采购(¥)</th>
               <th className="px-3 py-2 text-right" title="按各订单站点币种显示：亚马逊金额 − 采购(USD)">利润(本币)</th>
               <th className="px-3 py-2 text-right" title="按订单锁定汇率（无锁定则用当前系统汇率）换算">利润 (¥)</th>
@@ -260,10 +260,11 @@ export default function AdminOrders() {
                   {isOwner ? (
                     <EditableAmount
                       value={o.purchase_amount_usd || 0}
+                      prefix={amazonSym(o.country)}
                       onSave={async (v) => { await api.put(`/admin/orders/${o.id}/purchase-price`, { purchase_amount_usd: v }); load(); }}
                     />
                   ) : (
-                    <>${(o.purchase_amount_usd || 0).toFixed(2)}</>
+                    <>{amazonSym(o.country)}{(o.purchase_amount_usd || 0).toFixed(2)}</>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right text-red-600 whitespace-nowrap">
@@ -290,6 +291,7 @@ export default function AdminOrders() {
                 {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} isOwner={isOwner} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
                 <td className="px-3 py-2 text-xs">
+                  {o.shipping_carrier && <div className="text-gray-400 text-[11px] mb-0.5">{o.shipping_carrier}</div>}
                   <TrackingCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { tracking_no: v }); load(); }} />
                 </td>
                 <td className="px-3 py-2">
@@ -479,7 +481,7 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700">
               <div>用户: <b>{data.display_name || data.username}</b></div>
               <div>国家/店铺: <b>{data.country} / {data.shop_name || '-'}</b></div>
-              <div>采购(USD): ${Number(data.purchase_amount_usd || 0).toFixed(2)}</div>
+              <div>采购(原币): {amazonSym(data.country)}{Number(data.purchase_amount_usd || 0).toFixed(2)}</div>
               <div>采购(¥): <span className="text-red-600">¥{Number(data.purchase_amount_cny || 0).toFixed(2)}</span></div>
             </div>
 
@@ -858,7 +860,7 @@ function StaffConfirmModal({ order, onClose, onDone }) {
           <div>用户：{order.display_name || order.username}</div>
           <div>国家/店铺：{order.country} / {order.shop_name}</div>
           <div>供应商订单 ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></div>
-          <div className="text-blue-700">系统计算采购价 (USD)：<b>${(order.purchase_amount_usd || 0).toFixed(2)}</b></div>
+          <div className="text-blue-700">系统计算采购价：<b>{amazonSym(order.country)}{(order.purchase_amount_usd || 0).toFixed(2)}</b></div>
         </div>
         <label className="text-sm">汇率 *</label>
         <input className="field mb-2" type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} />
