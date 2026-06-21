@@ -56,7 +56,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" to="/balance" />
         <Stat title="我的订单" value={d.orders_total} bg="bg-blue-500" icon="🛒" to="/orders" />
-        <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" to="/after-sales" />
+        <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" to="/after-sales" badge={d.new_message_tickets > 0 ? d.new_message_tickets : 0} />
       </div>
 
       <div>
@@ -86,7 +86,7 @@ export default function Dashboard() {
   );
 }
 
-function Stat({ title, value, bg, icon, to }) {
+function Stat({ title, value, bg, icon, to, badge }) {
   const navigate = useNavigate();
   return (
     <div
@@ -94,7 +94,14 @@ function Stat({ title, value, bg, icon, to }) {
       onClick={to ? () => navigate(to) : undefined}
     >
       <div>
-        <div className="text-sm opacity-90">{title}</div>
+        <div className="text-sm opacity-90 flex items-center gap-2">
+          {title}
+          {badge > 0 && (
+            <span className="inline-flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] px-1 animate-pulse">
+              {badge}
+            </span>
+          )}
+        </div>
         <div className="text-3xl font-bold mt-1">{value}</div>
       </div>
       <div className="text-4xl opacity-50">{icon}</div>

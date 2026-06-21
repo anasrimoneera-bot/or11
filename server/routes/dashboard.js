@@ -10,6 +10,7 @@ router.get('/', authRequired, (req, res) => {
   const u = db.prepare('SELECT sku_limit, member_level FROM users WHERE id = ?').get(userId);
   const orderTotal = db.prepare('SELECT COUNT(*) AS c FROM purchase_orders WHERE user_id = ?').get(userId).c;
   const pendingTickets = db.prepare("SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ? AND status IN ('pending','processing')").get(userId).c;
+  const newMessageTickets = db.prepare("SELECT COUNT(*) AS c FROM aftersales_tickets WHERE user_id = ? AND has_new_message = 1").get(userId).c;
 
   const statusDist = db.prepare(`
     SELECT status, COUNT(*) as count FROM purchase_orders WHERE user_id = ? GROUP BY status
@@ -47,6 +48,7 @@ router.get('/', authRequired, (req, res) => {
     member_level: u?.member_level || '一级分销',
     orders_total: orderTotal,
     pending_tickets: pendingTickets,
+    new_message_tickets: newMessageTickets,
     status_dist: statusDist,
     trend,
     shop_dist: shopDist,
