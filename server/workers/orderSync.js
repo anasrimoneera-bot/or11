@@ -58,7 +58,7 @@ async function run(msg) {
         const numId = (rawId.match(/\d+$/) || [''])[0] || rawId;
         const ref = String(o.customer_order_reference || '').trim();
         const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
-        const carrier = o.shipping_carrier || o.carrier_name || o.carrier || '';
+        const carrier = o.shipping_option_name || o.shipping_carrier || o.carrier_name || o.carrier || '';
         const status = mapStatus(o.status_order_name || o.status);
         let r = byId.run(status, tracking, tracking, carrier, carrier, rawId, numId);
         if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, carrier, carrier, rawId, ref);

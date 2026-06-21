@@ -79,7 +79,8 @@ export default function AdminOrders() {
 
   // 仅 BOSS：按当前系统汇率重算单个订单的采购¥（补全历史导入单缺失的¥）
   const recomputeCny = async (o) => {
-    if (!confirm(`按"当前系统采购汇率"重算订单 ${o.order_no} 的采购¥？\n采购¥ = 采购USD × 当前采购汇率，并把该订单汇率更新为当前汇率。`)) return;
+    const cur = COUNTRY_CURRENCY[o.country] || 'USD';
+    if (!confirm(`按"当前系统采购汇率"重算订单 ${o.order_no} 的采购¥？\n采购¥ = 采购${cur} × 当前${cur}采购汇率，并把该订单汇率更新为当前汇率。`)) return;
     try {
       await api.post(`/admin/orders/${o.id}/recompute-cny`);
       load();
@@ -97,7 +98,7 @@ export default function AdminOrders() {
 
   // 仅 BOSS：一键补算所有"采购¥为 0 / 未计算"的订单（不动已正常的订单）
   const recomputeAllMissing = async () => {
-    if (!confirm('把所有"采购¥为 0 / 未计算"的订单按当前系统汇率补算采购¥？\n（只补缺，不影响采购¥已正常的订单）')) return;
+    if (!confirm('把所有"采购¥为 0 / 未计算"的订单按各国当前采购汇率补算采购¥？\n（只补缺，不影响采购¥已正常的订单）')) return;
     try {
       const { data } = await api.post('/admin/orders/recompute-cny-missing');
       alert(`扫描 ${data.scanned} 单，实际补算 ${data.updated} 单`);
@@ -134,7 +135,7 @@ export default function AdminOrders() {
         <h1 className="text-2xl font-bold">📋 订单管理</h1>
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setShowManual(true)} className="btn btn-primary" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
-          {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按当前汇率补算'>🔄 补算采购¥(零值单)</button>}
+          {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按各国当前采购汇率补算'>🔄 补算采购¥(零值单)</button>}
           <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary">🔄 从供应商同步跟踪号/状态</button>
