@@ -860,8 +860,25 @@ function syncOrdersFromDropxl({ sinceDays = 90, country = null } = {}) {
 router.post('/orders/sync', async (req, res) => {
   try {
     const sinceDays = Number(req.body?.days) || 90;
-    const result = await syncOrdersFromDropxl({ sinceDays });
-    res.json({ ok: true, ...result });
+    // 先同步默认账号（.env，通常是美国），再同步所有已启用的额外国家账号
+    const countries = db.prepare(
+      "SELECT country FROM dropxl_accounts WHERE enabled = 1 AND country IS NOT NULL AND country != ''"
+    ).all().map(r => r.country);
+    const results = [];
+    // 默认账号
+    results.push(await syncOrdersFromDropxl({ sinceDays, country: null }));
+    // 各国账号
+    for (const c of countries) {
+      try { results.push(await syncOrdersFromDropxl({ sinceDays, country: c })); }
+      catch (e) { results.push({ country: c, error: e.message }); }
+    }
+    const merged = results.reduce((acc, r) => ({
+      total: (acc.total || 0) + (r.total || 0),
+      updated: (acc.updated || 0) + (r.updated || 0),
+      not_found: (acc.not_found || 0) + (r.not_found || 0),
+      since: r.since || acc.since,
+    }), {});
+    res.json({ ok: true, ...merged, details: results });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }

@@ -95,7 +95,14 @@ async function runOnce(reason = 'scheduled') {
       }
     }
 
-    // 2) 订单状态同步（按 country 串行）
+    // 2) 订单状态同步：先同步默认 .env 账号，再按 country 串行
+    try {
+      const r = await syncOrdersFromDropxl({ sinceDays: 90, country: null });
+      result.orders.push({ country: 'default', ok: true, ...r });
+    } catch (e) {
+      result.orders.push({ country: 'default', ok: false, error: String(e.message || e) });
+      console.error('[scheduler] default orders sync failed:', e.message);
+    }
     for (const { country } of accounts) {
       try {
         const r = await syncOrdersFromDropxl({ sinceDays: 90, country });
