@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import ReactECharts from 'echarts-for-react';
 
@@ -53,9 +54,9 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" />
-        <Stat title="我的订单" value={d.orders_total} bg="bg-blue-500" icon="🛒" />
-        <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" />
+        <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" to="/balance" />
+        <Stat title="我的订单" value={d.orders_total} bg="bg-blue-500" icon="🛒" to="/orders" />
+        <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" to="/after-sales" />
       </div>
 
       <div>
@@ -85,9 +86,13 @@ export default function Dashboard() {
   );
 }
 
-function Stat({ title, value, bg, icon }) {
+function Stat({ title, value, bg, icon, to }) {
+  const navigate = useNavigate();
   return (
-    <div className={`stat-card ${bg}`}>
+    <div
+      className={`stat-card ${bg} ${to ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+      onClick={to ? () => navigate(to) : undefined}
+    >
       <div>
         <div className="text-sm opacity-90">{title}</div>
         <div className="text-3xl font-bold mt-1">{value}</div>
