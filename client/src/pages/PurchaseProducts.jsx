@@ -278,7 +278,7 @@ export default function PurchaseProducts() {
                   <th className="px-2 py-2 text-left">SKU</th>
                   <th className="px-2 py-2 text-left">商品名</th>
                   <th className="px-2 py-2 w-20">数量</th>
-                  <th className="px-2 py-2 w-28">单价(USD)</th>
+                  <th className="px-2 py-2 w-28">单价({currencySymbol[currentCurrency] || currentCurrency})</th>
                   <th className="w-12"></th>
                 </tr>
               </thead>
@@ -389,8 +389,8 @@ function BatchConfirmModal({ preview, onClose, onSubmit, onEditShipping, submitt
             <div className="text-2xl font-bold mt-1">{visibleGroups.length}</div>
           </div>
           <div className="rounded-lg bg-yellow-50 border border-yellow-100 p-3">
-            <div className="text-xs text-yellow-700">当前汇率</div>
-            <div className="text-2xl font-bold mt-1">1: {exchange_rate} CNY</div>
+            <div className="text-xs text-yellow-700">汇率</div>
+            <div className="text-sm font-medium mt-1 text-gray-700">按各国采购汇率换算</div>
           </div>
         </div>
 
@@ -412,10 +412,7 @@ function BatchConfirmModal({ preview, onClose, onSubmit, onEditShipping, submitt
 
         <div className="border-t p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-gray-50">
           <div className="text-sm text-gray-600">
-            <div>所有订单总金额：<b className="text-xl text-gray-900 ml-1">{liveTotalUsd.toFixed(2)}</b></div>
-          </div>
-          <div className="text-sm text-gray-600">
-            <div>所需人民币：<b className="text-xl text-red-600 ml-1">{liveTotalCny.toFixed(2)} CNY</b></div>
+            <div>所需人民币（各国汇率折算合计）：<b className="text-xl text-red-600 ml-1">¥{liveTotalCny.toFixed(2)}</b></div>
           </div>
           <button
             onClick={handleSubmit}
@@ -432,6 +429,8 @@ function BatchConfirmModal({ preview, onClose, onSubmit, onEditShipping, submitt
 
 function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
   const allOk = group.all_matched && group.errors.length === 0;
+  const groupSym = currencySymbol[group.currency] || group.currency || '$';
+  const groupRate = group.exchange_rate;
   const [editAddr, setEditAddr] = useState(false);
   const [addr, setAddr] = useState(group.shipping);
   const setA = (k, v) => setAddr(p => ({ ...p, [k]: v }));
@@ -495,7 +494,10 @@ function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
           <div className="text-xs text-gray-500 mt-1">修改后将用新地址提交并推送到供应商。</div>
         </div>
       )}
-      <div className="font-medium mb-2">商品列表：</div>
+      <div className="font-medium mb-1">商品列表：</div>
+      <div className="text-xs text-gray-500 mb-2">
+        币种：<b>{group.currency || 'USD'}</b>　采购汇率：{groupRate > 0 ? `1 ${group.currency || 'USD'} = ${Number(groupRate).toFixed(4)} CNY` : <span className="text-red-500">未配置</span>}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="text-gray-500 bg-gray-50">
@@ -520,17 +522,17 @@ function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
                 <td className="px-2 py-1 font-mono">{it.sku}</td>
                 <td className="px-2 py-1 max-w-xs truncate" title={it.product_name}>{it.product_name || '—'}</td>
                 <td className="px-2 py-1 text-right">{it.quantity}</td>
-                <td className="px-2 py-1 text-right">{it.unit_price_usd != null ? Number(it.unit_price_usd).toFixed(2) : '—'}</td>
-                <td className="px-2 py-1 text-right">{Number(it.subtotal_usd || 0).toFixed(2)}</td>
-                <td className="px-2 py-1 text-right text-red-600">{Number(it.subtotal_cny || 0).toFixed(2)}</td>
+                <td className="px-2 py-1 text-right">{it.unit_price_usd != null ? `${groupSym}${Number(it.unit_price_usd).toFixed(2)}` : '—'}</td>
+                <td className="px-2 py-1 text-right">{groupSym}{Number(it.subtotal_usd || 0).toFixed(2)}</td>
+                <td className="px-2 py-1 text-right text-red-600">¥{Number(it.subtotal_cny || 0).toFixed(2)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="border-t bg-gray-50">
               <td colSpan="5" className="px-2 py-2 text-right text-gray-600">订单组总金额:</td>
-              <td className="px-2 py-2 text-right font-bold">{group.total_usd.toFixed(2)}</td>
-              <td className="px-2 py-2 text-right font-bold text-red-600">{group.total_cny.toFixed(2)} CNY</td>
+              <td className="px-2 py-2 text-right font-bold">{groupSym}{group.total_usd.toFixed(2)}</td>
+              <td className="px-2 py-2 text-right font-bold text-red-600">¥{group.total_cny.toFixed(2)}</td>
             </tr>
           </tfoot>
         </table>

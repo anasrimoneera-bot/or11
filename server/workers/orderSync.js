@@ -23,12 +23,17 @@ function mapStatus(s) {
 // 否则前缀对不上 → 永远命不中 → 跟踪号/状态同步不进来(踩过的坑)。
 const byId = db.prepare(`
   UPDATE purchase_orders
-  SET status = ?, tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END, updated_at = CURRENT_TIMESTAMP
+  SET status = ?,
+      tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
+      shipping_carrier = CASE WHEN ? <> '' THEN ? ELSE shipping_carrier END,
+      updated_at = CURRENT_TIMESTAMP
   WHERE dropxl_order_id = ? OR dropxl_order_id = ?
 `);
 const byRef = db.prepare(`
   UPDATE purchase_orders
-  SET status = ?, tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
+  SET status = ?,
+      tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
+      shipping_carrier = CASE WHEN ? <> '' THEN ? ELSE shipping_carrier END,
       dropxl_order_id = ?, updated_at = CURRENT_TIMESTAMP
   WHERE order_no = ? AND COALESCE(dropxl_order_id, '') = ''
 `);
@@ -53,9 +58,10 @@ async function run(msg) {
         const numId = (rawId.match(/\d+$/) || [''])[0] || rawId;
         const ref = String(o.customer_order_reference || '').trim();
         const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
+        const carrier = o.shipping_carrier || o.carrier_name || o.carrier || '';
         const status = mapStatus(o.status_order_name || o.status);
-        let r = byId.run(status, tracking, tracking, rawId, numId);
-        if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, rawId, ref);
+        let r = byId.run(status, tracking, tracking, carrier, carrier, rawId, numId);
+        if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, carrier, carrier, rawId, ref);
         if (r.changes > 0) updated++; else notFound++;
       }
       totalFetched += wraps.length;

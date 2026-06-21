@@ -22,12 +22,14 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// 工具：剥离真正的内部字段（DropXL 原始请求/响应）。
-// 真实成本/加价/PayPal 汇率等对所有管理员（店主+管理员）可见，仅用户端 /orders 接口不返回。
-function stripSensitive(obj) {
-  if (Array.isArray(obj)) return obj.map(o => stripSensitive(o));
+// 工具：剥离内部字段。
+// isOwner=true：只剥 raw_payload/raw_response（BOSS 可见真实成本/加价/PayPal汇率）。
+// isOwner=false：额外剥 real_amount_usd / markup_pct / paypal_rate（普通管理员不可见）。
+function stripSensitive(obj, isOwner = false) {
+  if (Array.isArray(obj)) return obj.map(o => stripSensitive(o, isOwner));
   if (!obj || typeof obj !== 'object') return obj;
-  const { raw_payload, raw_response, ...safe } = obj;
+  const { raw_payload, raw_response, real_amount_usd, markup_pct, paypal_rate, ...safe } = obj;
+  if (isOwner) safe.real_amount_usd = real_amount_usd, safe.markup_pct = markup_pct, safe.paypal_rate = paypal_rate;
   return safe;
 }
 
@@ -364,7 +366,7 @@ router.get('/orders', (req, res) => {
     ORDER BY o.created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders o JOIN users u ON u.id = o.user_id ${where}`).get(...args).c;
-  res.json({ rows: stripSensitive(rows), total });
+  res.json({ rows: stripSensitive(rows, !!req.user.is_owner), total });
 });
 
 router.get('/orders/:id', (req, res) => {
@@ -376,7 +378,7 @@ router.get('/orders/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: '订单不存在' });
   const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
   const shipping = db.prepare('SELECT name, address1, address2, city, state, postal, country, phone, buyer_email FROM purchase_order_shipping WHERE order_id = ?').get(row.id) || null;
-  res.json({ ...stripSensitive(row), items, shipping });
+  res.json({ ...stripSensitive(row, !!req.user.is_owner), items, shipping });
 });
 
 // 管理员确认订单：店主可调整真实价/加价，员工仅能按系统已算好的金额扣款

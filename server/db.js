@@ -328,6 +328,8 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   // PayPal 支付汇率（店主向 DropXL 用 PayPal 付款时 PayPal 显示的汇率, 1 CNY = ? USD）
   // 用于按真实 USD 算真实人民币成本, 再和用户采购价算店主+合伙人的差价利润
   add('paypal_rate', 'REAL');
+  // 供应商同步回来的承运商名称
+  add('shipping_carrier', 'TEXT');
 })();
 
 // 首次初始化亚马逊各国汇率（rate=0 表示未设置，店主需在系统设置页维护）
