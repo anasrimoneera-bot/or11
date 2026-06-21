@@ -3,6 +3,9 @@ import api from '../api';
 import EditableAmount from '../components/EditableAmount.jsx';
 
 const countryCode = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', 荷兰: 'NL', 意大利: 'IT', 西班牙: 'ES', 波兰: 'PL' };
+const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
+const sym = (country) => CURRENCY_SYMBOL[CURRENCY_BY_COUNTRY[country]] || '$';
 
 const statusColor = {
   pending_purchase: 'bg-orange-100 text-orange-700',
@@ -120,11 +123,11 @@ export default function Orders() {
                   <span className="truncate">{o.shop_name || '-'}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                  <div>亚马逊：<b>${sales.toFixed(2)}</b></div>
-                  <div>采购：${purchase.toFixed(2)}</div>
+                  <div>亚马逊：<b>{sym(o.country)}{sales.toFixed(2)}</b></div>
+                  <div>采购：{sym(o.country)}{purchase.toFixed(2)}</div>
                   <div className="text-red-600">采购¥：¥{purchaseCny.toFixed(2)}</div>
                   <div className={profit >= 0 ? 'text-green-700' : 'text-red-600'}>
-                    利润：{sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                    利润：{sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}${sym(o.country)}${profit.toFixed(2)}`}
                   </div>
                   {profitCny !== 0 && (
                     <div className={`col-span-2 ${profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
@@ -134,7 +137,7 @@ export default function Orders() {
                 </div>
                 <div className="text-[11px] text-gray-400 mt-1 flex justify-between">
                   <span>{(o.created_at || '').replace('T', ' ').slice(0, 16)}</span>
-                  {o.tracking_no && <span className="font-mono truncate ml-2 max-w-[12rem]">📮{o.tracking_no}</span>}
+                  {o.tracking_no && <span className="font-mono truncate ml-2 max-w-[12rem]">{o.shipping_carrier ? `[${o.shipping_carrier}] ` : ''}📮{o.tracking_no}</span>}
                 </div>
               </div>
             );
@@ -150,10 +153,10 @@ export default function Orders() {
                 <th className="px-3 py-2 text-left">订单号</th>
                 <th className="px-3 py-2 text-left">国家</th>
                 <th className="px-3 py-2 text-left">店铺</th>
-                <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额 (USD)</th>
-                <th className="px-3 py-2 text-right">采购(USD)</th>
+                <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
+                <th className="px-3 py-2 text-right">采购(原币)</th>
                 <th className="px-3 py-2 text-right">采购(¥)</th>
-                <th className="px-3 py-2 text-right">利润 (USD)</th>
+                <th className="px-3 py-2 text-right">利润(原币)</th>
                 <th className="px-3 py-2 text-right" title="人民币利润 = 亚马逊金额 × 锁定汇率 − 采购(¥)">利润 (¥)</th>
                 <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
                 <th className="px-3 py-2 text-left">物流跟踪号</th>
@@ -185,10 +188,10 @@ export default function Orders() {
                   <td className="px-3 py-2 text-right">
                     <EditableAmount value={o.amazon_amount || 0} onSave={async (v) => { await api.put(`/orders/${o.id}`, { amazon_amount: v }); load(); }} />
                   </td>
-                  <td className="px-3 py-2 text-right">${(o.purchase_amount_usd || 0).toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right">{sym(o.country)}{(o.purchase_amount_usd || 0).toFixed(2)}</td>
                   <td className="px-3 py-2 text-right text-red-600">¥{(o.purchase_amount_cny || 0).toFixed(2)}</td>
                   <td className={`px-3 py-2 text-right font-semibold ${sales === 0 ? 'text-gray-400' : profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`}
+                    {sales === 0 ? '—' : `${profit >= 0 ? '+' : ''}${sym(o.country)}${profit.toFixed(2)}`}
                   </td>
                   <td className={`px-3 py-2 text-right font-semibold ${!canComputeCny ? 'text-gray-400' : profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}
                       title={canComputeCny ? `按订单锁定亚马逊汇率 ${amazonRate} 计算` : (sales === 0 ? '未填亚马逊金额' : '该国未设亚马逊汇率')}>
@@ -198,7 +201,10 @@ export default function Orders() {
                       title={canComputeRate ? `按订单锁定亚马逊汇率 ${amazonRate} 计算` : (sales === 0 ? '未填亚马逊金额' : '该国未设亚马逊汇率')}>
                     {!canComputeRate ? '—' : `${profitRate >= 0 ? '+' : ''}${(profitRate * 100).toFixed(2)}%`}
                   </td>
-                  <td className="px-3 py-2">{o.tracking_no || '-'}</td>
+                  <td className="px-3 py-2">
+                    {o.shipping_carrier && <div className="text-gray-400 text-[11px]">{o.shipping_carrier}</div>}
+                    {o.tracking_no || '-'}
+                  </td>
                   <td className="px-3 py-2">
                     <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
                   </td>
@@ -230,11 +236,11 @@ export default function Orders() {
                 <tfoot className="bg-gray-50 border-t-2 font-semibold">
                   <tr>
                     <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({orders.length} 单)</td>
-                    <td className="px-3 py-2.5 text-right">${t.sales.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 text-right">${t.purchase.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 text-right">{t.sales.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 text-right">{t.purchase.toFixed(2)}</td>
                     <td className="px-3 py-2.5 text-right text-red-600">¥{t.purchaseCny.toFixed(2)}</td>
                     <td className={`px-3 py-2.5 text-right ${t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                      {t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}
+                      {t.profit >= 0 ? '+' : ''}{t.profit.toFixed(2)}
                     </td>
                     <td className={`px-3 py-2.5 text-right ${t.profitCny >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {t.profitCny >= 0 ? '+' : ''}¥{t.profitCny.toFixed(2)}
@@ -256,9 +262,6 @@ export default function Orders() {
     </div>
   );
 }
-
-const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
-const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
 
 function OrderDetailModal({ id, onClose }) {
   const [order, setOrder] = useState(null);
@@ -356,7 +359,7 @@ function OrderDetailModal({ id, onClose }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-600">
               <div>状态：<span className="font-medium text-gray-800">{order.status}</span></div>
               <div>创建时间：{(order.created_at || '').replace('T', ' ').slice(0, 19)}</div>
-              {order.tracking_no && <div className="col-span-2">物流跟踪号：<span className="font-mono">{order.tracking_no}</span></div>}
+              {order.tracking_no && <div className="col-span-2">物流跟踪号：{order.shipping_carrier && <span className="text-gray-500 mr-1">[{order.shipping_carrier}]</span>}<span className="font-mono">{order.tracking_no}</span></div>}
             </div>
           </div>
         )}

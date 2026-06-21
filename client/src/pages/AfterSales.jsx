@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 
+const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
+const sym = (country) => CURRENCY_SYMBOL[CURRENCY_BY_COUNTRY[country]] || '$';
+
 const statusLabel = { pending: '待处理', processing: '处理中', waiting_refund: '待退款', completed: '已完成', cancelled: '已取消' };
 const statusColor = {
   pending: 'bg-orange-100 text-orange-700',
@@ -248,15 +252,15 @@ function CreateWizard({ onClose, onCreated }) {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <Info label="订单国家" value={order.country} />
-                      <Info label="运费" value={`USD ${order.shipping_fee || 0}`} />
+                      <Info label="运费" value={`${sym(order.country)}${order.shipping_fee || 0}`} />
                       <Info label="亚马逊订单号" value={order.order_no} />
-                      <Info label="实际运费" value={`USD ${order.shipping_fee || 0}`} />
-                      <Info label="亚马逊订单金额" value={`USD ${order.amazon_amount || 0}`} />
+                      <Info label="实际运费" value={`${sym(order.country)}${order.shipping_fee || 0}`} />
+                      <Info label="亚马逊订单金额" value={`${sym(order.country)}${order.amazon_amount || 0}`} />
                       <Info label="实际运费(人民币)" value={`¥ ${((order.shipping_fee || 0) * (order.exchange_rate || 7)).toFixed(2)}`} />
                       <Info label="进货价(人民币)" value={`¥ ${(order.purchase_amount_cny || 0).toFixed(2)}`} />
                       <Info label="汇率" value={order.exchange_rate || '-'} />
                       <Info label="SKU列表" value={'-'} />
-                      <Info label="进货价总额" value={`USD ${order.purchase_amount_usd || 0}`} />
+                      <Info label="进货价总额" value={`${sym(order.country)}${order.purchase_amount_usd || 0}`} />
                       <Info label="订单时间" value={order.created_at} />
                       <Info label="用户名" value={order.shop_name} />
                     </div>

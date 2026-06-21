@@ -41,7 +41,7 @@ router.get('/', authRequired, (req, res) => {
     SELECT id, user_id, order_no, customer_ref, shop_name, country,
            amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
            purchase_amount_usd, purchase_amount_cny, exchange_rate,
-           distributor_refund, tracking_no, status,
+           distributor_refund, tracking_no, shipping_carrier, status,
            created_at, updated_at
     FROM purchase_orders ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
@@ -69,7 +69,7 @@ router.get('/:id', authRequired, (req, res) => {
     SELECT id, user_id, order_no, customer_ref, shop_name, country,
            amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
            purchase_amount_usd, purchase_amount_cny, exchange_rate,
-           distributor_refund, tracking_no, status,
+           distributor_refund, tracking_no, shipping_carrier, status,
            created_at, updated_at
     FROM purchase_orders WHERE id = ? AND user_id = ?
   `).get(req.params.id, req.user.id);
