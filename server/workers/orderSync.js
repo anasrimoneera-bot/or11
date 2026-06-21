@@ -50,22 +50,15 @@ async function run(msg) {
       const data = await dropxl.listOrders({ submitted_at_gteq: since, limit: PAGE, offset }, country);
       const wraps = Array.isArray(data) ? data : (data?.orders || data?.items || []);
       if (wraps.length === 0) break;
-      let loggedSample = offset > 0; // 只在第一页第一条打印一次
       for (const wrap of wraps) {
         const o = wrap?.order || wrap;
-        if (!loggedSample) {
-          // 帮助诊断承运商字段名：打印第一条订单的所有 key
-          console.log('[orderSync] sample order keys:', Object.keys(o).join(', '));
-          loggedSample = true;
-        }
         const rawId = String(o.id || o.order_id || '').trim();
         if (!rawId) continue;
         // 末尾数字段：去掉 "B2BDS" 前缀拿到纯数字核心(注意不能用 \D 全删，"B2BDS" 里的 2 会混进来)
         const numId = (rawId.match(/\d+$/) || [''])[0] || rawId;
         const ref = String(o.customer_order_reference || '').trim();
         const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
-        const carrier = o.shipping_carrier || o.carrier_name || o.carrier
-          || o.courier || o.courier_name || o.shipping_company || o.logistics_company || '';
+        const carrier = o.shipping_option_name || o.shipping_carrier || o.carrier_name || o.carrier || '';
         const status = mapStatus(o.status_order_name || o.status);
         let r = byId.run(status, tracking, tracking, carrier, carrier, rawId, numId);
         if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, carrier, carrier, rawId, ref);
