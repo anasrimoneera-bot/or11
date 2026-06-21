@@ -18,15 +18,22 @@ export default function AfterSales() {
   const [stats, setStats] = useState({});
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [detailId, setDetailId] = useState(null);
 
-  const load = () => {
-    api.get('/aftersales', { params: { q } }).then(r => setList(r.data.rows));
+  const load = (sf = statusFilter) => {
+    api.get('/aftersales', { params: { q, status: sf } }).then(r => setList(r.data.rows));
     api.get('/aftersales/stats').then(r => setStats(r.data));
   };
 
-  useEffect(load, []);
+  const handleStatClick = (sf) => {
+    const next = statusFilter === sf ? 'all' : sf;
+    setStatusFilter(next);
+    load(next);
+  };
+
+  useEffect(() => { load(); }, []);
 
   return (
     <div className="space-y-6">
@@ -39,11 +46,11 @@ export default function AfterSales() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard label="总工单数" value={stats.total} color="bg-blue-500" />
-        <StatCard label="待处理" value={stats.pending} color="bg-orange-500" />
-        <StatCard label="处理中" value={stats.processing} color="bg-teal-500" />
-        <StatCard label="待退款" value={stats.waiting_refund} color="bg-yellow-500" />
-        <StatCard label="已完成" value={stats.completed} color="bg-green-500" />
+        <StatCard label="总工单数" value={stats.total} color="bg-blue-500" active={statusFilter === 'all'} onClick={() => handleStatClick('all')} />
+        <StatCard label="待处理" value={stats.pending} color="bg-orange-500" active={statusFilter === 'pending'} onClick={() => handleStatClick('pending')} />
+        <StatCard label="处理中" value={stats.processing} color="bg-teal-500" active={statusFilter === 'processing'} onClick={() => handleStatClick('processing')} />
+        <StatCard label="待退款" value={stats.waiting_refund} color="bg-yellow-500" active={statusFilter === 'waiting_refund'} onClick={() => handleStatClick('waiting_refund')} />
+        <StatCard label="已完成" value={stats.completed} color="bg-green-500" active={statusFilter === 'completed'} onClick={() => handleStatClick('completed')} />
       </div>
 
       <div className="bg-white rounded-xl shadow p-4">
@@ -84,9 +91,12 @@ export default function AfterSales() {
   );
 }
 
-function StatCard({ label, value, color }) {
+function StatCard({ label, value, color, active, onClick }) {
   return (
-    <div className={`${color} text-white rounded-xl p-4`}>
+    <div
+      className={`${color} text-white rounded-xl p-4 cursor-pointer transition-all ${active ? 'ring-4 ring-white/60 scale-105' : 'opacity-80 hover:opacity-100'}`}
+      onClick={onClick}
+    >
       <div className="text-3xl font-bold">{value || 0}</div>
       <div className="text-sm">{label}</div>
     </div>
