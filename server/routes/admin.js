@@ -22,14 +22,14 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// 工具：剥离内部字段。
-// isOwner=true：只剥 raw_payload/raw_response（BOSS 可见真实成本/加价/PayPal汇率）。
-// isOwner=false：额外剥 real_amount_usd / markup_pct / paypal_rate（普通管理员不可见）。
-function stripSensitive(obj, isOwner = false) {
-  if (Array.isArray(obj)) return obj.map(o => stripSensitive(o, isOwner));
+// 工具：剥离内部字段。管理员（含普通管理员）可见真实成本/加价/PayPal汇率，
+// 始终剥除 raw_payload/raw_response（原始报文无需前端展示）。
+// isAdmin=true：返回 real_amount_usd / markup_pct / paypal_rate。
+function stripSensitive(obj, isAdmin = false) {
+  if (Array.isArray(obj)) return obj.map(o => stripSensitive(o, isAdmin));
   if (!obj || typeof obj !== 'object') return obj;
   const { raw_payload, raw_response, real_amount_usd, markup_pct, paypal_rate, ...safe } = obj;
-  if (isOwner) safe.real_amount_usd = real_amount_usd, safe.markup_pct = markup_pct, safe.paypal_rate = paypal_rate;
+  if (isAdmin) { safe.real_amount_usd = real_amount_usd; safe.markup_pct = markup_pct; safe.paypal_rate = paypal_rate; }
   return safe;
 }
 
@@ -366,7 +366,7 @@ router.get('/orders', (req, res) => {
     ORDER BY o.created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders o JOIN users u ON u.id = o.user_id ${where}`).get(...args).c;
-  res.json({ rows: stripSensitive(rows, !!req.user.is_owner), total });
+  res.json({ rows: stripSensitive(rows, !!req.user.is_admin), total });
 });
 
 router.get('/orders/:id', (req, res) => {
@@ -378,7 +378,7 @@ router.get('/orders/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: '订单不存在' });
   const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
   const shipping = db.prepare('SELECT name, address1, address2, city, state, postal, country, phone, buyer_email FROM purchase_order_shipping WHERE order_id = ?').get(row.id) || null;
-  res.json({ ...stripSensitive(row, !!req.user.is_owner), items, shipping });
+  res.json({ ...stripSensitive(row, !!req.user.is_admin), items, shipping });
 });
 
 // 管理员确认订单：店主可调整真实价/加价，员工仅能按系统已算好的金额扣款
