@@ -17,6 +17,13 @@ if [ -f data/erp.db ]; then
   BK="data/erp.db.bak-$(date +%Y%m%d-%H%M%S)"
   cp data/erp.db "$BK"
   echo " backed up to: $BK ($(du -h "$BK" | awk '{print $1}'))"
+  # 只保留最近 5 份备份，删掉更旧的。备份是全量 cp（每份数百 MB），
+  # 不清理会随部署次数无限堆积撑爆磁盘（曾把 59G 盘占满导致上传 500 / 白屏）。
+  OLD=$(ls -t data/erp.db.bak-* 2>/dev/null | tail -n +6)
+  if [ -n "$OLD" ]; then
+    echo "$OLD" | xargs -r rm -f
+    echo " pruned old backups (kept latest 5)"
+  fi
 else
   echo " (skipped: no db file)"
 fi
