@@ -10,6 +10,19 @@ if (!fs.existsSync(TOOLS_DIR)) fs.mkdirSync(TOOLS_DIR, { recursive: true });
 const FILE = path.join(TOOLS_DIR, 'installer.exe');
 const META = path.join(TOOLS_DIR, 'installer.meta.json');
 
+// 启动时清理上次失败/中断上传残留的临时文件（installer.exe.tmp-*）。
+// 进程启动时不可能有正在进行的上传，残留的都是废文件；不清会长期堆积吃满磁盘，
+// 反过来导致后续上传写盘失败(ENOSPC) → 500。
+(function cleanStaleTemps() {
+  try {
+    for (const f of fs.readdirSync(TOOLS_DIR)) {
+      if (f.startsWith('installer.exe.tmp-')) {
+        try { fs.unlinkSync(path.join(TOOLS_DIR, f)); } catch {}
+      }
+    }
+  } catch {}
+})();
+
 function readMeta() {
   if (!fs.existsSync(META)) return null;
   try { return JSON.parse(fs.readFileSync(META, 'utf-8')); } catch { return null; }
@@ -60,25 +73,38 @@ const upload = multer({
   }),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB 上限
 });
-router.post('/installer/upload', authRequired, ownerRequired, upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: '请选择文件' });
-  try {
-    if (fs.existsSync(FILE)) fs.unlinkSync(FILE);
-    fs.renameSync(req.file.path, FILE);
-    // busboy 1.x 把 multipart filename 字节当 latin1 字符串解，导致中文名乱码；
-    // 反向 latin1→utf8 还原（纯 ASCII 情况下是无损 round-trip）。
-    const fixedName = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8');
-    fs.writeFileSync(META, JSON.stringify({
-      original_name: fixedName,
-      size: req.file.size,
-      uploaded_by: req.user.username,
-      uploaded_at: new Date().toISOString(),
-    }));
-  } catch (e) {
-    try { fs.unlinkSync(req.file.path); } catch {}
-    return res.status(500).json({ error: '保存失败: ' + e.message });
-  }
-  res.json({ ok: true });
+const uploadSingle = upload.single('file');
+router.post('/installer/upload', authRequired, ownerRequired, (req, res) => {
+  // 手动跑 multer，把它的报错翻成明确中文（超限/磁盘满），并清掉写了半截的临时文件；
+  // 否则这些错误会落到全局 handler 只回 err.message，前端看不懂。
+  uploadSingle(req, res, (err) => {
+    if (err) {
+      if (req.file?.path) { try { fs.unlinkSync(req.file.path); } catch {} }
+      let msg = err.message || '上传失败';
+      if (err.code === 'LIMIT_FILE_SIZE') msg = '文件超过 500MB 上限';
+      else if (err.code === 'ENOSPC') msg = '服务器磁盘空间不足，无法保存安装包';
+      return res.status(400).json({ error: msg });
+    }
+    if (!req.file) return res.status(400).json({ error: '请选择文件' });
+    try {
+      if (fs.existsSync(FILE)) fs.unlinkSync(FILE);
+      fs.renameSync(req.file.path, FILE);
+      // busboy 1.x 把 multipart filename 字节当 latin1 字符串解，导致中文名乱码；
+      // 反向 latin1→utf8 还原（纯 ASCII 情况下是无损 round-trip）。
+      const fixedName = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8');
+      fs.writeFileSync(META, JSON.stringify({
+        original_name: fixedName,
+        size: req.file.size,
+        uploaded_by: req.user.username,
+        uploaded_at: new Date().toISOString(),
+      }));
+    } catch (e) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      const msg = e.code === 'ENOSPC' ? '服务器磁盘空间不足，无法保存安装包' : ('保存失败: ' + e.message);
+      return res.status(500).json({ error: msg });
+    }
+    res.json({ ok: true });
+  });
 });
 
 module.exports = router;
