@@ -29,7 +29,7 @@ export default function AdminOrders() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [me, setMe] = useState(null);
-  const [filters, setFilters] = useState({ status: 'pending_purchase', q: '' });
+  const [filters, setFilters] = useState({ status: 'pending_purchase', q: '', start: '', end: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
   const [assignOrder, setAssignOrder] = useState(null);
   const [showManual, setShowManual] = useState(false);
@@ -37,20 +37,29 @@ export default function AdminOrders() {
   const isOwner = !!me?.is_owner;
   const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const noFilter = filters.status === 'all' && !filters.q && !filters.start && !filters.end;
+
+  // 创建时间筛选：结束日只填了日期时补到当天 23:59:59，把当天订单纳入范围
+  const buildDateParams = () => {
+    const p = {};
+    if (filters.start) p.start = `${filters.start} 00:00:00`;
+    if (filters.end) p.end = `${filters.end} 23:59:59`;
+    return p;
+  };
 
   const load = () => {
-    if (filters.status === 'all' && !filters.q) {
+    if (noFilter) {
       setRows([]);
       setTotal(0);
       return;
     }
-    const params = { limit: pageSize, offset: page * pageSize };
+    const params = { limit: pageSize, offset: page * pageSize, ...buildDateParams() };
     if (filters.status !== 'all') params.status = filters.status;
     if (filters.q) params.q = filters.q;
     api.get('/admin/orders', { params }).then(r => { setRows(r.data.rows); setTotal(r.data.total || 0); });
   };
   useEffect(() => { api.get('/auth/me').then(r => setMe(r.data)); }, []);
-  useEffect(load, [filters.status, page, pageSize]);
+  useEffect(load, [filters.status, filters.start, filters.end, page, pageSize]);
   // 搜索：回到第 1 页（若已在第 1 页则直接重查，因为 q 不在依赖里）
   const doSearch = () => { if (page !== 0) setPage(0); else load(); };
 
@@ -106,6 +115,33 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '补算失败'); }
   };
 
+  // 导出当前筛选结果的订单列表为 xlsx（后端按同一套筛选条件生成）
+  const exportOrders = async () => {
+    const body = { ...buildDateParams() };
+    if (filters.status !== 'all') body.status = filters.status;
+    if (filters.q) body.q = filters.q;
+    if (!body.status && !body.q && !body.start && !body.end) {
+      return alert('请先选择状态 / 搜索 / 时间范围再导出');
+    }
+    try {
+      const r = await api.post('/admin/orders/export', body, { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      let msg = '导出失败';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch {}
+      } else {
+        msg = e.response?.data?.error || e.message;
+      }
+      alert(msg);
+    }
+  };
+
   const exportDropxlTemplate = async () => {
     if (!confirm('确认导出待处理订单为供应商采购模板？\n• 默认只导出未导出过的订单\n• 导出后会标记为"已导出"，下次不再重复\n• 导出后请前往供应商后台手动提交')) return;
     try {
@@ -136,6 +172,7 @@ export default function AdminOrders() {
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setShowManual(true)} className="btn btn-primary" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
           {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按各国当前采购汇率补算'>🔄 补算采购¥(零值单)</button>}
+          <button onClick={exportOrders} className="btn btn-ghost border" title="导出当前筛选结果的订单列表为 Excel">📤 导出订单</button>
           <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
           <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary">🔄 从供应商同步跟踪号/状态</button>
@@ -149,7 +186,19 @@ export default function AdminOrders() {
             {s === 'all' ? '全部' : statusLabel[s]}
           </button>
         ))}
-        <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
+        <div className="flex gap-2 w-full sm:w-auto sm:ml-auto flex-wrap items-center">
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            创建时间
+            <input type="date" className="field py-1" value={filters.start} max={filters.end || undefined}
+              onChange={e => { setFilters({ ...filters, start: e.target.value }); setPage(0); }} />
+            <span>~</span>
+            <input type="date" className="field py-1" value={filters.end} min={filters.start || undefined}
+              onChange={e => { setFilters({ ...filters, end: e.target.value }); setPage(0); }} />
+          </label>
+          {(filters.start || filters.end) && (
+            <button onClick={() => { setFilters({ ...filters, start: '', end: '' }); setPage(0); }}
+              className="text-xs text-blue-600 hover:underline" title="清除时间筛选">清除时间</button>
+          )}
           <input className="field flex-1 sm:max-w-xs" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
           <button onClick={doSearch} className="btn btn-warning">搜索</button>
         </div>
@@ -201,7 +250,7 @@ export default function AdminOrders() {
         })}
         {rows.length === 0 && (
           <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">
-            {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
+            {noFilter ? '请先在上方选择具体状态查看订单' : '暂无订单'}
           </div>
         )}
       </div>
@@ -313,7 +362,7 @@ export default function AdminOrders() {
               </tr>
             );})}
             {rows.length === 0 && <tr><td colSpan={canSeeCost ? 19 : 14} className="p-6 text-center text-gray-400">
-              {filters.status === 'all' && !filters.q ? '请先在上方选择具体状态查看订单' : '暂无订单'}
+              {noFilter ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
           {rows.length > 0 && (() => {
@@ -380,7 +429,7 @@ export default function AdminOrders() {
         </table>
       </div>
 
-      {!(filters.status === 'all' && !filters.q) && (
+      {!noFilter && (
         <div className="flex items-center justify-between text-sm text-gray-600">
           <div>共 {total} 单</div>
           <div className="flex items-center gap-3">

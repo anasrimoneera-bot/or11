@@ -349,15 +349,18 @@ router.get('/finance/records', permRequired('finance'), (req, res) => {
 
 // ============ 订单审核 ============
 router.get('/orders', (req, res) => {
-  const { status, q, user_id, limit = 50, offset = 0 } = req.query;
+  const { status, q, user_id, start, end, limit = 50, offset = 0 } = req.query;
   const conds = [];
   const args = [];
   if (status && status !== 'all') { conds.push('o.status = ?'); args.push(status); }
   if (user_id) { conds.push('o.user_id = ?'); args.push(user_id); }
   if (q) {
-    conds.push('(o.order_no LIKE ? OR u.username LIKE ? OR o.shop_name LIKE ?)');
-    args.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    // 用户列展示的是 display_name，故一并按 display_name 搜索（含管理员/BOSS 账号的显示名）
+    conds.push('(o.order_no LIKE ? OR u.username LIKE ? OR u.display_name LIKE ? OR o.shop_name LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
+  if (start) { conds.push('o.created_at >= ?'); args.push(start); }
+  if (end) { conds.push('o.created_at <= ?'); args.push(end); }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
   const rows = db.prepare(`
     SELECT o.*, u.username, u.display_name
@@ -538,6 +541,31 @@ router.put('/orders/:id/purchase-price', ownerRequired, (req, res) => {
     summary: `订单 ${order.order_no} 用户采购价 ${Number(order.purchase_amount_usd).toFixed(2)} → ${v.toFixed(2)}`,
   });
   res.json({ ok: true, purchase_amount_cny: newCny });
+});
+
+// 仅 BOSS：任意订单状态下修改加价%，按 真实USD ×(1+加价%) 重算用户采购价(USD)与采购¥。
+// 与 purchase-price 一致：只订正记录，不再二次结算分销商余额。real_amount_usd 不动。
+router.put('/orders/:id/markup', ownerRequired, (req, res) => {
+  const { markup_pct } = req.body || {};
+  const v = Number(markup_pct);
+  if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入非负数' });
+  const order = db.prepare('SELECT id, order_no, real_amount_usd, purchase_amount_usd, markup_pct, exchange_rate FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  const realUsd = Number(order.real_amount_usd) || 0;
+  const rate = Number(order.exchange_rate) || 0;
+  const displayUsd = realUsd * (1 + v / 100);
+  const newCny = displayUsd * rate;
+  db.prepare(`
+    UPDATE purchase_orders
+    SET markup_pct = ?, purchase_amount_usd = ?, purchase_amount_cny = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(v, displayUsd, newCny, order.id);
+  setAudit(res, {
+    target_id: String(order.id),
+    target_name: order.order_no,
+    summary: `订单 ${order.order_no} 加价% ${Number(order.markup_pct) || 0} → ${v}（采购价 $${Number(order.purchase_amount_usd || 0).toFixed(2)} → $${displayUsd.toFixed(2)}）`,
+  });
+  res.json({ ok: true, purchase_amount_usd: displayUsd, purchase_amount_cny: newCny });
 });
 
 // 仅 BOSS：按"当前系统采购汇率"重算单个订单的采购¥ = 采购USD × 当前汇率，
@@ -1211,6 +1239,88 @@ router.post('/orders/dropxl-template-export', (req, res) => {
 
   setAudit(res, { summary: `导出 DropXL 采购模板：${orders.length} 个订单 / ${dropxlRows.length} 行商品` });
   const fileName = `dropxl-purchase-orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+});
+
+// ============ 导出订单列表（管理员）============
+// 与订单管理列表用同一套筛选条件（状态/搜索/用户/创建时间），导出当前筛选结果为 xlsx。
+// 仅管理员可达（authRequired+adminRequired），分销商无法访问；成本相关列仅在管理员可见范围内导出。
+const ORDER_STATUS_LABEL = {
+  pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货',
+  completed: '已完成', cancelled: '已取消', refunded: '已退款', replaced: '已换货',
+};
+router.post('/orders/export', (req, res) => {
+  const { status, q, user_id, start, end } = req.body || {};
+  const conds = [];
+  const args = [];
+  if (status && status !== 'all') { conds.push('o.status = ?'); args.push(status); }
+  if (user_id) { conds.push('o.user_id = ?'); args.push(user_id); }
+  if (q) {
+    conds.push('(o.order_no LIKE ? OR u.username LIKE ? OR u.display_name LIKE ? OR o.shop_name LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  if (start) { conds.push('o.created_at >= ?'); args.push(start); }
+  if (end) { conds.push('o.created_at <= ?'); args.push(end); }
+  // 至少指定一个筛选条件，避免无约束全表导出阻塞事件循环
+  if (conds.length === 0) return res.status(400).json({ error: '请先选择状态 / 搜索 / 时间范围再导出' });
+  const where = 'WHERE ' + conds.join(' AND ');
+
+  const orders = db.prepare(`
+    SELECT o.*, u.username, u.display_name
+    FROM purchase_orders o JOIN users u ON u.id = o.user_id
+    ${where}
+    ORDER BY o.created_at DESC
+  `).all(...args);
+  if (orders.length === 0) return res.status(404).json({ error: '没有符合条件的订单可导出' });
+
+  const isAdmin = !!req.user.is_admin;
+  const rows = orders.map(o => {
+    const sales = Number(o.amazon_amount) || 0;
+    const purchase = Number(o.purchase_amount_usd) || 0;
+    const purchaseCny = Number(o.purchase_amount_cny) || 0;
+    const amazonRate = Number(o.amazon_rate_locked) || 0;
+    const canCny = sales > 0 && amazonRate > 0;
+    const profit = sales > 0 ? sales - purchase : '';
+    const profitCny = canCny ? sales * amazonRate - purchaseCny : '';
+    const marginPct = (canCny && purchaseCny > 0) ? ((sales * amazonRate - purchaseCny) / purchaseCny * 100) : '';
+    const row = {
+      '订单号': o.order_no,
+      '用户': o.display_name || o.username,
+      '国家': o.country || '',
+      '店铺': o.shop_name || '',
+      '亚马逊金额': sales,
+      '采购(USD)': purchase,
+      '采购(¥)': purchaseCny,
+      '利润(本币)': profit,
+      '利润(¥)': profitCny,
+      '成本利润率(%)': marginPct === '' ? '' : Number(marginPct.toFixed(2)),
+    };
+    if (isAdmin) {
+      const realUsd = Number(o.real_amount_usd) || 0;
+      const paypalRate = Number(o.paypal_rate) || 0;
+      const realCny = paypalRate > 0 ? realUsd / paypalRate : '';
+      row['真实(USD)'] = realUsd;
+      row['加价%'] = Number(o.markup_pct) || 0;
+      row['PayPal汇率'] = paypalRate || '';
+      row['真实采购价(¥)'] = realCny === '' ? '' : Number(realCny.toFixed(2));
+      row['差价利润(¥)'] = realCny === '' ? '' : Number((purchaseCny - realCny).toFixed(2));
+    }
+    row['供应商ID'] = o.dropxl_order_id || '';
+    row['跟踪号'] = o.tracking_no || '';
+    row['状态'] = ORDER_STATUS_LABEL[o.status] || o.status;
+    row['创建时间'] = o.created_at || '';
+    return row;
+  });
+
+  const ws = XLSX_LIB.utils.json_to_sheet(rows);
+  const wb = XLSX_LIB.utils.book_new();
+  XLSX_LIB.utils.book_append_sheet(wb, ws, '订单');
+  const buf = XLSX_LIB.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  setAudit(res, { summary: `导出订单列表：${orders.length} 个订单` });
+  const fileName = `orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
   res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
