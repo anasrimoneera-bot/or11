@@ -35,7 +35,23 @@ export function OrderRealCells({ order, onChanged, isOwner }) {
   return (
     <>
       <td className="px-3 py-2 text-right text-red-600">${realUsd.toFixed(2)}</td>
-      <td className="px-3 py-2 text-right text-red-600">{markupPct}%</td>
+      <td className="px-3 py-2 text-right text-red-600">
+        {/* 加价% 仅 BOSS 可编辑，任意订单状态均可改；改后按 真实×(1+加价%) 重算用户采购价 */}
+        {isOwner ? (
+          <EditableAmount
+            value={markupPct}
+            prefix=""
+            suffix="%"
+            decimals={2}
+            onSave={async (v) => {
+              await api.put(`/admin/orders/${order.id}/markup`, { markup_pct: v });
+              onChanged && onChanged();
+            }}
+          />
+        ) : (
+          `${markupPct}%`
+        )}
+      </td>
       <td className="px-3 py-2 text-right text-red-600">
         {/* PayPal 汇率仅 BOSS 可编辑；其他管理员只读 */}
         {isOwner ? (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export default function EditableAmount({ value, onSave, prefix = '$', decimals = 2, disabled = false }) {
+export default function EditableAmount({ value, onSave, prefix = '$', suffix = '', decimals = 2, disabled = false }) {
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(value);
   const [saving, setSaving] = useState(false);
@@ -27,7 +27,7 @@ export default function EditableAmount({ value, onSave, prefix = '$', decimals =
         title={disabled ? '' : '点击编辑'}
         disabled={disabled}
       >
-        {prefix}{Number(value).toFixed(decimals)}
+        {prefix}{Number(value).toFixed(decimals)}{suffix}
       </button>
     );
   }
