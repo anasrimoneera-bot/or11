@@ -834,15 +834,15 @@ router.get('/country-amazon-rates', (req, res) => {
 });
 
 // 实时汇率（聚合数据）状态 + 手动立即拉取
-router.get('/fx-status', ownerRequired, (req, res) => {
+router.get('/fx-status', permRequired('settings'), (req, res) => {
   res.json(require('../fx').getStatus());
 });
-router.post('/fx-refresh', ownerRequired, async (req, res) => {
+router.post('/fx-refresh', permRequired('settings'), async (req, res) => {
   const result = await require('../fx').refreshAmazonRates('manual');
   setAudit(res, { summary: result.ok ? `手动拉取实时汇率: ${result.updated.map(u => `${u.currency}=${u.rate}`).join(', ')}` : `手动拉取实时汇率失败: ${result.error || '部分币种失败'}` });
   res.json(result);
 });
-router.put('/country-amazon-rates/:country', ownerRequired, (req, res) => {
+router.put('/country-amazon-rates/:country', permRequired('settings'), (req, res) => {
   const country = decodeURIComponent(req.params.country);
   const v = Number(req.body?.rate);
   if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入非负数' });
@@ -914,7 +914,7 @@ const scheduler = require('../scheduler');
 router.get('/auto-sync-status', (req, res) => {
   res.json(scheduler.getStatus());
 });
-router.post('/auto-sync-now', ownerRequired, async (req, res) => {
+router.post('/auto-sync-now', permRequired('settings'), async (req, res) => {
   // 立即触发一次（不等 6 小时）
   scheduler.runOnce('manual-trigger').catch(e => console.error('[scheduler] manual run failed:', e));
   setAudit(res, { summary: '手动触发自动同步' });
@@ -1323,10 +1323,10 @@ router.post('/orders/export', (req, res) => {
   res.send(buf);
 });
 
-// ============ 系统设置（仅店主） ============
+// ============ 系统设置（BOSS 或被授权 settings 权限的管理员） ============
 const { getExchangeRate, setSetting, getSetting } = require('../settings');
 
-router.get('/settings', ownerRequired, (req, res) => {
+router.get('/settings', permRequired('settings'), (req, res) => {
   const fxKey = (getSetting('juhe_fx_api_key') || '').trim();
   res.json({
     exchange_rate_cny_per_usd: getExchangeRate(),
@@ -1336,7 +1336,7 @@ router.get('/settings', ownerRequired, (req, res) => {
   });
 });
 
-router.put('/settings', ownerRequired, (req, res) => {
+router.put('/settings', permRequired('settings'), (req, res) => {
   const { exchange_rate_cny_per_usd, juhe_fx_api_key } = req.body || {};
   if (exchange_rate_cny_per_usd !== undefined) {
     const v = Number(exchange_rate_cny_per_usd);

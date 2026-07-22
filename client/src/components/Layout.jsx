@@ -26,7 +26,7 @@ const adminMenu = [
   { to: '/admin/api-test', icon: '🧪', label: '供应商接口测试', ownerOnly: true },
   { to: '/admin/products', icon: '📦', label: '商品库存价格管理', perm: 'products' },
   { to: '/admin/finance', icon: '💰', label: '财务管理', perm: 'finance' },
-  { to: '/admin/settings', icon: '⚙️', label: '系统设置', ownerOnly: true },
+  { to: '/admin/settings', icon: '⚙️', label: '系统设置', perm: 'settings' },
   { to: '/profile', icon: '👤', label: '个人资料' },
 ];
 
