@@ -78,14 +78,14 @@ export default function App() {
         {user?.is_admin ? (
           <>
             <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/admin/users" element={<AdminUsers />} />
-            <Route path="/admin/orders" element={<AdminOrders />} />
-            <Route path="/admin/aftersales" element={<AdminAfterSales />} />
-            <Route path="/admin/purchase" element={<PurchaseProducts />} />
-            <Route path="/admin/downloads" element={<Downloads />} />
+            {(user?.is_owner || perms.includes('users')) && <Route path="/admin/users" element={<AdminUsers />} />}
+            {(user?.is_owner || perms.includes('orders')) && <Route path="/admin/orders" element={<AdminOrders />} />}
+            {(user?.is_owner || perms.includes('aftersales')) && <Route path="/admin/aftersales" element={<AdminAfterSales />} />}
+            {(user?.is_owner || perms.includes('purchase')) && <Route path="/admin/purchase" element={<PurchaseProducts />} />}
+            {(user?.is_owner || perms.includes('downloads')) && <Route path="/admin/downloads" element={<Downloads />} />}
             {user?.is_owner && <Route path="/admin/staff" element={<Lazy><AdminStaff /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/api-test" element={<Lazy><AdminApiTest /></Lazy>} />}
-            <Route path="/admin/products" element={<Lazy><AdminProducts /></Lazy>} />
+            {(user?.is_owner || perms.includes('products')) && <Route path="/admin/products" element={<Lazy><AdminProducts /></Lazy>} />}
             {(user?.is_owner || perms.includes('aftersales_policy')) && <Route path="/admin/aftersales-policy" element={<Lazy><AdminAfterSalesPolicy /></Lazy>} />}
             {user?.is_owner && <Route path="/admin/settings" element={<Lazy><AdminSettings /></Lazy>} />}
             {(user?.is_owner || perms.includes('finance')) && <Route path="/admin/finance" element={<Lazy><AdminFinance /></Lazy>} />}

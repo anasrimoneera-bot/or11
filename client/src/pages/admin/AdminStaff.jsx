@@ -2,10 +2,18 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 // 可分配的功能权限（与后端 GRANTABLE_PERMISSIONS 保持一致）
+// default: true 的是基础界面：管理员默认可见，BOSS 可单独取消
 const FEATURES = [
+  { key: 'users', label: '用户管理', default: true },
+  { key: 'orders', label: '订单管理', default: true },
+  { key: 'aftersales', label: '售后管理', default: true },
+  { key: 'purchase', label: '采购商品', default: true },
+  { key: 'downloads', label: '下载支持', default: true },
+  { key: 'products', label: '商品库存价格管理', default: true },
   { key: 'finance', label: '财务管理' },
   { key: 'aftersales_policy', label: '售后政策维护' },
 ];
+const DEFAULT_KEYS = FEATURES.filter(f => f.default).map(f => f.key);
 const FEATURE_LABEL = Object.fromEntries(FEATURES.map(f => [f.key, f.label]));
 
 export default function AdminStaff() {
@@ -39,7 +47,7 @@ export default function AdminStaff() {
           <li>管理员可以：管理用户、确认订单（不知真实成本）、处理售后、给用户充值/退款</li>
           <li>管理员<b className="text-red-600">看不到</b>：每个用户的加价百分比、订单的真实供应商采购价、利润金额、供应商接口测试页</li>
           <li>仅店主可以：修改加价百分比、查看真实成本、调用供应商测试接口、系统设置、管理员管理</li>
-          <li>📌 <b>按需开通</b>：点每行「权限」可单独给该管理员开通 <b>财务管理 / 售后政策维护</b>（开通后对方刷新页面即生效）</li>
+          <li>📌 <b>按需开通</b>：点每行「权限」可勾选该管理员能看到的全部功能界面（基础界面默认可见、可取消；<b>财务管理 / 售后政策维护</b>需单独开通；改动后对方刷新页面即生效）</li>
         </ul>
       </div>
 
@@ -131,7 +139,7 @@ function PermModal({ user, onClose, onDone }) {
   return (
     <Modal title={`功能权限 - ${user.display_name || user.username}`} onClose={onClose}>
       <p className="text-xs text-gray-500 mb-3">
-        勾选后该管理员左侧菜单会出现对应功能（对方刷新页面即生效）。用户/订单/售后/采购/下载/商品库存等基础功能所有管理员默认可见，无需开通。
+        勾选后该管理员左侧菜单会出现对应功能，取消勾选则隐藏（对方刷新页面即生效）。
       </p>
       <div className="space-y-1 mb-2">
         {FEATURES.map(f => (
@@ -151,7 +159,7 @@ function PermModal({ user, onClose, onDone }) {
 
 function CreateModal({ onClose, onDone }) {
   const [f, setF] = useState({ username: '', password: '', display_name: '', email: '' });
-  const [sel, setSel] = useState(() => new Set());
+  const [sel, setSel] = useState(() => new Set(DEFAULT_KEYS));
   const toggle = (k) => setSel(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const submit = async () => {
     try { await api.post('/admin/staff', { ...f, permissions: [...sel] }); onDone(); }
@@ -164,7 +172,7 @@ function CreateModal({ onClose, onDone }) {
       <input className="field mb-2" placeholder="姓名" value={f.display_name} onChange={e => setF({ ...f, display_name: e.target.value })} />
       <input className="field mb-3" placeholder="邮箱" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
       <div className="border rounded p-2 mb-4">
-        <div className="text-xs text-gray-500 mb-1">额外功能权限（可选，之后也能在「权限」里改）</div>
+        <div className="text-xs text-gray-500 mb-1">功能权限（基础界面已默认勾选，之后也能在「权限」里改）</div>
         {FEATURES.map(ft => (
           <label key={ft.key} className="flex items-center gap-2 py-1 cursor-pointer text-sm">
             <input type="checkbox" checked={sel.has(ft.key)} onChange={() => toggle(ft.key)} />

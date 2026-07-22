@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const db = require('../db');
 const dropxl = require('../dropxl');
-const { authRequired, adminRequired, ownerRequired, permRequired, GRANTABLE_KEYS } = require('../middleware/auth');
+const { authRequired, adminRequired, ownerRequired, permRequired, GRANTABLE_KEYS, parsePermissions, BASE_CONFIGURED_FLAG } = require('../middleware/auth');
 const { audit, setAudit } = require('../middleware/audit');
 
 const router = express.Router();
@@ -50,13 +50,15 @@ router.get('/overview', (req, res) => {
 router.get('/users', (req, res) => {
   const isOwner = !!req.user.is_owner;
   const markupCol = isOwner ? ', u.markup_pct' : '';
+  // include_admins=1：手工新增订单的归属人选择器需要能把订单挂到管理员名下
+  const where = req.query.include_admins === '1' ? '' : 'WHERE u.is_admin = 0';
   const rows = db.prepare(`
     SELECT u.id, u.username, u.display_name, u.email, u.phone, u.company, u.role,
-           u.member_level, u.member_days, u.sku_limit, u.created_at,
+           u.member_level, u.member_days, u.sku_limit, u.created_at, u.is_admin,
            IFNULL(b.balance, 0) AS balance${markupCol}
     FROM users u
     LEFT JOIN user_balance b ON b.user_id = u.id
-    WHERE u.is_admin = 0
+    ${where}
     ORDER BY u.created_at DESC
   `).all();
   res.json(rows);
@@ -122,13 +124,8 @@ router.get('/staff', ownerRequired, (req, res) => {
     FROM users WHERE is_admin = 1 AND id != ?
     ORDER BY created_at DESC
   `).all(req.user.id);
-  // permissions 列存 JSON 字符串，返回前解析成数组并过滤掉已下线的 key
-  for (const r of rows) {
-    try {
-      const arr = JSON.parse(r.permissions || '[]');
-      r.permissions = Array.isArray(arr) ? arr.filter(k => GRANTABLE_KEYS.includes(k)) : [];
-    } catch { r.permissions = []; }
-  }
+  // permissions 列存 JSON 字符串，返回前解析成有效权限数组（含旧数据基础界面默认全开的兼容）
+  for (const r of rows) r.permissions = parsePermissions(r.permissions);
   res.json(rows);
 });
 
@@ -147,7 +144,7 @@ router.post('/staff', ownerRequired, (req, res) => {
   const info = db.prepare(`
     INSERT INTO users (username, password_hash, display_name, email, role, is_admin, is_owner, permissions)
     VALUES (?, ?, ?, ?, 'staff', 1, 0, ?)
-  `).run(username, hash, display_name, email, JSON.stringify(perms));
+  `).run(username, hash, display_name, email, JSON.stringify([BASE_CONFIGURED_FLAG, ...perms]));
   db.prepare('INSERT INTO user_balance (user_id, balance) VALUES (?, 0)').run(info.lastInsertRowid);
   res.json({ ok: true, id: info.lastInsertRowid });
 });
@@ -158,7 +155,7 @@ router.put('/staff/:id/permissions', ownerRequired, (req, res) => {
   if (!u || !u.is_admin) return res.status(404).json({ error: '管理员不存在' });
   if (u.is_owner) return res.status(400).json({ error: 'BOSS 账号默认拥有全部权限，无需分配' });
   const perms = sanitizePermissions(req.body?.permissions);
-  db.prepare('UPDATE users SET permissions = ? WHERE id = ?').run(JSON.stringify(perms), u.id);
+  db.prepare('UPDATE users SET permissions = ? WHERE id = ?').run(JSON.stringify([BASE_CONFIGURED_FLAG, ...perms]), u.id);
   setAudit(res, { target_name: u.display_name || u.username, summary: `设置管理员 ${u.username} 功能权限: [${perms.join(', ') || '无'}]` });
   res.json({ ok: true, permissions: perms });
 });

@@ -100,14 +100,12 @@ function inferCountryName(rawCountry) {
 // 预编译语句(模块级，prepare 一次复用，避免每行重复 prepare)
 const Q_PRODUCT = db.prepare('SELECT country, code, b2b_price, stock, image_url FROM dropxl_products WHERE country = ? AND code = ?');
 const Q_MASTER = db.prepare('SELECT sku, image_url FROM country_master_skus WHERE country = ? AND sku = ?');
-const Q_HAS_MASTER = db.prepare('SELECT 1 FROM country_master_uploads WHERE country = ? LIMIT 1');
 const Q_MARKUP = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?');
 
-// 每个国家只查一次的缓存(hasMaster / markup 对同一国家是固定的，不该每行重查)
+// 每个国家只查一次的缓存(markup 对同一国家是固定的，不该每行重查)
 function makeEnrichCache() {
-  const hm = new Map(), mk = new Map();
+  const mk = new Map();
   return {
-    hasMaster(c) { if (!c) return false; if (!hm.has(c)) hm.set(c, !!Q_HAS_MASTER.get(c)); return hm.get(c); },
     markup(c) { if (!c) return null; if (!mk.has(c)) { const m = Q_MARKUP.get(c); mk.set(c, m ? Number(m.markup_pct) : null); } return mk.get(c); },
   };
 }
@@ -123,10 +121,9 @@ function enrichRow(row, cache) {
 
   // 商品按 (国家, SKU) 复合查询（有 (country,code) 主键索引，单条很快）
   const product = (sku && country) ? Q_PRODUCT.get(country, sku) : null;
-  // 总表白名单 + 主图（店主上传的精选 SKU 名单）
+  // 总表主图（店主上传的精选 SKU 名单，仅用于取图，不再做白名单拦截）
   const masterRow = (sku && country) ? Q_MASTER.get(country, sku) : null;
-  // 是否启用白名单过滤 + 加价率：每国只查一次（走缓存）
-  const hasMaster = cache.hasMaster(country);
+  // 加价率：每国只查一次（走缓存）
   const markupPct = cache.markup(country);
 
   let unitPriceUsd = null;
@@ -135,9 +132,8 @@ function enrichRow(row, cache) {
   }
 
   const imageUrl = masterRow?.image_url || product?.image_url || null;
-  // 总表里没这个 SKU 时视为"不在销售目录"，不能下单
-  const notInMaster = hasMaster && product && !masterRow;
-  const matched = !!product && !notInMaster;
+  // SKU 不在库存/总表时不再拦截：允许照常提交（成本按 0 记，管理员后续核价）
+  const matched = !!sku;
 
   return {
     ...row,
@@ -147,8 +143,6 @@ function enrichRow(row, cache) {
     unit_price_usd: unitPriceUsd,
     errors: errors.concat(
       !country && row.ship_country ? [`国家代码 ${row.ship_country} 无法识别`] : [],
-      country && !product && sku ? [`${country} 库存中未找到 SKU=${sku}（请确认对应国家库存文件已上传）`] : [],
-      notInMaster ? [`SKU=${sku} 不在 ${country} 销售目录（总表）中`] : [],
       markupPct == null && country ? [`未配置 ${country} 的加价规则`] : [],
     ),
     warnings: product && product.stock <= 0 ? [`${country} 当前无库存（仍可下单，DropXL 端补货后发货）`] : [],
@@ -346,13 +340,12 @@ router.post('/submit', authRequired, async (req, res) => {
 
       let realUsd = 0;
       const resolvedItems = [];
-      let resolveError = null;
       const factor = 1 + markupPct / 100;
       for (const it of items) {
         const p = Q_PRODUCT.get(country, String(it.sku).trim());
-        if (!p) { resolveError = `${country} 库存中未找到 SKU=${it.sku}`; break; }
+        // SKU 不在库存时不再拦截：按 0 成本入库，采购价由管理员后续核定
         const qty = Number(it.quantity) || 1;
-        const rawUnit = Number(p.b2b_price) || 0;
+        const rawUnit = p ? (Number(p.b2b_price) || 0) : 0;
         realUsd += rawUnit * qty;
         resolvedItems.push({
           sku: it.sku,
@@ -360,10 +353,6 @@ router.post('/submit', authRequired, async (req, res) => {
           quantity: qty,
           unit_marked_up: rawUnit * factor,
         });
-      }
-      if (resolveError) {
-        results.failed.push({ amazon_order_id: orderId, reason: resolveError });
-        continue;
       }
       const displayUsd = realUsd * factor;
       // 按订单国家对应币种的采购汇率算 CNY（不再全用 USD 汇率）

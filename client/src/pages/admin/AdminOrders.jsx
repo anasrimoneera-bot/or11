@@ -671,7 +671,8 @@ function ManualOrderModal({ onClose, onDone }) {
   });
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { api.get('/admin/users').then(r => setUsers(r.data || [])); }, []);
+  // include_admins=1：归属人也可以选管理员账号（管理员余额允许透支）
+  useEffect(() => { api.get('/admin/users', { params: { include_admins: 1 } }).then(r => setUsers(r.data || [])); }, []);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const realUsd = Number(f.real_amount_usd) || 0;
   const markup = Number(f.markup_pct) || 0;
@@ -723,13 +724,13 @@ function ManualOrderModal({ onClose, onDone }) {
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div>
-            <label className="text-xs text-gray-500 block mb-0.5">归属分销商 *</label>
+            <label className="text-xs text-gray-500 block mb-0.5">归属分销商 / 管理员 *</label>
             <input className="field w-full mb-1" placeholder="搜索用户名 / 姓名" value={uq} onChange={e => setUq(e.target.value)} />
             <div className="border rounded max-h-32 overflow-y-auto">
               {filtered.map(u => (
                 <label key={u.id} className={`flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-blue-50 ${Number(f.user_id) === u.id ? 'bg-blue-100' : ''}`}>
                   <input type="radio" name="mo-user" checked={Number(f.user_id) === u.id} onChange={() => set('user_id', String(u.id))} />
-                  <span className="text-sm">{u.display_name || u.username} <span className="text-gray-400 text-xs">@{u.username}</span></span>
+                  <span className="text-sm">{u.display_name || u.username} <span className="text-gray-400 text-xs">@{u.username}</span>{u.is_admin ? <span className="badge bg-purple-100 text-purple-700 text-xs ml-1">管理员</span> : null}</span>
                 </label>
               ))}
               {filtered.length === 0 && <div className="text-xs text-gray-400 p-2">无匹配用户</div>}
