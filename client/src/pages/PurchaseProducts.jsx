@@ -16,6 +16,7 @@ export default function PurchaseProducts() {
     items: [{ sku: '', product_name: '', quantity: 1, unit_price: 0 }],
   });
   const [submitting, setSubmitting] = useState(false);
+  const [batchShop, setBatchShop] = useState('');   // TXT 订单报告上传时强制填写的店铺名
   const [pickedFile, setPickedFile] = useState(null);
   const [preview, setPreview] = useState(null);   // { rows, groups, summary, exchange_rate }
   const [previewing, setPreviewing] = useState(false);
@@ -59,6 +60,12 @@ export default function PurchaseProducts() {
   // 选完文件立刻自动解析 + 匹配
   const onFilePicked = async (e) => {
     const f = e.target.files?.[0] || null;
+    // 上传亚马逊订单报告 TXT 时必须先填店铺名（xlsx 模板里自带 shop-name 列，不强制）
+    if (f && /\.txt$/i.test(f.name) && !batchShop.trim()) {
+      alert('上传订单报告 TXT 前，请先填写店铺名（店铺首字母拼音或大写，如 WH）');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setPickedFile(f);
     setPreview(null);
     if (!f) return;
@@ -66,6 +73,7 @@ export default function PurchaseProducts() {
     try {
       const fd = new FormData();
       fd.append('file', f);
+      fd.append('shop_name', batchShop.trim().toUpperCase());
       const r = await api.post('/orders/batch/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setPreview(r.data);
     } catch (err) {
@@ -168,12 +176,21 @@ export default function PurchaseProducts() {
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-xl shadow border border-dashed border-orange-300 p-4">
             <h3 className="font-semibold mb-2">📋 批量采购</h3>
-            <div className="text-sm mb-1">上传采购订单CSV文件</div>
+            <div className="text-sm mb-1">上传亚马逊后台下载的订单报告 TXT（推荐），或已填好的采购模板 xlsx</div>
+            <div className="mb-2">
+              <label className="text-xs text-gray-500 block mb-0.5">店铺名 *（上传 TXT 必填，店铺首字母拼音或大写，如 WH）</label>
+              <input
+                className="field w-full sm:w-60"
+                placeholder="如 WH"
+                value={batchShop}
+                onChange={e => setBatchShop(e.target.value.toUpperCase())}
+              />
+            </div>
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls,.csv,.txt"
                 className="hidden"
                 onChange={onFilePicked}
               />

@@ -70,6 +70,71 @@ function parseAmazonTemplate(buffer) {
   }).filter(r => r.amazon_order_id || r.sku);
 }
 
+// 亚马逊后台下载的订单报告 TXT（制表符分隔）解析：美国/德国报告在系统所需列上列名完全一致，
+// 一个解析器通吃，国家由每行 ship-country 识别。与 xlsx 模板的差异列按固定规则生成：
+// - sku：取报告 sku（或 shop-sku）列最后一个 - 后的数字，如 JZPTPFPC-42009942 → 42009942
+// - product-name：固定填 1
+// - shop-name：上传时强制用户填写（店铺首字母拼音或大写），整个文件统一使用
+function parseAmazonReportTxt(buffer, shopName) {
+  const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
+  const idx = (name) => headers.indexOf(name);
+  const iSku = idx('sku') >= 0 ? idx('sku') : idx('shop-sku');
+  const cols = {
+    order_id: idx('order-id'),
+    order_item_id: idx('order-item-id'),
+    quantity: idx('quantity-purchased'),
+    recipient_name: idx('recipient-name'),
+    ship_address1: idx('ship-address-1'),
+    ship_address2: idx('ship-address-2'),
+    ship_city: idx('ship-city'),
+    ship_state: idx('ship-state'),
+    ship_postal: idx('ship-postal-code'),
+    ship_country: idx('ship-country'),
+    ship_phone: idx('ship-phone-number'),
+    buyer_email: idx('buyer-email'),
+    item_price: idx('item-price'),
+    item_tax: idx('item-tax'),
+    shipping_price: idx('shipping-price'),
+    shipping_tax: idx('shipping-tax'),
+  };
+  if (cols.order_id < 0 || iSku < 0) {
+    throw new Error('未找到 order-id / sku 列，请确认上传的是亚马逊后台下载的订单报告 TXT');
+  }
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split('\t');
+    const get = (ci) => (ci >= 0 && parts[ci] !== undefined) ? String(parts[ci]).trim() : '';
+    const rawSku = get(iSku);
+    const dash = rawSku.lastIndexOf('-');
+    rows.push({
+      row_no: i + 1,
+      amazon_order_id: get(cols.order_id),
+      amazon_order_item_id: get(cols.order_item_id),
+      sku: dash >= 0 ? rawSku.slice(dash + 1) : rawSku,
+      quantity: Number(get(cols.quantity)) || 0,
+      recipient_name: get(cols.recipient_name),
+      ship_address1: get(cols.ship_address1),
+      ship_address2: get(cols.ship_address2),
+      ship_city: get(cols.ship_city),
+      ship_state: get(cols.ship_state),
+      ship_postal: get(cols.ship_postal),
+      ship_country: get(cols.ship_country),
+      ship_phone: get(cols.ship_phone),
+      buyer_email: get(cols.buyer_email),
+      shop_name: shopName,
+      product_name: '1',
+      item_price: Number(get(cols.item_price)) || 0,
+      item_tax: Number(get(cols.item_tax)) || 0,
+      shipping_price: Number(get(cols.shipping_price)) || 0,
+      shipping_tax: Number(get(cols.shipping_tax)) || 0,
+    });
+  }
+  return rows.filter(r => r.amazon_order_id || r.sku);
+}
+
 // 国家识别：覆盖系统支持的全部 8 国，兼容 2 位代码 / 中文名 / 英文名 / 本地语言名，
 // 统一映射到中文国家名。（toUpperCase 后中文不变，所以中文/带重音字符直接作 key 也能命中）
 // 其它国家暂未开通，但识别已提前配好，开通后直接可用。
@@ -152,9 +217,16 @@ function enrichRow(row, cache) {
 // ============ 1. 上传 + 预览 ============
 router.post('/preview', authRequired, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请选择文件' });
+  const isTxt = /\.txt$/i.test(req.file.originalname || '');
   let rows;
   try {
-    rows = parseAmazonTemplate(req.file.buffer);
+    if (isTxt) {
+      const shopName = String(req.body?.shop_name || '').trim().toUpperCase();
+      if (!shopName) return res.status(400).json({ error: '上传订单报告 TXT 时必须填写店铺名（店铺首字母拼音或大写）' });
+      rows = parseAmazonReportTxt(req.file.buffer, shopName);
+    } else {
+      rows = parseAmazonTemplate(req.file.buffer);
+    }
   } catch (e) {
     return res.status(400).json({ error: '文件解析失败: ' + e.message });
   }
