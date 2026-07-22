@@ -1352,6 +1352,48 @@ router.put('/settings', permRequired('settings'), (req, res) => {
   res.json({ ok: true, exchange_rate_cny_per_usd: getExchangeRate() });
 });
 
+// ============ SMTP 邮件设置（仅店主：用于 BOSS 密码找回，管理员可改会导致验证码被截获） ============
+router.get('/settings/smtp', ownerRequired, (req, res) => {
+  const { getSmtpConfig } = require('../mailer');
+  const c = getSmtpConfig();
+  res.json({
+    smtp_host: c.host, smtp_port: c.port, smtp_secure: c.secure,
+    smtp_user: c.user, smtp_from: c.from,
+    // 密码不回传完整值，只回是否已配置
+    smtp_pass_set: !!c.pass,
+  });
+});
+
+router.put('/settings/smtp', ownerRequired, (req, res) => {
+  const { smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass, smtp_from } = req.body || {};
+  if (smtp_host !== undefined) setSetting('smtp_host', String(smtp_host).trim());
+  if (smtp_port !== undefined) {
+    const p = Number(smtp_port);
+    if (!Number.isInteger(p) || p <= 0 || p > 65535) return res.status(400).json({ error: '端口必须是 1-65535 的整数' });
+    setSetting('smtp_port', p);
+  }
+  if (smtp_secure !== undefined) setSetting('smtp_secure', smtp_secure ? '1' : '0');
+  if (smtp_user !== undefined) setSetting('smtp_user', String(smtp_user).trim());
+  if (smtp_pass !== undefined && smtp_pass !== '') setSetting('smtp_pass', String(smtp_pass));
+  if (smtp_from !== undefined) setSetting('smtp_from', String(smtp_from).trim());
+  setAudit(res, { summary: '更新 SMTP 邮件设置' });
+  res.json({ ok: true });
+});
+
+// 发一封测试邮件到 BOSS 自己的预留邮箱，验证 SMTP 配置可用
+router.post('/settings/smtp-test', ownerRequired, async (req, res) => {
+  const { sendMail } = require('../mailer');
+  const me = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
+  const to = String(me?.email || '').trim();
+  if (!to.includes('@')) return res.status(400).json({ error: '请先在 个人资料 中填写你的邮箱' });
+  try {
+    await sendMail({ to, subject: '【蓝鲸跨境海外仓】SMTP 测试邮件', text: '收到此邮件说明 SMTP 配置正确，BOSS 密码找回功能可用。' });
+    res.json({ ok: true, message: `测试邮件已发送到 ${to}` });
+  } catch (e) {
+    res.status(502).json({ error: '发送失败：' + e.message });
+  }
+});
+
 // ============ 售后政策维护（BOSS 或被分配 aftersales_policy 权限的管理员） ============
 router.get('/aftersales-policies', permRequired('aftersales_policy'), (req, res) => {
   const rows = db.prepare(`

@@ -262,6 +262,14 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   published_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+  user_id INTEGER PRIMARY KEY,
+  code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER DEFAULT 0,
+  last_sent_at INTEGER DEFAULT 0
+);
 `);
 
 // 迁移：PR-B 早期版本曾使用 code 作为单一 PK + 多个 API 同步相关字段。

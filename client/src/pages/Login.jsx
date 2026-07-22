@@ -7,6 +7,7 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showReset, setShowReset] = useState(false);
   const nav = useNavigate();
 
   const submit = async (e) => {
@@ -93,7 +94,111 @@ export default function Login({ onLogin }) {
           >
             {loading ? '登录中...' : '→ 立即登录'}
           </button>
+
+          <div className="text-center mt-4">
+            <button type="button" onClick={() => setShowReset(true)} className="text-xs text-gray-400 hover:text-orange-500 transition">
+              BOSS 账号忘记密码？通过邮箱找回
+            </button>
+          </div>
         </form>
+      </div>
+
+      {showReset && <BossResetModal initialUsername={username} onClose={() => setShowReset(false)} />}
+    </div>
+  );
+}
+
+// BOSS 账号邮箱验证码找回密码：① 输入用户名发验证码 ② 输验证码 + 新密码完成重置
+function BossResetModal({ initialUsername, onClose }) {
+  const [step, setStep] = useState(1);
+  const [username, setUsername] = useState(initialUsername || '');
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const sendCode = async () => {
+    if (!username.trim()) return setErr('请输入 BOSS 用户名');
+    setErr(''); setBusy(true);
+    try {
+      const { data } = await api.post('/auth/boss-reset/send-code', { username: username.trim() });
+      setMsg(data.message + (data.email_hint ? `（${data.email_hint}）` : ''));
+      setStep(2);
+    } catch (e) {
+      setErr(e.response?.data?.error || '发送失败');
+    } finally { setBusy(false); }
+  };
+
+  const confirm = async () => {
+    if (!code.trim()) return setErr('请输入验证码');
+    if (newPassword.length < 6) return setErr('新密码至少6位');
+    setErr(''); setBusy(true);
+    try {
+      const { data } = await api.post('/auth/boss-reset/confirm', { username: username.trim(), code: code.trim(), new_password: newPassword });
+      alert(data.message || '密码已重置，请用新密码登录');
+      onClose();
+    } catch (e) {
+      setErr(e.response?.data?.error || '重置失败');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <div className="flex justify-between items-center mb-1">
+          <div className="font-bold text-lg">🔑 BOSS 密码找回</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">验证码将发送到 BOSS 账号预留邮箱（需店主提前在系统设置中配置 SMTP 并在个人资料中绑定邮箱）</p>
+
+        {err && <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-2 rounded mb-3">{err}</div>}
+        {msg && <div className="bg-green-50 border border-green-200 text-green-700 text-sm p-2 rounded mb-3">{msg}</div>}
+
+        <label className="block text-sm text-gray-600 mb-1">BOSS 用户名</label>
+        <input
+          className="w-full px-3 py-2 mb-3 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-400 outline-none"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+          disabled={step === 2}
+        />
+
+        {step === 2 && (
+          <>
+            <label className="block text-sm text-gray-600 mb-1">邮箱验证码</label>
+            <input
+              className="w-full px-3 py-2 mb-3 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-400 outline-none"
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              placeholder="6 位数字"
+              inputMode="numeric"
+            />
+            <label className="block text-sm text-gray-600 mb-1">新密码</label>
+            <input
+              type="password"
+              className="w-full px-3 py-2 mb-3 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-400 outline-none"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="至少6位"
+              autoComplete="new-password"
+            />
+          </>
+        )}
+
+        <div className="flex gap-2 mt-2">
+          {step === 2 && (
+            <button onClick={sendCode} disabled={busy} className="flex-1 py-2.5 rounded-lg border text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+              重发验证码
+            </button>
+          )}
+          <button
+            onClick={step === 1 ? sendCode : confirm}
+            disabled={busy}
+            className="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white text-sm font-medium disabled:opacity-60"
+          >
+            {busy ? '处理中...' : (step === 1 ? '发送验证码' : '✓ 重置密码')}
+          </button>
+        </div>
       </div>
     </div>
   );

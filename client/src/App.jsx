@@ -87,7 +87,7 @@ export default function App() {
             {user?.is_owner && <Route path="/admin/api-test" element={<Lazy><AdminApiTest /></Lazy>} />}
             {(user?.is_owner || perms.includes('products')) && <Route path="/admin/products" element={<Lazy><AdminProducts /></Lazy>} />}
             {(user?.is_owner || perms.includes('aftersales_policy')) && <Route path="/admin/aftersales-policy" element={<Lazy><AdminAfterSalesPolicy /></Lazy>} />}
-            {(user?.is_owner || perms.includes('settings')) && <Route path="/admin/settings" element={<Lazy><AdminSettings /></Lazy>} />}
+            {(user?.is_owner || perms.includes('settings')) && <Route path="/admin/settings" element={<Lazy><AdminSettings user={user} /></Lazy>} />}
             {(user?.is_owner || perms.includes('finance')) && <Route path="/admin/finance" element={<Lazy><AdminFinance /></Lazy>} />}
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/admin" />} />

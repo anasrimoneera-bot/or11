@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-export default function AdminSettings() {
+export default function AdminSettings({ user }) {
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -13,6 +13,90 @@ export default function AdminSettings() {
       <AutoSyncCard />
       <AmazonRatesCard />
       <DropxlAccountsCard />
+      {user?.is_owner && <SmtpCard />}
+    </div>
+  );
+}
+
+// SMTP 邮件设置（仅 BOSS 可见/可改）：用于登录页 BOSS 账号忘记密码时发邮箱验证码
+function SmtpCard() {
+  const [f, setF] = useState({ smtp_host: '', smtp_port: 465, smtp_secure: true, smtp_user: '', smtp_pass: '', smtp_from: '' });
+  const [passSet, setPassSet] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/settings/smtp').then(r => {
+      const d = r.data;
+      setF({ smtp_host: d.smtp_host || '', smtp_port: d.smtp_port || 465, smtp_secure: !!d.smtp_secure, smtp_user: d.smtp_user || '', smtp_pass: '', smtp_from: d.smtp_from || '' });
+      setPassSet(!!d.smtp_pass_set);
+    });
+  }, []);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setSaving(true); setMsg('');
+    try {
+      await api.put('/admin/settings/smtp', { ...f, smtp_port: Number(f.smtp_port) });
+      if (f.smtp_pass) setPassSet(true);
+      setF(p => ({ ...p, smtp_pass: '' }));
+      setMsg('✓ 已保存');
+    } catch (e) {
+      alert(e.response?.data?.error || '保存失败');
+    } finally { setSaving(false); }
+  };
+
+  const test = async () => {
+    setTesting(true); setMsg('');
+    try {
+      const { data } = await api.post('/admin/settings/smtp-test');
+      setMsg('✓ ' + data.message);
+    } catch (e) {
+      alert(e.response?.data?.error || '测试失败');
+    } finally { setTesting(false); }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow border p-5 space-y-3">
+      <div className="border-b pb-3">
+        <div className="font-semibold">📧 邮件(SMTP)设置 <span className="badge bg-red-100 text-red-700 ml-1">仅 BOSS</span></div>
+        <div className="text-xs text-gray-500 mt-1">
+          用于 <b>BOSS 账号忘记密码时通过邮箱验证码自助找回</b>（登录页「BOSS 账号忘记密码？」入口）。
+          配置好后请在 个人资料 中确认已填写你的邮箱，并点「发送测试邮件」验证可用。
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <label className="block">
+          <span className="text-xs text-gray-500">SMTP 服务器</span>
+          <input className="field w-full" placeholder="如 smtp.qq.com / smtp.163.com" value={f.smtp_host} onChange={e => set('smtp_host', e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="text-xs text-gray-500">端口</span>
+          <input type="number" className="field w-full" value={f.smtp_port} onChange={e => set('smtp_port', e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="text-xs text-gray-500">发信账号</span>
+          <input className="field w-full" placeholder="邮箱地址" value={f.smtp_user} onChange={e => set('smtp_user', e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="text-xs text-gray-500">密码 / 授权码 {passSet && <span className="text-green-600">（已配置，留空=不修改）</span>}</span>
+          <input type="password" className="field w-full" placeholder={passSet ? '留空保持不变' : 'QQ/163 邮箱需用授权码'} value={f.smtp_pass} onChange={e => set('smtp_pass', e.target.value)} autoComplete="new-password" />
+        </label>
+        <label className="block">
+          <span className="text-xs text-gray-500">发件人显示（可选）</span>
+          <input className="field w-full" placeholder="留空=发信账号" value={f.smtp_from} onChange={e => set('smtp_from', e.target.value)} />
+        </label>
+        <label className="flex items-center gap-2 mt-4 cursor-pointer">
+          <input type="checkbox" checked={f.smtp_secure} onChange={e => set('smtp_secure', e.target.checked)} />
+          <span>SSL 加密（465 端口勾选；587 STARTTLS 不勾选）</span>
+        </label>
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <button onClick={save} disabled={saving} className="btn btn-primary text-sm">{saving ? '保存中...' : '保存'}</button>
+        <button onClick={test} disabled={testing} className="btn btn-ghost border text-sm">{testing ? '发送中...' : '📨 发送测试邮件'}</button>
+        {msg && <span className="text-sm text-green-600">{msg}</span>}
+      </div>
     </div>
   );
 }
