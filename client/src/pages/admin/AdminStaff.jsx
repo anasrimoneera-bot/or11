@@ -13,6 +13,7 @@ const FEATURES = [
   { key: 'finance', label: '财务管理' },
   { key: 'aftersales_policy', label: '售后政策维护' },
   { key: 'settings', label: '系统设置' },
+  { key: 'aftersales_template', label: '售后处理模板（编辑）' },
 ];
 const DEFAULT_KEYS = FEATURES.filter(f => f.default).map(f => f.key);
 const FEATURE_LABEL = Object.fromEntries(FEATURES.map(f => [f.key, f.label]));

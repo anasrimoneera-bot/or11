@@ -43,8 +43,9 @@ router.get('/me', authRequired, (req, res) => {
   res.json(user);
 });
 
-// ============ BOSS 账号自助找回（防止 BOSS 密码丢失被锁死） ============
-// 仅对 is_owner=1 的账号开放：向其预留邮箱发 6 位验证码，验证通过后重置密码。
+// ============ 管理员账号自助找回（防止 BOSS/管理员密码丢失被锁死） ============
+// 仅对 is_admin=1 的账号（含 BOSS）开放：向其预留邮箱发 6 位验证码，验证通过后重置密码。
+// 分销商账号不可用（密码由管理员在后台重置）。
 // SMTP 参数仅店主可配置（防止管理员改指到自己服务器截获验证码）。
 // 为避免暴露账号是否存在，用户名/邮箱不匹配时也返回同样的成功文案。
 const RESET_CODE_TTL_MS = 10 * 60 * 1000;   // 验证码 10 分钟有效
@@ -62,8 +63,8 @@ router.post('/boss-reset/send-code', async (req, res) => {
   if (!username) return res.status(400).json({ error: '请输入用户名' });
   if (!isSmtpConfigured()) return res.status(400).json({ error: '系统未配置 SMTP 邮件服务，请联系服务器管理员在 系统设置 中配置' });
 
-  const genericOk = { ok: true, message: '若该 BOSS 账号存在且已绑定邮箱，验证码已发送，请查收（10 分钟内有效）' };
-  const user = db.prepare('SELECT id, email FROM users WHERE username = ? AND is_owner = 1').get(username);
+  const genericOk = { ok: true, message: '若该管理员账号存在且已绑定邮箱，验证码已发送，请查收（10 分钟内有效）' };
+  const user = db.prepare('SELECT id, email FROM users WHERE username = ? AND is_admin = 1').get(username);
   if (!user || !String(user.email || '').includes('@')) return res.json(genericOk);
 
   const now = Date.now();
@@ -83,8 +84,8 @@ router.post('/boss-reset/send-code', async (req, res) => {
   try {
     await sendMail({
       to: user.email,
-      subject: '【蓝鲸跨境海外仓】BOSS 账号密码重置验证码',
-      text: `您正在重置 BOSS 账号（${username}）的登录密码。\n\n验证码：${code}\n\n10 分钟内有效。如非本人操作请忽略本邮件并尽快检查账号安全。`,
+      subject: '【蓝鲸跨境海外仓】管理员账号密码重置验证码',
+      text: `您正在重置管理员账号（${username}）的登录密码。\n\n验证码：${code}\n\n10 分钟内有效。如非本人操作请忽略本邮件并尽快检查账号安全。`,
     });
   } catch (e) {
     db.prepare('DELETE FROM password_reset_codes WHERE user_id = ?').run(user.id);
@@ -100,7 +101,7 @@ router.post('/boss-reset/confirm', (req, res) => {
   if (!username || !code) return res.status(400).json({ error: '请输入用户名和验证码' });
   if (newPassword.length < 6) return res.status(400).json({ error: '新密码至少6位' });
 
-  const user = db.prepare('SELECT id FROM users WHERE username = ? AND is_owner = 1').get(username);
+  const user = db.prepare('SELECT id FROM users WHERE username = ? AND is_admin = 1').get(username);
   const row = user && db.prepare('SELECT * FROM password_reset_codes WHERE user_id = ?').get(user.id);
   if (!row) return res.status(400).json({ error: '验证码无效，请重新获取' });
   if (Date.now() > row.expires_at) {

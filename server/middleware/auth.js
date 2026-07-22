@@ -16,6 +16,7 @@ const GRANTABLE_PERMISSIONS = [
   { key: 'finance', label: '财务管理' },
   { key: 'aftersales_policy', label: '售后政策维护' },
   { key: 'settings', label: '系统设置' },
+  { key: 'aftersales_template', label: '售后处理模板（编辑）' },
 ];
 const GRANTABLE_KEYS = GRANTABLE_PERMISSIONS.map(p => p.key);
 const DEFAULT_GRANTED_KEYS = GRANTABLE_PERMISSIONS.filter(p => p.default).map(p => p.key);

@@ -41,6 +41,7 @@ const AdminProducts = lazyWithRetry(() => import('./pages/admin/AdminProducts.js
 const AdminAfterSalesPolicy = lazyWithRetry(() => import('./pages/admin/AdminAfterSalesPolicy.jsx'));
 const AdminSettings = lazyWithRetry(() => import('./pages/admin/AdminSettings.jsx'));
 const AdminFinance = lazyWithRetry(() => import('./pages/admin/AdminFinance.jsx'));
+const AfterSalesTemplates = lazyWithRetry(() => import('./pages/AfterSalesTemplates.jsx'));
 
 // 居中铺满主区域的加载占位，懒加载 chunk 下载时显示，避免视觉白屏
 const PageLoader = () => (
@@ -81,6 +82,7 @@ export default function App() {
             {(user?.is_owner || perms.includes('users')) && <Route path="/admin/users" element={<AdminUsers />} />}
             {(user?.is_owner || perms.includes('orders')) && <Route path="/admin/orders" element={<AdminOrders />} />}
             {(user?.is_owner || perms.includes('aftersales')) && <Route path="/admin/aftersales" element={<AdminAfterSales />} />}
+            <Route path="/admin/aftersales-templates" element={<Lazy><AfterSalesTemplates canEdit={!!user?.is_owner || perms.includes('aftersales_template')} /></Lazy>} />
             {(user?.is_owner || perms.includes('purchase')) && <Route path="/admin/purchase" element={<PurchaseProducts />} />}
             {(user?.is_owner || perms.includes('downloads')) && <Route path="/admin/downloads" element={<Downloads />} />}
             {user?.is_owner && <Route path="/admin/staff" element={<Lazy><AdminStaff /></Lazy>} />}
@@ -98,6 +100,7 @@ export default function App() {
             <Route path="/orders" element={<Orders />} />
             <Route path="/after-sales" element={<AfterSales />} />
             <Route path="/after-sales-policy" element={<AfterSalesPolicy />} />
+            <Route path="/after-sales-templates" element={<Lazy><AfterSalesTemplates canEdit={false} /></Lazy>} />
             <Route path="/products" element={<PurchaseProducts />} />
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/balance" element={<Balance />} />

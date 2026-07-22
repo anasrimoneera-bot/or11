@@ -263,6 +263,15 @@ CREATE TABLE IF NOT EXISTS aftersales_policies (
   published_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS aftersales_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT DEFAULT '',
+  title TEXT NOT NULL,
+  body TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS password_reset_codes (
   user_id INTEGER PRIMARY KEY,
   code_hash TEXT NOT NULL,

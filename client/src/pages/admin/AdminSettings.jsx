@@ -62,7 +62,7 @@ function SmtpCard() {
       <div className="border-b pb-3">
         <div className="font-semibold">📧 邮件(SMTP)设置 <span className="badge bg-red-100 text-red-700 ml-1">仅 BOSS</span></div>
         <div className="text-xs text-gray-500 mt-1">
-          用于 <b>BOSS 账号忘记密码时通过邮箱验证码自助找回</b>（登录页「BOSS 账号忘记密码？」入口）。
+          用于 <b>管理员账号忘记密码时通过邮箱验证码自助找回</b>（登录页「忘记密码（仅管理员）」入口）。
           配置好后请在 个人资料 中确认已填写你的邮箱，并点「发送测试邮件」验证可用。
         </div>
       </div>

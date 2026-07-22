@@ -97,7 +97,7 @@ export default function Login({ onLogin }) {
 
           <div className="text-center mt-4">
             <button type="button" onClick={() => setShowReset(true)} className="text-xs text-gray-400 hover:text-orange-500 transition">
-              BOSS 账号忘记密码？通过邮箱找回
+              忘记密码（仅管理员）
             </button>
           </div>
         </form>
@@ -108,7 +108,7 @@ export default function Login({ onLogin }) {
   );
 }
 
-// BOSS 账号邮箱验证码找回密码：① 输入用户名发验证码 ② 输验证码 + 新密码完成重置
+// 管理员账号邮箱验证码找回密码：① 输入用户名发验证码 ② 输验证码 + 新密码完成重置
 function BossResetModal({ initialUsername, onClose }) {
   const [step, setStep] = useState(1);
   const [username, setUsername] = useState(initialUsername || '');
@@ -119,7 +119,7 @@ function BossResetModal({ initialUsername, onClose }) {
   const [busy, setBusy] = useState(false);
 
   const sendCode = async () => {
-    if (!username.trim()) return setErr('请输入 BOSS 用户名');
+    if (!username.trim()) return setErr('请输入用户名');
     setErr(''); setBusy(true);
     try {
       const { data } = await api.post('/auth/boss-reset/send-code', { username: username.trim() });
@@ -147,15 +147,15 @@ function BossResetModal({ initialUsername, onClose }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
         <div className="flex justify-between items-center mb-1">
-          <div className="font-bold text-lg">🔑 BOSS 密码找回</div>
+          <div className="font-bold text-lg">🔑 密码找回</div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
-        <p className="text-xs text-gray-500 mb-4">验证码将发送到 BOSS 账号预留邮箱（需店主提前在系统设置中配置 SMTP 并在个人资料中绑定邮箱）</p>
+        <p className="text-xs text-gray-500 mb-4">仅管理员账号可用。验证码将发送到账号预留邮箱（需提前在个人资料中绑定邮箱）</p>
 
         {err && <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-2 rounded mb-3">{err}</div>}
         {msg && <div className="bg-green-50 border border-green-200 text-green-700 text-sm p-2 rounded mb-3">{msg}</div>}
 
-        <label className="block text-sm text-gray-600 mb-1">BOSS 用户名</label>
+        <label className="block text-sm text-gray-600 mb-1">用户名</label>
         <input
           className="w-full px-3 py-2 mb-3 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:border-orange-400 outline-none"
           value={username}

@@ -1387,7 +1387,7 @@ router.post('/settings/smtp-test', ownerRequired, async (req, res) => {
   const to = String(me?.email || '').trim();
   if (!to.includes('@')) return res.status(400).json({ error: '请先在 个人资料 中填写你的邮箱' });
   try {
-    await sendMail({ to, subject: '【蓝鲸跨境海外仓】SMTP 测试邮件', text: '收到此邮件说明 SMTP 配置正确，BOSS 密码找回功能可用。' });
+    await sendMail({ to, subject: '【蓝鲸跨境海外仓】SMTP 测试邮件', text: '收到此邮件说明 SMTP 配置正确，管理员密码找回功能可用。' });
     res.json({ ok: true, message: `测试邮件已发送到 ${to}` });
   } catch (e) {
     res.status(502).json({ error: '发送失败：' + e.message });
@@ -1460,6 +1460,41 @@ router.post('/aftersales-policies/publish-all', permRequired('aftersales_policy'
   `).run();
   setAudit(res, { summary: `一键发布售后政策（${result.changes} 个章节更新）` });
   res.json({ ok: true, updated: result.changes });
+});
+
+// ============ 售后处理模板（BOSS 或被分配 aftersales_template 权限的管理员可编辑；查看/复制走 /api/aftersales-templates） ============
+router.post('/aftersales-templates', permRequired('aftersales_template'), (req, res) => {
+  const { category = '', title, body = '', sort_order = 0 } = req.body || {};
+  const t = String(title || '').trim();
+  if (!t) return res.status(400).json({ error: '请填写模板标题' });
+  const info = db.prepare(`
+    INSERT INTO aftersales_templates (category, title, body, sort_order) VALUES (?, ?, ?, ?)
+  `).run(String(category).trim(), t, String(body), Number(sort_order) || 0);
+  setAudit(res, { target_id: String(info.lastInsertRowid), target_name: t, summary: `新增售后处理模板「${t}」` });
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+
+router.put('/aftersales-templates/:id', permRequired('aftersales_template'), (req, res) => {
+  const row = db.prepare('SELECT id FROM aftersales_templates WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '模板不存在' });
+  const { category = '', title, body = '', sort_order = 0 } = req.body || {};
+  const t = String(title || '').trim();
+  if (!t) return res.status(400).json({ error: '请填写模板标题' });
+  db.prepare(`
+    UPDATE aftersales_templates
+    SET category = ?, title = ?, body = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(String(category).trim(), t, String(body), Number(sort_order) || 0, row.id);
+  setAudit(res, { target_id: String(row.id), target_name: t, summary: `修改售后处理模板「${t}」` });
+  res.json({ ok: true });
+});
+
+router.delete('/aftersales-templates/:id', permRequired('aftersales_template'), (req, res) => {
+  const row = db.prepare('SELECT id, title FROM aftersales_templates WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '模板不存在' });
+  db.prepare('DELETE FROM aftersales_templates WHERE id = ?').run(row.id);
+  setAudit(res, { target_id: String(row.id), target_name: row.title, summary: `删除售后处理模板「${row.title}」` });
+  res.json({ ok: true });
 });
 
 module.exports = router;
