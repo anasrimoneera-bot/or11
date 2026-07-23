@@ -224,6 +224,23 @@ export default function PurchaseProducts() {
                 准备确认
               </div>
             )}
+            {/* 未匹配的订单组直接列出具体原因，不用点进确认弹窗才能看到 */}
+            {!previewing && preview && preview.groups.some(g => !g.all_matched) && (
+              <div className="text-sm mt-2 bg-red-50 border border-red-200 rounded p-2 space-y-1">
+                <div className="font-medium text-red-700">⚠ 未匹配原因：</div>
+                {preview.groups.filter(g => !g.all_matched).slice(0, 8).map(g => (
+                  <div key={g.amazon_order_id} className="text-red-600 break-words">
+                    <span className="font-mono">{g.amazon_order_id}</span>
+                    ：{(g.errors?.length ? g.errors : ['订单组内有商品行未匹配']).join('；')}
+                  </div>
+                ))}
+                {preview.groups.filter(g => !g.all_matched).length > 8 && (
+                  <div className="text-xs text-red-400">
+                    … 共 {preview.groups.filter(g => !g.all_matched).length} 组未匹配，其余在「批量采购」确认页查看
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-xl shadow p-4">
