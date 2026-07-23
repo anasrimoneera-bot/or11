@@ -208,7 +208,8 @@ function enrichRow(row, cache) {
     unit_price_usd: unitPriceUsd,
     errors: errors.concat(
       !country && row.ship_country ? [`国家代码 ${row.ship_country} 无法识别`] : [],
-      markupPct == null && country ? [`未配置 ${country} 的加价规则`] : [],
+      // 文案对分销商可见：不能出现"加价"等内部定价字眼
+      markupPct == null && country ? [`${country} 采购价格暂不可用，请联系管理员`] : [],
     ),
     warnings: product && product.stock <= 0 ? [`${country} 当前无库存（仍可下单，DropXL 端补货后发货）`] : [],
   };
