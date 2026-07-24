@@ -1390,7 +1390,8 @@ router.post('/settings/smtp-test', ownerRequired, async (req, res) => {
     await sendMail({ to, subject: '【蓝鲸跨境海外仓】SMTP 测试邮件', text: '收到此邮件说明 SMTP 配置正确，管理员密码找回功能可用。' });
     res.json({ ok: true, message: `测试邮件已发送到 ${to}` });
   } catch (e) {
-    res.status(502).json({ error: '发送失败：' + e.message });
+    // 带上实际收件地址：550 类"收件人不存在"报错多半是个人资料邮箱写错/混入全角字符
+    res.status(502).json({ error: `发送失败（收件人 ${to}）：` + e.message });
   }
 });
 
