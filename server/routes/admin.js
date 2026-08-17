@@ -317,12 +317,14 @@ router.get('/users/:id/balance-records', (req, res) => {
 });
 
 // ============ 财务管理（仅店主）：全用户余额变动明细 + 按用户筛选 + 分页 ============
+// 只呈现近三个月的记录（更早的明细不再返回，历史数据本身保留在库里）
+const FINANCE_RECENT = "r.created_at >= datetime('now', '-3 months')";
 router.get('/finance/records', permRequired('finance'), (req, res) => {
   const { user_id, limit = 50, offset = 0 } = req.query;
-  const conds = [];
+  const conds = [FINANCE_RECENT];
   const args = [];
   if (user_id) { conds.push('r.user_id = ?'); args.push(Number(user_id)); }
-  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const where = 'WHERE ' + conds.join(' AND ');
   const lim = Math.min(Number(limit) || 50, 200);
   const off = Number(offset) || 0;
   const rows = db.prepare(`
@@ -335,10 +337,11 @@ router.get('/finance/records', permRequired('finance'), (req, res) => {
     LIMIT ? OFFSET ?
   `).all(...args, lim, off);
   const total = db.prepare(`SELECT COUNT(*) AS c FROM balance_records r ${where}`).get(...args).c;
-  // 下拉筛选用：有财务记录的用户（含管理员/BOSS）
+  // 下拉筛选用：近三个月内有财务记录的用户（含管理员/BOSS）
   const users = db.prepare(`
     SELECT DISTINCT u.id, u.username, u.display_name, u.is_admin, u.is_owner
     FROM balance_records r JOIN users u ON u.id = r.user_id
+    WHERE ${FINANCE_RECENT}
     ORDER BY u.is_owner DESC, u.is_admin DESC, u.display_name, u.username
   `).all();
   res.json({ rows, total, users });
@@ -346,11 +349,12 @@ router.get('/finance/records', permRequired('finance'), (req, res) => {
 
 // ============ 订单审核 ============
 router.get('/orders', (req, res) => {
-  const { status, q, user_id, start, end, limit = 50, offset = 0 } = req.query;
+  const { status, q, user_id, country, start, end, limit = 50, offset = 0 } = req.query;
   const conds = [];
   const args = [];
   if (status && status !== 'all') { conds.push('o.status = ?'); args.push(status); }
   if (user_id) { conds.push('o.user_id = ?'); args.push(user_id); }
+  if (country) { conds.push('o.country = ?'); args.push(country); }
   if (q) {
     // 用户列展示的是 display_name，故一并按 display_name 搜索（含管理员/BOSS 账号的显示名）
     conds.push('(o.order_no LIKE ? OR u.username LIKE ? OR u.display_name LIKE ? OR o.shop_name LIKE ?)');
@@ -1079,6 +1083,42 @@ router.get('/aftersales/:id', (req, res) => {
   res.json({ ...t, messages, attachments });
 });
 
+// 管理员/BOSS 代用户提交售后工单（客服代提、历史订单补录）
+router.post('/aftersales', upload.array('files', 10), (req, res) => {
+  const { user_id, order_no, country, reason, description, priority } = req.body || {};
+  if (!user_id) return res.status(400).json({ error: '请选择归属用户' });
+  if (!order_no || !order_no.trim()) return res.status(400).json({ error: '请填写订单号' });
+  if (!reason) return res.status(400).json({ error: '请选择售后原因' });
+  if (!description || !description.trim()) return res.status(400).json({ error: '请填写备注说明' });
+
+  const user = db.prepare('SELECT id, username, display_name FROM users WHERE id = ?').get(user_id);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  const no = order_no.trim();
+  const order = db.prepare('SELECT id, country FROM purchase_orders WHERE order_no = ? AND user_id = ?').get(no, user.id);
+
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO aftersales_tickets (user_id, order_id, order_no, country, title, reason, description, priority, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `).run(user.id, order?.id || null, no, country || order?.country || null,
+      `售后申请 - ${reason}`, reason, description, priority || '中优先级');
+    const ticketId = info.lastInsertRowid;
+    const insAtt = db.prepare('INSERT INTO aftersales_attachments (ticket_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?)');
+    for (const f of req.files || []) {
+      insAtt.run(ticketId, f.filename, Buffer.from(f.originalname, 'latin1').toString('utf8'), f.mimetype, f.size);
+    }
+    return ticketId;
+  });
+
+  const id = tx();
+  setAudit(res, {
+    target_id: String(id),
+    target_name: no,
+    summary: `代用户 ${user.display_name || user.username} 提交售后工单 #${id}（订单 ${no}，${reason}）`,
+  });
+  res.json({ ok: true, id });
+});
+
 router.put('/aftersales/:id', (req, res) => {
   const { status, admin_note, refund_amount, priority } = req.body || {};
   db.prepare(`
@@ -1249,11 +1289,12 @@ const ORDER_STATUS_LABEL = {
   completed: '已完成', cancelled: '已取消', refunded: '已退款', replaced: '已换货',
 };
 router.post('/orders/export', (req, res) => {
-  const { status, q, user_id, start, end } = req.body || {};
+  const { status, q, user_id, country, start, end } = req.body || {};
   const conds = [];
   const args = [];
   if (status && status !== 'all') { conds.push('o.status = ?'); args.push(status); }
   if (user_id) { conds.push('o.user_id = ?'); args.push(user_id); }
+  if (country) { conds.push('o.country = ?'); args.push(country); }
   if (q) {
     conds.push('(o.order_no LIKE ? OR u.username LIKE ? OR u.display_name LIKE ? OR o.shop_name LIKE ?)');
     args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);

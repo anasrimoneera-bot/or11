@@ -20,6 +20,7 @@ const ACTIONS = [
   { re: /^PUT \/orders\/(\d+)\/paypal-rate$/, action: '设置订单PayPal汇率', target: 'order' },
   { re: /^POST \/orders\/sync$/, action: '从DropXL同步订单状态' },
   // 售后
+  { re: /^POST \/aftersales$/, action: '代用户提交售后工单', target: 'ticket' },
   { re: /^PUT \/aftersales\/(\d+)$/, action: '更新售后工单', target: 'ticket' },
   { re: /^POST \/aftersales\/(\d+)\/reply$/, action: '回复售后工单', target: 'ticket' },
   { re: /^POST \/aftersales\/(\d+)\/refund$/, action: '售后退款给用户', target: 'ticket' },

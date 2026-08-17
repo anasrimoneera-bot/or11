@@ -3,6 +3,10 @@ import api from '../../api';
 
 const statusLabel = { pending: '待处理', processing: '处理中', waiting_refund: '待退款', completed: '已完成', cancelled: '已取消' };
 
+// 与分销商端发起售后保持一致的原因/国家选项
+const REASONS = ['无理由退货', '产品丢失', '产品损坏', '配件缺失', '其他原因', '包裹未送达', '申请取消', '无物流信息'];
+const COUNTRIES = ['美国', '英国', '德国', '法国', '荷兰', '意大利', '西班牙', '波兰'];
+
 export default function AdminAfterSales() {
   const [rows, setRows] = useState([]);
   const [shops, setShops] = useState([]);
@@ -11,6 +15,7 @@ export default function AdminAfterSales() {
   const [orderNoFilter, setOrderNoFilter] = useState('');
   const [q, setQ] = useState('');
   const [detailId, setDetailId] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => { api.get('/auth/me').then(r => setIsOwner(!!r.data?.is_owner)).catch(() => {}); }, []);
@@ -42,7 +47,10 @@ export default function AdminAfterSales() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">🔧 售后工单管理</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <h1 className="text-2xl font-bold">🔧 售后工单管理</h1>
+        <button onClick={() => setShowCreate(true)} className="btn btn-primary" title="代分销商提交新的售后工单">+ 发起售后</button>
+      </div>
 
       <div className="flex gap-2 flex-wrap">
         {['all', 'pending', 'processing', 'waiting_refund', 'completed', 'cancelled'].map(s => (
@@ -105,7 +113,105 @@ export default function AdminAfterSales() {
         {rows.length === 0 && <div className="text-center text-gray-400 py-8 bg-white rounded-xl">暂无工单</div>}
       </div>
 
+      {showCreate && <CreateTicket onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
       {detailId && <Detail id={detailId} onClose={() => setDetailId(null)} onChanged={load} />}
+    </div>
+  );
+}
+
+// 管理员/BOSS 代分销商提交售后工单（客服代提、历史订单补录）
+function CreateTicket({ onClose, onCreated }) {
+  const [users, setUsers] = useState([]);
+  const [f, setF] = useState({ user_id: '', order_no: '', country: '', reason: '', description: '' });
+  const [files, setFiles] = useState([]);
+  const [saving, setSaving] = useState(false);
+  // include_admins=1：管理员/BOSS 名下也可能有订单，需要能给他们建工单
+  useEffect(() => { api.get('/admin/users', { params: { include_admins: 1 } }).then(r => setUsers(r.data || [])); }, []);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  const submit = async () => {
+    if (!f.user_id) return alert('请选择归属用户');
+    if (!f.order_no.trim()) return alert('请填写订单号');
+    if (!f.reason) return alert('请选择售后原因');
+    if (!f.description.trim()) return alert('请填写备注说明');
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append('user_id', f.user_id);
+      fd.append('order_no', f.order_no.trim());
+      fd.append('country', f.country);
+      fd.append('reason', f.reason);
+      fd.append('description', f.description);
+      for (const file of files) fd.append('files', file);
+      await api.post('/admin/aftersales', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      onCreated();
+    } catch (e) {
+      alert(e.response?.data?.error || '提交失败');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-xl flex flex-col" style={{ maxHeight: '90vh' }}>
+        <div className="flex justify-between items-center p-4 border-b">
+          <div className="font-bold">+ 发起售后<span className="text-xs text-gray-500 font-normal ml-2">代分销商提交工单</span></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div>
+            <label className="text-xs text-gray-500 block mb-0.5">归属用户 *</label>
+            <select className="field w-full" value={f.user_id} onChange={e => set('user_id', e.target.value)}>
+              <option value="">请选择用户</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.display_name || u.username}（{u.username}）{u.is_admin ? ' - 管理员' : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">订单号 *</label>
+              <input className="field w-full" placeholder="如 114-9833198-4400216" value={f.order_no} onChange={e => set('order_no', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">国家</label>
+              <select className="field w-full" value={f.country} onChange={e => set('country', e.target.value)}>
+                <option value="">自动（按系统内订单）</option>
+                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-0.5">售后原因 *</label>
+            <select className="field w-full" value={f.reason} onChange={e => set('reason', e.target.value)}>
+              <option value="">请选择原因</option>
+              {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-0.5">备注说明 *</label>
+            <textarea className="field w-full" rows="4" placeholder="请描述问题、与分销商/供应商的沟通情况..." value={f.description} onChange={e => set('description', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-0.5">附件（可选）</label>
+            <input type="file" multiple accept="image/*,application/pdf" className="text-sm"
+              onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+            {files.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {files.map((file, i) => (
+                  <span key={i} className="text-xs border rounded px-2 py-1 flex items-center gap-1">
+                    📎 {file.name}
+                    <button className="text-red-500" onClick={() => setFiles(files.filter((_, j) => j !== i))}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t">
+          <button onClick={onClose} className="btn btn-ghost border">取消</button>
+          <button disabled={saving} onClick={submit} className="btn btn-primary">{saving ? '提交中...' : '✓ 提交工单'}</button>
+        </div>
+      </div>
     </div>
   );
 }

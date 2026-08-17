@@ -35,7 +35,7 @@ export default function AdminFinance() {
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">💰 财务管理</h1>
-          <p className="text-gray-500 text-sm mt-1">所有用户的余额增减变动明细，可按用户筛选。</p>
+          <p className="text-gray-500 text-sm mt-1">所有用户的余额增减变动明细，可按用户筛选。仅展示近三个月的记录。</p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <label className="text-sm text-gray-600 whitespace-nowrap">按用户筛选</label>
@@ -69,7 +69,7 @@ export default function AdminFinance() {
             </div>
           );
         })}
-        {rows.length === 0 && <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">暂无财务记录</div>}
+        {rows.length === 0 && <div className="text-center text-gray-400 p-6 bg-white rounded-lg shadow">近三个月暂无财务记录</div>}
         {rows.length > 0 && (
           <div className="bg-white rounded-lg shadow p-3 text-xs">
             📊 本页合计 ({rows.length} 条) · 净额{' '}
@@ -110,7 +110,7 @@ export default function AdminFinance() {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan="7" className="p-8 text-center text-gray-400">暂无财务记录</td></tr>
+              <tr><td colSpan="7" className="p-8 text-center text-gray-400">近三个月暂无财务记录</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (
