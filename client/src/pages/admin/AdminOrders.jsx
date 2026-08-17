@@ -29,7 +29,8 @@ export default function AdminOrders() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [me, setMe] = useState(null);
-  const [filters, setFilters] = useState({ status: 'pending_purchase', q: '', start: '', end: '' });
+  const [users, setUsers] = useState([]);
+  const [filters, setFilters] = useState({ status: 'pending_purchase', q: '', start: '', end: '', country: '', user_id: '' });
   const [confirmOrder, setConfirmOrder] = useState(null);
   const [assignOrder, setAssignOrder] = useState(null);
   const [showManual, setShowManual] = useState(false);
@@ -37,7 +38,7 @@ export default function AdminOrders() {
   const isOwner = !!me?.is_owner;
   const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const noFilter = filters.status === 'all' && !filters.q && !filters.start && !filters.end;
+  const noFilter = filters.status === 'all' && !filters.q && !filters.start && !filters.end && !filters.country && !filters.user_id;
 
   // 创建时间筛选：结束日只填了日期时补到当天 23:59:59，把当天订单纳入范围
   const buildDateParams = () => {
@@ -56,10 +57,14 @@ export default function AdminOrders() {
     const params = { limit: pageSize, offset: page * pageSize, ...buildDateParams() };
     if (filters.status !== 'all') params.status = filters.status;
     if (filters.q) params.q = filters.q;
+    if (filters.country) params.country = filters.country;
+    if (filters.user_id) params.user_id = filters.user_id;
     api.get('/admin/orders', { params }).then(r => { setRows(r.data.rows); setTotal(r.data.total || 0); });
   };
   useEffect(() => { api.get('/auth/me').then(r => setMe(r.data)); }, []);
-  useEffect(load, [filters.status, filters.start, filters.end, page, pageSize]);
+  // include_admins=1：管理员/BOSS 名下也可能挂着订单，用户筛选需要能选到他们
+  useEffect(() => { api.get('/admin/users', { params: { include_admins: 1 } }).then(r => setUsers(r.data || [])); }, []);
+  useEffect(load, [filters.status, filters.start, filters.end, filters.country, filters.user_id, page, pageSize]);
   // 搜索：回到第 1 页（若已在第 1 页则直接重查，因为 q 不在依赖里）
   const doSearch = () => { if (page !== 0) setPage(0); else load(); };
 
@@ -120,7 +125,9 @@ export default function AdminOrders() {
     const body = { ...buildDateParams() };
     if (filters.status !== 'all') body.status = filters.status;
     if (filters.q) body.q = filters.q;
-    if (!body.status && !body.q && !body.start && !body.end) {
+    if (filters.country) body.country = filters.country;
+    if (filters.user_id) body.user_id = filters.user_id;
+    if (!body.status && !body.q && !body.start && !body.end && !body.country && !body.user_id) {
       return alert('请先选择状态 / 搜索 / 时间范围再导出');
     }
     try {
@@ -199,6 +206,18 @@ export default function AdminOrders() {
             <button onClick={() => { setFilters({ ...filters, start: '', end: '' }); setPage(0); }}
               className="text-xs text-blue-600 hover:underline" title="清除时间筛选">清除时间</button>
           )}
+          <select className="field py-1 w-auto" value={filters.country} title="按国家筛选"
+            onChange={e => { setFilters({ ...filters, country: e.target.value }); setPage(0); }}>
+            <option value="">全部国家</option>
+            {MO_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select className="field py-1 w-auto" value={filters.user_id} title="按用户筛选（含管理员）"
+            onChange={e => { setFilters({ ...filters, user_id: e.target.value }); setPage(0); }}>
+            <option value="">全部用户</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.display_name || u.username}{u.is_admin ? '（管理员）' : ''}</option>
+            ))}
+          </select>
           <input className="field flex-1 sm:max-w-xs" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
           <button onClick={doSearch} className="btn btn-warning">搜索</button>
         </div>
