@@ -79,9 +79,9 @@ export default function Layout({ user, setUser }) {
         `}
       >
         <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
-          <img src="/logo.png" alt="蓝鲸" className="w-10 h-10 rounded-lg bg-white p-0.5" />
+          <span className="w-10 h-10 shrink-0 rounded-lg bg-orange-500 text-white text-xs font-extrabold tracking-tight flex items-center justify-center">B2B</span>
           <div className="min-w-0">
-            <div className="font-semibold truncate">蓝鲸跨境海外仓</div>
+            <div className="font-semibold tracking-wide truncate">B2BSXLJ</div>
             <div className="text-xs text-gray-400">{user?.is_admin ? '管理后台' : '分销平台'}</div>
           </div>
         </div>
@@ -116,9 +116,9 @@ export default function Layout({ user, setUser }) {
             >
               ☰
             </button>
-            <img src="/logo.png" alt="蓝鲸" className="w-7 h-7 md:w-8 md:h-8 rounded-md bg-white p-0.5" />
-            <span className="font-semibold truncate hidden sm:inline">蓝鲸跨境海外仓分销平台</span>
-            <span className="font-semibold truncate sm:hidden text-sm">蓝鲸海外仓</span>
+            <span className="w-7 h-7 md:w-8 md:h-8 shrink-0 rounded-md bg-slate-900 text-white text-[10px] md:text-[11px] font-extrabold tracking-tight flex items-center justify-center">B2B</span>
+            <span className="font-semibold truncate hidden sm:inline">B2BSXLJ分销订单管理系统</span>
+            <span className="font-semibold truncate sm:hidden text-sm">B2BSXLJ</span>
           </div>
           <div className="flex items-center gap-2 md:gap-3 text-sm">
             <span className="text-gray-500 hidden md:inline">欢迎，</span>

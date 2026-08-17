@@ -334,7 +334,7 @@ function AmazonRatesCard() {
                 <button
                   onClick={() => save(r.country)}
                   disabled={!isDirty || saving === r.country}
-                  className={`text-xs px-2 rounded ${isDirty ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-400'}`}
+                  className={`text-xs px-2 rounded shrink-0 whitespace-nowrap ${isDirty ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-400'}`}
                 >
                   {saving === r.country ? '...' : '保存'}
                 </button>

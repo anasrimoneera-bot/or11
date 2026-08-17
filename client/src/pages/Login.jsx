@@ -36,11 +36,11 @@ export default function Login({ onLogin }) {
       {/* 左侧品牌介绍区 */}
       <div className="hidden lg:flex flex-col justify-center px-14 xl:px-20 flex-1 text-white relative z-10 max-w-3xl">
         <div className="flex items-center gap-4 mb-8">
-          <img src="/logo.png" alt="蓝鲸" className="w-16 h-16 rounded-2xl bg-white p-1 shadow-lg" />
-          <div className="text-4xl font-bold tracking-wide">蓝鲸跨境海外仓</div>
+          <span className="w-16 h-16 shrink-0 rounded-2xl bg-orange-500 text-white text-lg font-extrabold tracking-tight flex items-center justify-center shadow-lg">B2B</span>
+          <div className="text-4xl font-bold tracking-wide">B2BSXLJ</div>
         </div>
         <p className="text-purple-200/90 leading-relaxed mb-10 text-base max-w-xl">
-          蓝鲸跨境海外仓分销平台是专业的全球仓储分销解决方案提供商，拥有 50 多个海外仓储点，服务覆盖全球主要市场。我们致力于为跨境电商企业和分销商提供高效、可靠的仓储管理、订单处理、物流跟踪等一站式服务，帮助您降低运营成本，提升业务效率，拓展全球市场。
+          B2BSXLJ分销订单管理系统是专业的全球仓储分销解决方案提供商，拥有 50 多个海外仓储点，服务覆盖全球主要市场。我们致力于为跨境电商企业和分销商提供高效、可靠的仓储管理、订单处理、物流跟踪等一站式服务，帮助您降低运营成本，提升业务效率，拓展全球市场。
         </p>
         <div className="grid grid-cols-2 gap-4 max-w-xl">
           <StatBlock value="50+" label="海外仓储点" />
@@ -55,8 +55,8 @@ export default function Login({ onLogin }) {
         <form onSubmit={submit} className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 lg:p-10">
           {/* 移动端小 Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-4">
-            <img src="/logo.png" alt="蓝鲸" className="w-9 h-9 rounded-lg bg-white p-0.5" />
-            <span className="font-bold">蓝鲸跨境海外仓</span>
+            <span className="w-9 h-9 shrink-0 rounded-lg bg-orange-500 text-white text-[10px] font-extrabold tracking-tight flex items-center justify-center">B2B</span>
+            <span className="font-bold">B2BSXLJ</span>
           </div>
 
           <h2 className="text-2xl font-bold text-center text-gray-800">用户登录</h2>
