@@ -1,7 +1,7 @@
 {
-  "name": "蓝鲸跨境海外仓分销平台",
-  "short_name": "蓝鲸海外仓",
-  "description": "蓝鲸跨境海外仓 B2B 分销 ERP",
+  "name": "B2BSXLJ分销订单管理系统",
+  "short_name": "B2BSXLJ",
+  "description": "B2BSXLJ B2B 分销 ERP",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",

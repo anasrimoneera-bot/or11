@@ -39,7 +39,7 @@ export default function AdminFinance() {
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <label className="text-sm text-gray-600 whitespace-nowrap">按用户筛选</label>
-          <select className="field flex-1 sm:flex-none" value={userId} onChange={e => setUserId(e.target.value)}>
+          <select className="field py-1 text-sm flex-1 sm:flex-none sm:w-auto sm:max-w-[14rem]" value={userId} onChange={e => setUserId(e.target.value)}>
             <option value="">全部用户</option>
             {(data.users || []).map(u => (
               <option key={u.id} value={u.id}>{(u.display_name || u.username)}{roleSuffix(u)}</option>
@@ -135,15 +135,15 @@ export default function AdminFinance() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-gray-600">
         <div>共 {data.total || 0} 条记录</div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          <label className="flex items-center gap-1">每页
-            <select className="field py-1" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
+          <label className="flex items-center gap-1 whitespace-nowrap shrink-0">每页
+            <select className="field py-1 w-auto text-sm" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
               {[20, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
             条
           </label>
-          <button className="btn btn-ghost border disabled:opacity-40" disabled={page <= 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</button>
-          <span>{page + 1} / {pageCount}</span>
-          <button className="btn btn-ghost border disabled:opacity-40" disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</button>
+          <button className="btn btn-ghost border text-sm py-1.5 shrink-0 disabled:opacity-40" disabled={page <= 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</button>
+          <span className="whitespace-nowrap">{page + 1} / {pageCount}</span>
+          <button className="btn btn-ghost border text-sm py-1.5 shrink-0 disabled:opacity-40" disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</button>
         </div>
       </div>
     </div>

@@ -174,52 +174,55 @@ export default function AdminOrders() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-        <h1 className="text-2xl font-bold">📋 订单管理</h1>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setShowManual(true)} className="btn btn-primary" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
-          {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border" title='把所有"采购¥为0/未计算"的订单按各国当前采购汇率补算'>🔄 补算采购¥(零值单)</button>}
-          <button onClick={exportOrders} className="btn btn-ghost border" title="导出当前筛选结果的订单列表为 Excel">📤 导出订单</button>
-          <button onClick={exportDropxlTemplate} className="btn btn-success">📥 导出采购模板</button>
-          <button onClick={importHistory} className="btn btn-warning">📥 导入历史订单</button>
-          <button onClick={sync} className="btn btn-primary">🔄 从供应商同步跟踪号/状态</button>
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
+        <h1 className="text-2xl font-bold shrink-0">📋 订单管理</h1>
+        <div className="flex gap-2 flex-wrap lg:justify-end">
+          <button onClick={() => setShowManual(true)} className="btn btn-primary text-sm py-1.5" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
+          {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border text-sm py-1.5" title='把所有"采购¥为0/未计算"的订单按各国当前采购汇率补算'>🔄 补算采购¥(零值单)</button>}
+          <button onClick={exportOrders} className="btn btn-ghost border text-sm py-1.5" title="导出当前筛选结果的订单列表为 Excel">📤 导出订单</button>
+          <button onClick={exportDropxlTemplate} className="btn btn-success text-sm py-1.5">📥 导出采购模板</button>
+          <button onClick={importHistory} className="btn btn-warning text-sm py-1.5">📥 导入历史订单</button>
+          <button onClick={sync} className="btn btn-primary text-sm py-1.5">🔄 从供应商同步跟踪号/状态</button>
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        {['all', 'pending_purchase', 'pending_shipment', 'shipped', 'completed', 'cancelled', 'refunded'].map(s => (
-          <button key={s} onClick={() => { setFilters({ ...filters, status: s }); setPage(0); }}
-            className={`px-3 py-1 rounded text-sm ${filters.status === s ? 'bg-orange-500 text-white' : 'bg-white border'}`}>
-            {s === 'all' ? '全部' : statusLabel[s]}
-          </button>
-        ))}
-        <div className="flex gap-2 w-full sm:w-auto sm:ml-auto flex-wrap items-center">
-          <label className="flex items-center gap-1 text-xs text-gray-500">
-            创建时间
-            <input type="date" className="field py-1" value={filters.start} max={filters.end || undefined}
-              onChange={e => { setFilters({ ...filters, start: e.target.value }); setPage(0); }} />
-            <span>~</span>
-            <input type="date" className="field py-1" value={filters.end} min={filters.start || undefined}
-              onChange={e => { setFilters({ ...filters, end: e.target.value }); setPage(0); }} />
-          </label>
+      <div className="bg-white rounded-xl shadow p-3 space-y-3">
+        {/* 状态标签：不可被压缩，避免中文竖排 */}
+        <div className="flex gap-2 flex-wrap items-center">
+          {['all', 'pending_purchase', 'pending_shipment', 'shipped', 'completed', 'cancelled', 'refunded'].map(s => (
+            <button key={s} onClick={() => { setFilters({ ...filters, status: s }); setPage(0); }}
+              className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-md text-sm border ${filters.status === s ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              {s === 'all' ? '全部' : statusLabel[s]}
+            </button>
+          ))}
+        </div>
+
+        {/* 筛选条件 */}
+        <div className="flex gap-2 flex-wrap items-center border-t pt-3">
+          <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">创建时间</span>
+          <input type="date" className="field py-1 w-auto shrink-0 text-sm" value={filters.start} max={filters.end || undefined}
+            onChange={e => { setFilters({ ...filters, start: e.target.value }); setPage(0); }} />
+          <span className="text-gray-400 shrink-0">~</span>
+          <input type="date" className="field py-1 w-auto shrink-0 text-sm" value={filters.end} min={filters.start || undefined}
+            onChange={e => { setFilters({ ...filters, end: e.target.value }); setPage(0); }} />
           {(filters.start || filters.end) && (
             <button onClick={() => { setFilters({ ...filters, start: '', end: '' }); setPage(0); }}
-              className="text-xs text-blue-600 hover:underline" title="清除时间筛选">清除时间</button>
+              className="text-xs text-blue-600 hover:underline shrink-0 whitespace-nowrap" title="清除时间筛选">清除时间</button>
           )}
-          <select className="field py-1 w-auto" value={filters.country} title="按国家筛选"
+          <select className="field py-1 w-auto shrink-0 text-sm" value={filters.country} title="按国家筛选"
             onChange={e => { setFilters({ ...filters, country: e.target.value }); setPage(0); }}>
             <option value="">全部国家</option>
             {MO_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select className="field py-1 w-auto" value={filters.user_id} title="按用户筛选（含管理员）"
+          <select className="field py-1 w-auto shrink-0 text-sm max-w-[12rem]" value={filters.user_id} title="按用户筛选（含管理员）"
             onChange={e => { setFilters({ ...filters, user_id: e.target.value }); setPage(0); }}>
             <option value="">全部用户</option>
             {users.map(u => (
               <option key={u.id} value={u.id}>{u.display_name || u.username}{u.is_admin ? '（管理员）' : ''}</option>
             ))}
           </select>
-          <input className="field flex-1 sm:max-w-xs" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
-          <button onClick={doSearch} className="btn btn-warning">搜索</button>
+          <input className="field py-1 text-sm flex-1 min-w-[10rem] sm:max-w-xs" placeholder="搜索订单号/用户/店铺" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} />
+          <button onClick={doSearch} className="btn btn-warning text-sm py-1.5 shrink-0">搜索</button>
         </div>
       </div>
 
@@ -449,18 +452,18 @@ export default function AdminOrders() {
       </div>
 
       {!noFilter && (
-        <div className="flex items-center justify-between text-sm text-gray-600">
-          <div>共 {total} 单</div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1">每页
-              <select className="field py-1" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
+        <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-gray-600">
+          <div className="whitespace-nowrap">共 {total} 单</div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="flex items-center gap-1 whitespace-nowrap shrink-0">每页
+              <select className="field py-1 w-auto text-sm" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}>
                 {[20, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
               条
             </label>
-            <button className="btn btn-ghost border disabled:opacity-40" disabled={page <= 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</button>
-            <span>{page + 1} / {pageCount}</span>
-            <button className="btn btn-ghost border disabled:opacity-40" disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</button>
+            <button className="btn btn-ghost border text-sm py-1.5 shrink-0 disabled:opacity-40" disabled={page <= 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</button>
+            <span className="whitespace-nowrap">{page + 1} / {pageCount}</span>
+            <button className="btn btn-ghost border text-sm py-1.5 shrink-0 disabled:opacity-40" disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</button>
           </div>
         </div>
       )}

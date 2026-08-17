@@ -84,7 +84,7 @@ router.post('/boss-reset/send-code', async (req, res) => {
   try {
     await sendMail({
       to: user.email,
-      subject: '【蓝鲸跨境海外仓】管理员账号密码重置验证码',
+      subject: '【B2BSXLJ】管理员账号密码重置验证码',
       text: `您正在重置管理员账号（${username}）的登录密码。\n\n验证码：${code}\n\n10 分钟内有效。如非本人操作请忽略本邮件并尽快检查账号安全。`,
     });
   } catch (e) {
