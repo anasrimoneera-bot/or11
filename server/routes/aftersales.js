@@ -129,12 +129,20 @@ router.post('/', authRequired, upload.array('files', 10), (req, res) => {
   res.json({ ok: true, id: tx() });
 });
 
-router.post('/:id/messages', authRequired, (req, res) => {
+router.post('/:id/messages', authRequired, upload.array('files', 10), (req, res) => {
   const { content } = req.body || {};
   const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!t) return res.status(404).json({ error: '工单不存在' });
-  db.prepare('INSERT INTO aftersales_messages (ticket_id, author, is_admin, content) VALUES (?, ?, 0, ?)').run(t.id, req.user.username, content);
-  db.prepare('UPDATE aftersales_tickets SET updated_at = CURRENT_TIMESTAMP, has_new_message = 1 WHERE id = ?').run(t.id);
+  const files = req.files || [];
+  if (!(content && content.trim()) && files.length === 0) return res.status(400).json({ error: '请填写回复或添加附件' });
+  const tx = db.transaction(() => {
+    const info = db.prepare('INSERT INTO aftersales_messages (ticket_id, author, is_admin, content) VALUES (?, ?, 0, ?)').run(t.id, req.user.username, content || '');
+    const msgId = info.lastInsertRowid;
+    const insAtt = db.prepare('INSERT INTO aftersales_attachments (ticket_id, message_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const f of files) insAtt.run(t.id, msgId, f.filename, Buffer.from(f.originalname, 'latin1').toString('utf8'), f.mimetype, f.size);
+    db.prepare('UPDATE aftersales_tickets SET updated_at = CURRENT_TIMESTAMP, has_new_message = 1 WHERE id = ?').run(t.id);
+  });
+  tx();
   res.json({ ok: true });
 });
 
