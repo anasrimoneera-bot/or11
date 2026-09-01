@@ -2,6 +2,22 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const statusLabel = { pending: '待处理', processing: '处理中', waiting_refund: '待退款', completed: '已完成', cancelled: '已取消' };
+// 与分销商端 AfterSales.jsx 的状态配色保持一致
+const statusColor = {
+  pending: 'bg-orange-100 text-orange-700',
+  processing: 'bg-cyan-100 text-cyan-700',
+  waiting_refund: 'bg-yellow-100 text-yellow-700',
+  completed: 'bg-green-100 text-green-700',
+  cancelled: 'bg-gray-100 text-gray-700',
+};
+// 卡片左侧色条，用状态色快速区分列表项
+const statusBorder = {
+  pending: 'border-orange-400',
+  processing: 'border-cyan-400',
+  waiting_refund: 'border-yellow-400',
+  completed: 'border-green-400',
+  cancelled: 'border-gray-300',
+};
 
 // 与分销商端发起售后保持一致的原因/国家选项
 const REASONS = ['无理由退货', '产品丢失', '产品损坏', '配件缺失', '其他原因', '包裹未送达', '申请取消', '无物流信息'];
@@ -84,13 +100,13 @@ export default function AdminAfterSales() {
 
       <div className="space-y-3">
         {rows.map(t => (
-          <div key={t.id} className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-400">
+          <div key={t.id} className={`bg-white rounded-lg shadow p-4 border-l-4 ${statusBorder[t.status] || 'border-blue-400'}`}>
             <div className="flex flex-col sm:flex-row gap-3 sm:justify-between">
               <div className="flex-1 min-w-0">
                 <div className="font-semibold flex flex-wrap items-center gap-2">
                   <span>#{t.id} {t.title}</span>
                   <span className="badge bg-yellow-100 text-yellow-700">{t.priority}</span>
-                  <span className="badge bg-gray-100">{statusLabel[t.status]}</span>
+                  <span className={`badge ${statusColor[t.status] || 'bg-gray-100'}`}>{statusLabel[t.status]}</span>
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   用户: <b>{t.display_name || t.username}</b> &nbsp;
@@ -349,7 +365,7 @@ function Detail({ id, onClose, onChanged }) {
             <div className="bg-blue-50 rounded p-4 space-y-3">
               <div className="font-medium">⚙️ 工单处理</div>
               <div>
-                <label className="text-sm">状态</label>
+                <label className="text-sm">状态 <span className={`badge ml-1 ${statusColor[status] || 'bg-gray-100'}`}>{statusLabel[status]}</span></label>
                 <select className="field" value={status} onChange={e => setStatus(e.target.value)}>
                   <option value="pending">待处理</option>
                   <option value="processing">处理中</option>

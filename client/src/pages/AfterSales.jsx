@@ -391,14 +391,23 @@ function Info({ label, value }) {
 function DetailModal({ id, onClose }) {
   const [t, setT] = useState(null);
   const [reply, setReply] = useState('');
+  const [replyFiles, setReplyFiles] = useState([]);
   useEffect(() => { api.get(`/aftersales/${id}`).then(r => setT(r.data)); }, [id]);
 
   const sendReply = async () => {
-    if (!reply.trim()) return;
-    await api.post(`/aftersales/${id}/messages`, { content: reply });
-    setReply('');
-    const r = await api.get(`/aftersales/${id}`);
-    setT(r.data);
+    if (!reply.trim() && replyFiles.length === 0) return;
+    try {
+      const fd = new FormData();
+      fd.append('content', reply);
+      for (const f of replyFiles) fd.append('files', f);
+      await api.post(`/aftersales/${id}/messages`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setReply('');
+      setReplyFiles([]);
+      const r = await api.get(`/aftersales/${id}`);
+      setT(r.data);
+    } catch (e) {
+      alert(e.response?.data?.error || '发送失败');
+    }
   };
 
   // 附件直链无法带 Authorization 头，先换票据再打开。先同步开空白标签页避免被拦截弹窗。
@@ -425,7 +434,10 @@ function DetailModal({ id, onClose }) {
         <div className="p-6 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <Info label="订单号" value={t.order_no} />
-            <Info label="状态" value={statusLabel[t.status]} />
+            <div>
+              <div className="text-xs text-gray-500">状态</div>
+              <span className={`badge ${statusColor[t.status]}`}>{statusLabel[t.status]}</span>
+            </div>
             <Info label="原因" value={t.reason} />
             <Info label="优先级" value={t.priority} />
           </div>
@@ -468,9 +480,25 @@ function DetailModal({ id, onClose }) {
               {(!t.messages || t.messages.length === 0) && <div className="text-gray-400 text-sm">暂无沟通记录</div>}
             </div>
           </div>
-          <div className="flex gap-2">
-            <input className="field" value={reply} onChange={e => setReply(e.target.value)} placeholder="输入回复..." />
-            <button className="btn btn-primary" onClick={sendReply}>发送</button>
+          <div>
+            <div className="flex gap-2">
+              <input className="field" value={reply} onChange={e => setReply(e.target.value)} placeholder="输入回复..." />
+              <label className="btn btn-ghost border cursor-pointer" title="添加附件">📎
+                <input type="file" multiple accept="image/*,application/pdf" className="hidden"
+                  onChange={e => { const picked = Array.from(e.target.files || []); setReplyFiles(prev => [...prev, ...picked]); e.target.value = ''; }} />
+              </label>
+              <button className="btn btn-primary" onClick={sendReply}>发送</button>
+            </div>
+            {replyFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {replyFiles.map((f, i) => (
+                  <span key={i} className="text-xs border rounded px-2 py-1 flex items-center gap-1">
+                    📎 {f.name}
+                    <button className="text-red-500" onClick={() => setReplyFiles(replyFiles.filter((_, j) => j !== i))}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
