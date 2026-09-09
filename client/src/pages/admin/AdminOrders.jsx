@@ -35,6 +35,7 @@ export default function AdminOrders() {
   const [assignOrder, setAssignOrder] = useState(null);
   const [showManual, setShowManual] = useState(false);
   const [detailOrder, setDetailOrder] = useState(null);
+  const [exporting, setExporting] = useState('');  // '' | 'filtered' | 'all'
   const isOwner = !!me?.is_owner;
   const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -120,22 +121,30 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '补算失败'); }
   };
 
-  // 导出当前筛选结果的订单列表为 xlsx（后端按同一套筛选条件生成）
-  const exportOrders = async () => {
-    const body = { ...buildDateParams() };
-    if (filters.status !== 'all') body.status = filters.status;
-    if (filters.q) body.q = filters.q;
-    if (filters.country) body.country = filters.country;
-    if (filters.user_id) body.user_id = filters.user_id;
-    if (!body.status && !body.q && !body.start && !body.end && !body.country && !body.user_id) {
-      return alert('请先选择状态 / 搜索 / 时间范围再导出');
+  // 导出订单列表为 xlsx。all=true 时不带筛选条件导出全部订单，否则导出当前筛选结果
+  // （后端按同一套筛选条件在子进程生成，订单量大时耗时较久，期间禁用按钮防重复触发）
+  const exportOrders = async (all = false) => {
+    const body = {};
+    if (all) {
+      if (!confirm('确认导出全部订单为 Excel？\n订单量大时生成需要一些时间，请耐心等待。')) return;
+      body.all = true;
+    } else {
+      Object.assign(body, buildDateParams());
+      if (filters.status !== 'all') body.status = filters.status;
+      if (filters.q) body.q = filters.q;
+      if (filters.country) body.country = filters.country;
+      if (filters.user_id) body.user_id = filters.user_id;
+      if (!body.status && !body.q && !body.start && !body.end && !body.country && !body.user_id) {
+        return alert('请先选择状态 / 搜索 / 时间范围再导出，或使用「导出全部订单」');
+      }
     }
+    setExporting(all ? 'all' : 'filtered');
     try {
       const r = await api.post('/admin/orders/export', body, { responseType: 'blob' });
       const url = URL.createObjectURL(r.data);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `orders-${all ? 'all-' : ''}${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -146,6 +155,8 @@ export default function AdminOrders() {
         msg = e.response?.data?.error || e.message;
       }
       alert(msg);
+    } finally {
+      setExporting('');
     }
   };
 
@@ -179,7 +190,8 @@ export default function AdminOrders() {
         <div className="flex gap-2 flex-wrap lg:justify-end">
           <button onClick={() => setShowManual(true)} className="btn btn-primary text-sm py-1.5" title="手工录入订单（如欧洲等未对接 API 的国家）">➕ 手工新增订单</button>
           {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border text-sm py-1.5" title='把所有"采购¥为0/未计算"的订单按各国当前采购汇率补算'>🔄 补算采购¥(零值单)</button>}
-          <button onClick={exportOrders} className="btn btn-ghost border text-sm py-1.5" title="导出当前筛选结果的订单列表为 Excel">📤 导出订单</button>
+          <button onClick={() => exportOrders(false)} disabled={!!exporting} className="btn btn-ghost border text-sm py-1.5" title="导出当前筛选结果的订单列表为 Excel">📤 {exporting === 'filtered' ? '导出中…' : '导出筛选订单'}</button>
+          <button onClick={() => exportOrders(true)} disabled={!!exporting} className="btn btn-ghost border text-sm py-1.5" title="不带筛选条件，导出全部订单为 Excel">📤 {exporting === 'all' ? '导出中…' : '导出全部订单'}</button>
           <button onClick={exportDropxlTemplate} className="btn btn-success text-sm py-1.5">📥 导出采购模板</button>
           <button onClick={importHistory} className="btn btn-warning text-sm py-1.5">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary text-sm py-1.5">🔄 从供应商同步跟踪号/状态</button>

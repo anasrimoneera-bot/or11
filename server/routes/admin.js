@@ -1282,86 +1282,84 @@ router.post('/orders/dropxl-template-export', (req, res) => {
 });
 
 // ============ 导出订单列表（管理员）============
-// 与订单管理列表用同一套筛选条件（状态/搜索/用户/创建时间），导出当前筛选结果为 xlsx。
+// 与订单管理列表用同一套筛选条件（状态/搜索/用户/创建时间）导出当前筛选结果；
+// all=true 时不带任何条件导出全部订单。
+// 生成一律 fork 到 workers/orderExport.js：purchase_orders 可达数十万行，全部导出要
+// 全表排序 + 写几十 MB xlsx，放主线程会把整站（前端静态资源 + 全部 API）卡死。
 // 仅管理员可达（authRequired+adminRequired），分销商无法访问；成本相关列仅在管理员可见范围内导出。
-const ORDER_STATUS_LABEL = {
-  pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货',
-  completed: '已完成', cancelled: '已取消', refunded: '已退款', replaced: '已换货',
-};
+const EXPORT_TMP_DIR = path.join(__dirname, '..', '..', 'data', 'exports-tmp');
+fs.mkdirSync(EXPORT_TMP_DIR, { recursive: true });
+
 router.post('/orders/export', (req, res) => {
-  const { status, q, user_id, country, start, end } = req.body || {};
-  const conds = [];
-  const args = [];
-  if (status && status !== 'all') { conds.push('o.status = ?'); args.push(status); }
-  if (user_id) { conds.push('o.user_id = ?'); args.push(user_id); }
-  if (country) { conds.push('o.country = ?'); args.push(country); }
-  if (q) {
-    conds.push('(o.order_no LIKE ? OR u.username LIKE ? OR u.display_name LIKE ? OR o.shop_name LIKE ?)');
-    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
-  }
-  if (start) { conds.push('o.created_at >= ?'); args.push(start); }
-  if (end) { conds.push('o.created_at <= ?'); args.push(end); }
-  // 至少指定一个筛选条件，避免无约束全表导出阻塞事件循环
-  if (conds.length === 0) return res.status(400).json({ error: '请先选择状态 / 搜索 / 时间范围再导出' });
-  const where = 'WHERE ' + conds.join(' AND ');
-
-  const orders = db.prepare(`
-    SELECT o.*, u.username, u.display_name
-    FROM purchase_orders o JOIN users u ON u.id = o.user_id
-    ${where}
-    ORDER BY o.created_at DESC
-  `).all(...args);
-  if (orders.length === 0) return res.status(404).json({ error: '没有符合条件的订单可导出' });
-
-  const isAdmin = !!req.user.is_admin;
-  const rows = orders.map(o => {
-    const sales = Number(o.amazon_amount) || 0;
-    const purchase = Number(o.purchase_amount_usd) || 0;
-    const purchaseCny = Number(o.purchase_amount_cny) || 0;
-    const amazonRate = Number(o.amazon_rate_locked) || 0;
-    const canCny = sales > 0 && amazonRate > 0;
-    const profit = sales > 0 ? sales - purchase : '';
-    const profitCny = canCny ? sales * amazonRate - purchaseCny : '';
-    const marginPct = (canCny && purchaseCny > 0) ? ((sales * amazonRate - purchaseCny) / purchaseCny * 100) : '';
-    const row = {
-      '订单号': o.order_no,
-      '用户': o.display_name || o.username,
-      '国家': o.country || '',
-      '店铺': o.shop_name || '',
-      '亚马逊金额': sales,
-      '采购(USD)': purchase,
-      '采购(¥)': purchaseCny,
-      '利润(本币)': profit,
-      '利润(¥)': profitCny,
-      '成本利润率(%)': marginPct === '' ? '' : Number(marginPct.toFixed(2)),
-    };
-    if (isAdmin) {
-      const realUsd = Number(o.real_amount_usd) || 0;
-      const paypalRate = Number(o.paypal_rate) || 0;
-      const realCny = paypalRate > 0 ? realUsd / paypalRate : '';
-      row['真实(USD)'] = realUsd;
-      row['加价%'] = Number(o.markup_pct) || 0;
-      row['PayPal汇率'] = paypalRate || '';
-      row['真实采购价(¥)'] = realCny === '' ? '' : Number(realCny.toFixed(2));
-      row['差价利润(¥)'] = realCny === '' ? '' : Number((purchaseCny - realCny).toFixed(2));
+  const { status, q, user_id, country, start, end, all } = req.body || {};
+  const filters = {};
+  if (!all) {
+    if (status && status !== 'all') filters.status = status;
+    if (user_id) filters.user_id = user_id;
+    if (country) filters.country = country;
+    if (q) filters.q = q;
+    if (start) filters.start = start;
+    if (end) filters.end = end;
+    // 至少指定一个筛选条件，避免误点"导出订单"就拉全表（全表导出走 all=true）
+    if (Object.keys(filters).length === 0) {
+      return res.status(400).json({ error: '请先选择状态 / 搜索 / 时间范围再导出，或使用「导出全部订单」' });
     }
-    row['供应商ID'] = o.dropxl_order_id || '';
-    row['跟踪号'] = o.tracking_no || '';
-    row['状态'] = ORDER_STATUS_LABEL[o.status] || o.status;
-    row['创建时间'] = o.created_at || '';
-    return row;
+  }
+
+  const tmpFile = path.join(EXPORT_TMP_DIR, `orders-${Date.now()}-${Math.random().toString(36).slice(2)}.xlsx`);
+  const cleanup = () => { try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {} };
+
+  const { fork } = require('child_process');
+  let worker;
+  try {
+    worker = fork(path.join(__dirname, '..', 'workers', 'orderExport.js'));
+  } catch (e) {
+    return res.status(500).json({ error: '无法启动导出进程：' + e.message });
+  }
+
+  let settled = false;
+  // 客户端中途取消下载时，杀掉子进程并清理临时文件
+  res.on('close', () => { if (!settled) { settled = true; try { worker.kill(); } catch {} cleanup(); } });
+
+  worker.on('message', (m) => {
+    if (!m || settled) return;
+    if (m.type === 'done') {
+      settled = true;
+      if (m.rows === 0) {
+        cleanup();
+        return res.status(404).json({ error: '没有符合条件的订单可导出' });
+      }
+      setAudit(res, { summary: `导出订单列表（${all ? '全部' : '筛选结果'}）：${m.rows} 个订单` });
+      const fileName = `orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
+      res.sendFile(tmpFile, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Cache-Control': 'private, max-age=0',
+        },
+      }, () => cleanup());
+    } else if (m.type === 'error') {
+      settled = true;
+      cleanup();
+      if (!res.headersSent) res.status(500).json({ error: '生成失败：' + m.error });
+    }
+  });
+  worker.on('exit', (codeNum) => {
+    if (!settled) {
+      settled = true;
+      cleanup();
+      if (!res.headersSent) res.status(500).json({ error: `导出进程异常退出（code ${codeNum}）` });
+    }
+  });
+  worker.on('error', (e) => {
+    if (!settled) {
+      settled = true;
+      cleanup();
+      if (!res.headersSent) res.status(500).json({ error: '导出进程错误：' + e.message });
+    }
   });
 
-  const ws = XLSX_LIB.utils.json_to_sheet(rows);
-  const wb = XLSX_LIB.utils.book_new();
-  XLSX_LIB.utils.book_append_sheet(wb, ws, '订单');
-  const buf = XLSX_LIB.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-  setAudit(res, { summary: `导出订单列表：${orders.length} 个订单` });
-  const fileName = `orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buf);
+  worker.send({ type: 'start', filters, isAdmin: !!req.user.is_admin, filePath: tmpFile });
 });
 
 // ============ 系统设置（BOSS 或被授权 settings 权限的管理员） ============
