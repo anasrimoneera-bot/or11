@@ -5,7 +5,7 @@ import EditableAmount from '../../components/EditableAmount.jsx';
 // 店主版确认弹窗 - 通过动态 import 隔离，员工不会下载此 chunk
 const OwnerConfirmModal = lazy(() => import('./OwnerConfirmModal.jsx'));
 const OwnerCols = lazy(() => import('./OwnerColumns.jsx').then(m => ({
-  default: ({ kind, order, onChanged, isOwner }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells order={order} onChanged={onChanged} isOwner={isOwner} />
+  default: ({ kind, order, onChanged, isOwner, sym }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells order={order} onChanged={onChanged} isOwner={isOwner} sym={sym} />
 })));
 
 const statusLabel = { pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货', completed: '已完成', cancelled: '已取消', refunded: '已退款' };
@@ -299,7 +299,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
               <th className="px-3 py-2 text-right">采购(原币)</th>
               <th className="px-3 py-2 text-right">采购(¥)</th>
-              <th className="px-3 py-2 text-right" title="按各订单站点币种显示：亚马逊金额 − 采购(USD)">利润(本币)</th>
+              <th className="px-3 py-2 text-right" title="按各订单站点币种显示：亚马逊金额 − 采购(原币)">利润(本币)</th>
               <th className="px-3 py-2 text-right" title="按订单锁定汇率（无锁定则用当前系统汇率）换算">利润 (¥)</th>
               <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
               {canSeeCost && <Suspense fallback={<><th /><th /><th /><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
@@ -372,7 +372,7 @@ export default function AdminOrders() {
                     title="成本利润率 = 人民币利润 / 人民币采购价">
                   {(!canComputeCny || purchaseCny <= 0) ? '—' : `${(profitCny / purchaseCny) >= 0 ? '+' : ''}${((profitCny / purchaseCny) * 100).toFixed(2)}%`}
                 </td>
-                {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} isOwner={isOwner} /></Suspense>}
+                {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} isOwner={isOwner} sym={amazonSym(o.country)} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
                 <td className="px-3 py-2 text-xs">
                   {o.shipping_carrier && <div className="text-gray-400 text-[11px] mb-0.5">{o.shipping_carrier}</div>}
@@ -409,7 +409,7 @@ export default function AdminOrders() {
               // 各国币种不同，亚马逊金额无法直接相加，统一按各自锁定汇率折人民币再合计
               const salesCny = (sales > 0 && amazonRate > 0) ? sales * amazonRate : 0;
               const profitCny = (sales > 0 && amazonRate > 0) ? salesCny - purchaseCny : 0;
-              // 店主成本列合计：真实(USD) / 真实采购价(¥) / 差价利润(¥)
+              // 店主成本列合计：真实(原币) / 真实采购价(¥) / 差价利润(¥)
               const realUsd = Number(o.real_amount_usd) || 0;
               const paypalRate = Number(o.paypal_rate) || 0;
               const realCny = paypalRate > 0 ? realUsd / paypalRate : 0; // 未填 PayPal 汇率的不计入
@@ -428,12 +428,18 @@ export default function AdminOrders() {
             // 利润(本币)各单币种可能不同，仅当本页只有一种站点币种时才合计，否则以利润(¥)合计为准
             const profitCurs = new Set(rows.filter(o => (Number(o.amazon_amount) || 0) > 0).map(o => COUNTRY_CURRENCY[o.country] || 'USD'));
             const profitSym = profitCurs.size <= 1 ? (CURRENCY_SYMBOL[[...profitCurs][0]] || '$') : null;
+            // 采购(原币)/真实(原币) 同理：混合币种时无法相加，显示 —，看对应的 ¥ 合计
+            const rowCurs = new Set(rows.map(o => COUNTRY_CURRENCY[o.country] || 'USD'));
+            const rowSym = rowCurs.size <= 1 ? (CURRENCY_SYMBOL[[...rowCurs][0]] || '$') : null;
             return (
               <tfoot className="bg-gray-50 border-t-2 font-semibold">
                 <tr>
                   <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({rows.length} 单)</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap" title="各国币种不同，按各订单锁定汇率折算人民币后合计">¥{t.salesCny.toFixed(2)}</td>
-                  <td className="px-3 py-2.5 text-right whitespace-nowrap">${t.purchase.toFixed(2)}</td>
+                  <td className={`px-3 py-2.5 text-right whitespace-nowrap ${rowSym ? '' : 'text-gray-400'}`}
+                      title={rowSym ? '' : '本页含多种站点币种，无法直接合计，请看采购(¥)合计'}>
+                    {rowSym ? `${rowSym}${t.purchase.toFixed(2)}` : '—'}
+                  </td>
                   <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">¥{t.purchaseCny.toFixed(2)}</td>
                   <td className={`px-3 py-2.5 text-right whitespace-nowrap ${!profitSym ? 'text-gray-400' : t.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}
                       title={profitSym ? '' : '本页含多种站点币种，无法直接合计，请看利润(¥)合计'}>
@@ -447,7 +453,10 @@ export default function AdminOrders() {
                     {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
                   </td>
                   {canSeeCost && <>
-                    <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">${t.realUsd.toFixed(2)}</td>
+                    <td className={`px-3 py-2.5 text-right whitespace-nowrap ${rowSym ? 'text-red-600' : 'text-gray-400'}`}
+                        title={rowSym ? '' : '本页含多种站点币种，无法直接合计，请看真实采购价(¥)合计'}>
+                      {rowSym ? `${rowSym}${t.realUsd.toFixed(2)}` : '—'}
+                    </td>
                     <td />
                     <td />
                     <td className="px-3 py-2.5 text-right text-red-600 whitespace-nowrap">¥{t.realCny.toFixed(2)}</td>
@@ -482,7 +491,7 @@ export default function AdminOrders() {
 
       {confirmOrder && (
         isOwner
-          ? <Suspense fallback={null}><OwnerConfirmModal order={confirmOrder} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} /></Suspense>
+          ? <Suspense fallback={null}><OwnerConfirmModal order={confirmOrder} cur={COUNTRY_CURRENCY[confirmOrder.country] || 'USD'} sym={amazonSym(confirmOrder.country)} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} /></Suspense>
           : <StaffConfirmModal order={confirmOrder} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} />
       )}
 
@@ -584,7 +593,7 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
                       <td className="px-2 py-1 font-mono">{it.sku}</td>
                       <td className="px-2 py-1">{it.product_name || '—'}</td>
                       <td className="px-2 py-1 text-right">{it.quantity}</td>
-                      <td className="px-2 py-1 text-right">${Number(it.unit_price || 0).toFixed(2)}</td>
+                      <td className="px-2 py-1 text-right">{amazonSym(data.country)}{Number(it.unit_price || 0).toFixed(2)}</td>
                     </tr>
                   ))}
                   {(data.items || []).length === 0 && <tr><td colSpan={4} className="px-2 py-3 text-center text-gray-400">无商品明细</td></tr>}
@@ -711,6 +720,9 @@ function ManualOrderModal({ onClose, onDone }) {
   const realUsd = Number(f.real_amount_usd) || 0;
   const markup = Number(f.markup_pct) || 0;
   const displayUsd = realUsd * (1 + markup / 100);
+  // 手工单的真实成本/采购价都按所选国家的站点币种录入，不是固定美元
+  const moCur = COUNTRY_CURRENCY[f.country] || 'USD';
+  const moSym = amazonSym(f.country);
   const filtered = users.filter(u => {
     const k = uq.trim().toLowerCase();
     if (!k) return true;
@@ -723,7 +735,7 @@ function ManualOrderModal({ onClose, onDone }) {
   const submit = async () => {
     if (!f.user_id) return alert('请选择分销商');
     if (!f.order_no.trim()) return alert('请填写订单号');
-    if (f.real_amount_usd === '' || !(realUsd >= 0)) return alert('请填写真实采购成本(USD)');
+    if (f.real_amount_usd === '' || !(realUsd >= 0)) return alert('请填写真实采购成本(原币)');
     if (f.markup_pct === '') return alert('请填写加价%');
     setSaving(true);
     try {
@@ -783,19 +795,19 @@ function ManualOrderModal({ onClose, onDone }) {
                 {Object.entries(statusLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </MoField>
-            <MoField label={`亚马逊金额(${COUNTRY_CURRENCY[f.country] || 'USD'})`}><input type="number" step="0.01" className="field w-full" value={f.amazon_amount} onChange={e => set('amazon_amount', e.target.value)} /></MoField>
+            <MoField label={`亚马逊金额(${moCur})`}><input type="number" step="0.01" className="field w-full" value={f.amazon_amount} onChange={e => set('amazon_amount', e.target.value)} /></MoField>
             <MoField label="跟踪号"><input className="field w-full" value={f.tracking_no} onChange={e => set('tracking_no', e.target.value)} placeholder="多个用逗号分隔" /></MoField>
           </div>
           <div className="bg-red-50 border border-red-200 rounded p-3">
             <div className="text-xs text-red-600 mb-2">⚠️ 以下成本/利润信息分销商绝对看不到：</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <MoField label="真实采购成本(USD) *"><input type="number" step="0.01" className="field w-full" value={f.real_amount_usd} onChange={e => set('real_amount_usd', e.target.value)} /></MoField>
+              <MoField label={`真实采购成本(${moCur}) *`}><input type="number" step="0.01" className="field w-full" value={f.real_amount_usd} onChange={e => set('real_amount_usd', e.target.value)} /></MoField>
               <MoField label="加价% *"><input type="number" step="0.01" className="field w-full" value={f.markup_pct} onChange={e => set('markup_pct', e.target.value)} /></MoField>
               <MoField label="采购汇率"><input type="number" step="0.0001" className="field w-full" value={f.exchange_rate} onChange={e => set('exchange_rate', e.target.value)} placeholder="留空=当前国家汇率" /></MoField>
               <MoField label="PayPal汇率"><input type="number" step="0.00001" className="field w-full" value={f.paypal_rate} onChange={e => set('paypal_rate', e.target.value)} placeholder="可选" /></MoField>
             </div>
             <div className="text-sm mt-2 text-gray-700">
-              分销商采购价(USD) = <b className="text-green-700">${displayUsd.toFixed(2)}</b>
+              分销商采购价({moCur}) = <b className="text-green-700">{moSym}{displayUsd.toFixed(2)}</b>
               <span className="text-xs text-gray-500 ml-1">(= 真实 ×(1+加价%)；保存后按采购汇率折成¥并从该分销商余额扣款)</span>
             </div>
           </div>
