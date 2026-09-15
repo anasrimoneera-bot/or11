@@ -12,20 +12,23 @@ export function UserMarkupCell({ value }) {
 }
 
 // 订单管理：店主+管理员可见的成本列
-// 真实(USD) | 加价% | PayPal汇率(可编辑) | 真实采购价(¥) | 差价利润(¥)
+// 真实(原币) | 加价% | PayPal汇率(可编辑) | 真实采购价(¥) | 差价利润(¥)
+// 真实成本与"采购(原币)"同币种，即订单所属国家的站点币种（德国=EUR、英国=GBP…），
+// 不是美元。表头对整表生效、每行国家可能不同，故写"原币"，具体符号在单元格按行显示。
 export function OrderRealHeader() {
   return (
     <>
-      <th className="px-3 py-2 text-right text-red-600">真实(USD)</th>
+      <th className="px-3 py-2 text-right text-red-600" title="供应商真实成本，币种同该订单的站点币种">真实(原币)</th>
       <th className="px-3 py-2 text-right text-red-600">加价%</th>
-      <th className="px-3 py-2 text-right text-red-600" title="向 DropXL 用 PayPal 付款时 PayPal 显示的汇率，1 CNY = ? USD，每次付款都不同">PayPal汇率</th>
-      <th className="px-3 py-2 text-right text-red-600" title="真实 USD ÷ PayPal 汇率">真实采购价(¥)</th>
+      <th className="px-3 py-2 text-right text-red-600" title="向 DropXL 用 PayPal 付款时 PayPal 显示的汇率，1 CNY = ? 原币，每次付款都不同">PayPal汇率</th>
+      <th className="px-3 py-2 text-right text-red-600" title="真实(原币) ÷ PayPal 汇率">真实采购价(¥)</th>
       <th className="px-3 py-2 text-right text-red-600" title="用户采购价(¥) − 真实采购价(¥)，店主+合伙人的差价利润">差价利润(¥)</th>
     </>
   );
 }
 
-export function OrderRealCells({ order, onChanged, isOwner }) {
+// sym: 该订单站点币种符号（由 AdminOrders 按 country 传入，默认 $ 仅为兜底）
+export function OrderRealCells({ order, onChanged, isOwner, sym = '$' }) {
   const realUsd = Number(order?.real_amount_usd) || 0;
   const markupPct = order?.markup_pct ?? 0;
   const paypalRate = Number(order?.paypal_rate) || 0;
@@ -34,7 +37,7 @@ export function OrderRealCells({ order, onChanged, isOwner }) {
   const profitDiff = realCny != null ? purchaseCny - realCny : null;
   return (
     <>
-      <td className="px-3 py-2 text-right text-red-600">${realUsd.toFixed(2)}</td>
+      <td className="px-3 py-2 text-right text-red-600">{sym}{realUsd.toFixed(2)}</td>
       <td className="px-3 py-2 text-right text-red-600">
         {/* 加价% 仅 BOSS 可编辑，任意订单状态均可改；改后按 真实×(1+加价%) 重算用户采购价 */}
         {isOwner ? (
