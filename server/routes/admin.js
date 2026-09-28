@@ -48,14 +48,12 @@ router.get('/overview', (req, res) => {
 
 // ============ 用户管理 ============
 router.get('/users', (req, res) => {
-  const isOwner = !!req.user.is_owner;
-  const markupCol = isOwner ? ', u.markup_pct' : '';
   // include_admins=1：手工新增订单的归属人选择器需要能把订单挂到管理员名下
   const where = req.query.include_admins === '1' ? '' : 'WHERE u.is_admin = 0';
   const rows = db.prepare(`
     SELECT u.id, u.username, u.display_name, u.email, u.phone, u.company, u.role,
            u.member_level, u.member_days, u.sku_limit, u.created_at, u.is_admin,
-           IFNULL(b.balance, 0) AS balance${markupCol}
+           IFNULL(b.balance, 0) AS balance
     FROM users u
     LEFT JOIN user_balance b ON b.user_id = u.id
     ${where}
@@ -175,21 +173,6 @@ router.post('/staff/:id/reset-password', ownerRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-// 仅店主：设置某用户的加价百分比
-router.put('/users/:id/markup', ownerRequired, (req, res) => {
-  const { markup_pct } = req.body || {};
-  const v = Number(markup_pct);
-  if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入有效的加价百分比' });
-  const u = db.prepare('SELECT username, display_name, markup_pct FROM users WHERE id = ?').get(req.params.id);
-  db.prepare('UPDATE users SET markup_pct = ? WHERE id = ?').run(v, req.params.id);
-  setAudit(res, {
-    target_id: req.params.id,
-    target_name: u ? `${u.display_name || ''}（${u.username}）` : null,
-    before: { markup_pct: u?.markup_pct }, after: { markup_pct: v },
-  });
-  res.json({ ok: true });
-});
-
 router.post('/users', (req, res) => {
   const { username, password, display_name, email, member_level, sku_limit } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: '用户名和密码必填' });
@@ -206,8 +189,8 @@ router.post('/users', (req, res) => {
 });
 
 router.put('/users/:id', (req, res) => {
-  const { display_name, email, phone, company, member_level, sku_limit, member_days, markup_pct } = req.body || {};
-  const before = db.prepare('SELECT username, display_name, email, phone, company, member_level, sku_limit, member_days, markup_pct FROM users WHERE id = ?').get(req.params.id);
+  const { display_name, email, phone, company, member_level, sku_limit, member_days } = req.body || {};
+  const before = db.prepare('SELECT username, display_name, email, phone, company, member_level, sku_limit, member_days FROM users WHERE id = ?').get(req.params.id);
   if (!before) return res.status(404).json({ error: '用户不存在' });
 
   db.prepare(`
@@ -221,14 +204,8 @@ router.put('/users/:id', (req, res) => {
            member_days = COALESCE(?, member_days)
      WHERE id = ?
   `).run(display_name, email, phone, company, member_level, sku_limit, member_days, req.params.id);
-  if (markup_pct !== undefined && req.user.is_owner) {
-    const v = Number(markup_pct);
-    if (isFinite(v) && v >= 0) db.prepare('UPDATE users SET markup_pct = ? WHERE id = ?').run(v, req.params.id);
-  }
 
-  const after = db.prepare('SELECT username, display_name, email, phone, company, member_level, sku_limit, member_days, markup_pct FROM users WHERE id = ?').get(req.params.id);
-  // 员工无权编辑加价，所以审计日志里不暴露 markup_pct 变化
-  if (!req.user.is_owner) { delete before.markup_pct; delete after.markup_pct; }
+  const after = db.prepare('SELECT username, display_name, email, phone, company, member_level, sku_limit, member_days FROM users WHERE id = ?').get(req.params.id);
   setAudit(res, {
     target_id: req.params.id,
     target_name: `${after.display_name || ''}（${after.username}）`,

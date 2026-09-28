@@ -6,7 +6,6 @@ const ACTIONS = [
   { re: /^PUT \/users\/(\d+)$/, action: '编辑分销商资料', target: 'user' },
   { re: /^POST \/users\/(\d+)\/reset-password$/, action: '重置分销商密码', target: 'user' },
   { re: /^POST \/users\/(\d+)\/balance$/, action: '调整分销商余额', target: 'user' },
-  { re: /^PUT \/users\/(\d+)\/markup$/, action: '修改加价百分比', target: 'user' },
   // 订单
   { re: /^POST \/orders\/(\d+)\/confirm$/, action: '确认采购订单（扣款）', target: 'order' },
   { re: /^POST \/orders\/manual$/, action: '手工新增订单', target: 'order' },

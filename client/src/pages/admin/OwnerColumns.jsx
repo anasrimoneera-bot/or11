@@ -3,14 +3,6 @@
 import api from '../../api';
 import EditableAmount from '../../components/EditableAmount.jsx';
 
-export function UserMarkupHeader() {
-  return <th className="px-3 py-2 text-right text-red-600">加价%</th>;
-}
-
-export function UserMarkupCell({ value }) {
-  return <td className="px-3 py-2 text-right text-red-600 font-semibold">{value ?? 30}%</td>;
-}
-
 // 订单管理：店主+管理员可见的成本列
 // 真实(原币) | 加价% | PayPal汇率(可编辑) | 真实采购价(¥) | 差价利润(¥)
 // 真实成本与"采购(原币)"同币种，即订单所属国家的站点币种（德国=EUR、英国=GBP…），
