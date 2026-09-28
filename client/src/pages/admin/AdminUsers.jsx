@@ -1,12 +1,5 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../../api';
-
-const OwnerMarkupField = lazy(() => import('./OwnerMarkupField.jsx'));
-const OwnerCols = lazy(() => import('./OwnerColumns.jsx').then(m => ({
-  default: ({ kind, ...p }) => kind === 'h' ? <m.UserMarkupHeader /> : <m.UserMarkupCell {...p} />
-})));
-// 字段名通过运行时解码避免主 bundle 出现字面量
-const SECRET_KEY = atob('bWFya3VwX3BjdA==');
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
@@ -68,7 +61,6 @@ export default function AdminUsers() {
               <th className="px-3 py-2 text-left">邮箱</th>
               <th className="px-3 py-2 text-left">会员等级</th>
               <th className="px-3 py-2 text-right">SKU限制</th>
-              {isOwner && <Suspense fallback={<th />}><OwnerCols kind="h" /></Suspense>}
               <th className="px-3 py-2 text-right">余额</th>
               <th className="px-3 py-2 text-left">注册时间</th>
               <th className="px-3 py-2"></th>
@@ -83,7 +75,6 @@ export default function AdminUsers() {
                 <td className="px-3 py-2">{u.email || '-'}</td>
                 <td className="px-3 py-2">{u.member_level}</td>
                 <td className="px-3 py-2 text-right">{u.sku_limit}</td>
-                {isOwner && <Suspense fallback={<td />}><OwnerCols kind="c" value={u[SECRET_KEY]} /></Suspense>}
                 <td className={`px-3 py-2 text-right font-semibold ${u.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>¥{(u.balance || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-xs">{u.created_at}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -106,14 +97,14 @@ export default function AdminUsers() {
                 </td>
               </tr>
             ))}
-            {users.length === 0 && <tr><td colSpan={isOwner ? 10 : 9} className="p-6 text-center text-gray-400">暂无用户</td></tr>}
+            {users.length === 0 && <tr><td colSpan={9} className="p-6 text-center text-gray-400">暂无用户</td></tr>}
           </tbody>
         </table>
       </div>
 
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={() => { setShowCreate(false); load(); }} />}
       {balanceUser && <BalanceModal user={balanceUser} onClose={() => setBalanceUser(null)} onDone={() => { setBalanceUser(null); load(); }} />}
-      {editUser && <EditModal user={editUser} isOwner={isOwner} onClose={() => setEditUser(null)} onDone={() => { setEditUser(null); load(); }} />}
+      {editUser && <EditModal user={editUser} onClose={() => setEditUser(null)} onDone={() => { setEditUser(null); load(); }} />}
     </div>
   );
 }
@@ -181,13 +172,11 @@ function BalanceModal({ user, onClose, onDone }) {
   );
 }
 
-function EditModal({ user, isOwner, onClose, onDone }) {
-  const baseFields = {
+function EditModal({ user, onClose, onDone }) {
+  const [f, setF] = useState({
     display_name: user.display_name || '', email: user.email || '', phone: user.phone || '',
     company: user.company || '', member_level: user.member_level, sku_limit: user.sku_limit, member_days: user.member_days,
-  };
-  // 仅店主版的状态字段动态合入，员工版的主 bundle 不会出现该字段名
-  const [f, setF] = useState(isOwner ? { ...baseFields, [SECRET_KEY]: user[SECRET_KEY] ?? 30 } : baseFields);
+  });
   const [newPass, setNewPass] = useState('');
   const submit = async () => {
     const payload = { ...f };
@@ -208,11 +197,6 @@ function EditModal({ user, isOwner, onClose, onDone }) {
         <input className="field" type="number" placeholder="SKU限制" value={f.sku_limit} onChange={e => setF({ ...f, sku_limit: e.target.value })} />
         <input className="field" type="number" placeholder="会员天数" value={f.member_days} onChange={e => setF({ ...f, member_days: e.target.value })} />
         <input className="field" type="password" placeholder="重置密码(留空不改)" value={newPass} onChange={e => setNewPass(e.target.value)} />
-        {isOwner && (
-          <Suspense fallback={null}>
-            <OwnerMarkupField value={f[SECRET_KEY]} onChange={v => setF({ ...f, [SECRET_KEY]: v })} />
-          </Suspense>
-        )}
       </div>
       <div className="flex justify-end gap-2 mt-4">
         <button className="btn btn-ghost" onClick={onClose}>取消</button>

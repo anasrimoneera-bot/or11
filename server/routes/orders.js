@@ -113,9 +113,9 @@ router.post('/', authRequired, async (req, res) => {
     return res.status(502).json({ error: 'DropXL下单失败: ' + e.message, detail: e.data });
   }
 
-  // 读取用户加价百分比，自动计算用户可见的"显示采购价"
-  const u = db.prepare('SELECT markup_pct FROM users WHERE id = ?').get(req.user.id);
-  const markupPct = Number(u?.markup_pct) || 0;
+  // 读取订单国家的加价百分比（与批量导入一致），自动计算用户可见的"显示采购价"
+  const m = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
+  const markupPct = Number(m?.markup_pct) || 0;
   const displayUsd = realUsd * (1 + markupPct / 100);
   const displayCny = displayUsd * Number(exchange_rate);
 
