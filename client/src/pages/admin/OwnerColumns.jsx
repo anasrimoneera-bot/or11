@@ -4,7 +4,7 @@ import api from '../../api';
 import EditableAmount from '../../components/EditableAmount.jsx';
 
 // 订单管理：店主+管理员可见的成本列
-// 真实(原币) | 加价% | PayPal汇率(可编辑) | 真实采购价(¥) | 差价利润(¥)
+// 真实(原币)(BOSS可编辑) | 加价% | PayPal汇率(可编辑) | 真实采购价(¥) | 差价利润(¥)
 // 真实成本与"采购(原币)"同币种，即订单所属国家的站点币种（德国=EUR、英国=GBP…），
 // 不是美元。表头对整表生效、每行国家可能不同，故写"原币"，具体符号在单元格按行显示。
 export function OrderRealHeader() {
@@ -29,7 +29,21 @@ export function OrderRealCells({ order, onChanged, isOwner, sym = '$' }) {
   const profitDiff = realCny != null ? purchaseCny - realCny : null;
   return (
     <>
-      <td className="px-3 py-2 text-right text-red-600">{sym}{realUsd.toFixed(2)}</td>
+      <td className="px-3 py-2 text-right text-red-600">
+        {/* 真实(原币) 仅 BOSS 可编辑；改后按 真实×(1+加价%) 重算用户采购价 */}
+        {isOwner ? (
+          <EditableAmount
+            value={realUsd}
+            prefix={sym}
+            onSave={async (v) => {
+              await api.put(`/admin/orders/${order.id}/real-price`, { real_amount_usd: v });
+              onChanged && onChanged();
+            }}
+          />
+        ) : (
+          `${sym}${realUsd.toFixed(2)}`
+        )}
+      </td>
       <td className="px-3 py-2 text-right text-red-600">
         {/* 加价% 仅 BOSS 可编辑，任意订单状态均可改；改后按 真实×(1+加价%) 重算用户采购价 */}
         {isOwner ? (
