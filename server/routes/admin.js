@@ -359,12 +359,13 @@ router.get('/orders/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: '订单不存在' });
   const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
   const shipping = db.prepare('SELECT name, address1, address2, city, state, postal, country, phone, buyer_email FROM purchase_order_shipping WHERE order_id = ?').get(row.id) || null;
-  res.json({ ...stripSensitive(row, !!req.user.is_admin), items, shipping });
+  // 详情弹窗只展示加价后的采购价，一律不返回真实采购价/加价%/PayPal汇率
+  res.json({ ...stripSensitive(row), items, shipping });
 });
 
-// 管理员确认订单：店主可调整真实价/加价，员工仅能按系统已算好的金额扣款
+// 管理员确认订单：默认按系统已算好的加价后采购价扣款；店主显式传入真实价/加价时按其重算
 router.post('/orders/:id/confirm', (req, res) => {
-  const isOwner = !!req.user.is_owner;
+  const isOwner = !!req.user.is_owner && req.body?.real_amount_usd != null;
   const { exchange_rate, distributor_refund = 0, note } = req.body || {};
   const order = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: '订单不存在' });
