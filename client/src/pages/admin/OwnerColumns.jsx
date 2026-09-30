@@ -30,7 +30,7 @@ export function OrderRealCells({ order, onChanged, isOwner, sym = '$' }) {
   return (
     <>
       <td className="px-3 py-2 text-right text-red-600">
-        {/* 真实(原币) 仅 BOSS 可编辑；只订正真实成本，不改用户采购价 */}
+        {/* 真实(原币) 仅 BOSS 可编辑；改后按 真实×(1+加价%) 重算用户采购价 */}
         {isOwner ? (
           <EditableAmount
             value={realUsd}
