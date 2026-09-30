@@ -772,11 +772,13 @@ router.put('/orders/:id/shipping', (req, res) => {
 });
 
 // 重试推送订单到供应商(DropXL)（BOSS/管理员）。用于地址/省份订正后把订单创建到供应商。
-// 仅对「未成功推送」的订单开放（无 dropxl_order_id），避免对已存在的供应商订单重复创建。
+// 已推送过的订单（有 dropxl_order_id）须显式传 force=true 才允许再次推送（会在供应商新建订单），
+// 前端会二次确认提示可能重复下单；再次推送失败时保留原供应商订单号。
 router.post('/orders/:id/push-dropxl', async (req, res) => {
   const order = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: '订单不存在' });
-  if (order.dropxl_order_id) return res.status(400).json({ error: '该订单已成功推送到供应商，不能重复推送' });
+  const repush = !!order.dropxl_order_id;
+  if (repush && req.body?.force !== true) return res.status(400).json({ error: '该订单已推送过供应商，如需再次推送请确认后重试' });
   const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(order.id);
   if (!shipping) return res.status(400).json({ error: '缺少买家收货地址，无法推送' });
   const items = db.prepare('SELECT sku, quantity FROM purchase_order_items WHERE order_id = ?').all(order.id);
@@ -793,11 +795,11 @@ router.post('/orders/:id/push-dropxl', async (req, res) => {
     const resp = await dropxl.createOrder(payload, order.country);
     const dropxlOrderId = resp?.order?.id || resp?.id || null;
     updatePush.run(dropxlOrderId ? String(dropxlOrderId) : null, 'success', null, order.id);
-    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `重试推送供应商成功 ${order.order_no}` });
+    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `${repush ? `再次推送（原供应商单号 ${order.dropxl_order_id}）` : '重试推送'}供应商成功 ${order.order_no}` });
     res.json({ ok: true, dropxl_order_id: dropxlOrderId });
   } catch (e) {
-    updatePush.run(null, 'failed', String(e.message || e).slice(0, 500), order.id);
-    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `重试推送供应商失败 ${order.order_no}` });
+    updatePush.run(order.dropxl_order_id || null, 'failed', String(e.message || e).slice(0, 500), order.id);
+    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `${repush ? '再次推送' : '重试推送'}供应商失败 ${order.order_no}` });
     res.status(502).json({ error: '推送供应商失败：' + (e.message || e) });
   }
 });
