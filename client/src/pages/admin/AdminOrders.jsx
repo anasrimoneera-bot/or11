@@ -109,11 +109,11 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '删除失败'); }
   };
 
-  // 通过 API 重新推送订单到供应商(DropXL)，用于首次推送失败/未推送的订单
+  // 通过 API 重新推送订单到供应商(DropXL)；已推送过的订单也可再次推送（二次确认）
   const pushDropxl = async (o) => {
-    if (!confirm(`把订单 ${o.order_no} 重新推送到供应商创建？\n（按当前买家地址推送，如需订正地址请先在「详情」中保存）`)) return;
+    if (!confirmPush(o)) return;
     try {
-      const { data } = await api.post(`/admin/orders/${o.id}/push-dropxl`);
+      const { data } = await api.post(`/admin/orders/${o.id}/push-dropxl`, { force: !!o.dropxl_order_id });
       alert(`推送成功${data.dropxl_order_id ? `，供应商订单号：${data.dropxl_order_id}` : ''}`);
       load();
     } catch (e) { alert(e.response?.data?.error || '推送失败'); load(); }
@@ -281,7 +281,7 @@ export default function AdminOrders() {
                 {o.status === 'pending_purchase' && (
                   <>
                     <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline">确认采购</button>
-                    {!o.dropxl_order_id && <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>}
+                    <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
                   </>
                 )}
                 <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline">详情</button>
@@ -397,7 +397,7 @@ export default function AdminOrders() {
                   {o.status === 'pending_purchase' && (
                     <>
                       <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
-                      {!o.dropxl_order_id && <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline text-xs ml-2" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>}
+                      <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline text-xs ml-2" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
                     </>
                   )}
                   <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs ml-2">详情</button>
@@ -558,10 +558,10 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
     finally { setSaving(false); }
   };
   const pushDropxl = async () => {
-    if (!confirm('把该订单（按当前买家地址）推送到供应商创建？\n建议先保存订正后的省份/地址再推送。')) return;
+    if (!confirmPush(data)) return;
     setPushing(true);
     try {
-      const { data: r } = await api.post(`/admin/orders/${orderId}/push-dropxl`);
+      const { data: r } = await api.post(`/admin/orders/${orderId}/push-dropxl`, { force: !!data.dropxl_order_id });
       alert(`推送成功${r.dropxl_order_id ? `，供应商订单号：${r.dropxl_order_id}` : ''}`);
       load();
       onSaved?.();
@@ -629,7 +629,11 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
             <div className="border-t pt-3">
               <div className="font-medium mb-1">🚚 供应商(DropXL)推送</div>
               {data.dropxl_order_id ? (
-                <div className="text-green-700">已成功推送，供应商订单号：<b className="font-mono">{data.dropxl_order_id}</b></div>
+                <>
+                  <div className="text-green-700">已成功推送，供应商订单号：<b className="font-mono">{data.dropxl_order_id}</b></div>
+                  {data.dropxl_push_status === 'failed' && data.dropxl_push_error && <div className="text-xs text-red-500 mt-1 break-all">最近一次再次推送失败：{data.dropxl_push_error}</div>}
+                  <button onClick={pushDropxl} disabled={pushing} className="btn btn-warning mt-2 text-sm">{pushing ? '推送中...' : '🚚 再次推送到供应商'}</button>
+                </>
               ) : (
                 <>
                   <div className={data.dropxl_push_status === 'failed' ? 'text-red-600' : 'text-gray-500'}>
@@ -653,6 +657,13 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
 }
 
 const MO_COUNTRIES = Object.keys(COUNTRY_CURRENCY);
+
+// 推送前确认。已推送过（有供应商订单号）的订单再次推送会在供应商新建订单，需重点提示避免重复采购
+function confirmPush(o) {
+  const tip = '（按当前买家地址推送，如需订正地址请先在「详情」中保存）';
+  if (!o.dropxl_order_id) return confirm(`把订单 ${o.order_no} 重新推送到供应商创建？\n${tip}`);
+  return confirm(`⚠️ 订单 ${o.order_no} 已推送过供应商（供应商订单号：${o.dropxl_order_id}）。\n再次推送会在供应商新建一个订单，可能导致重复采购，请确认原订单已在供应商后台取消或确实需要重推。\n成功后本地记录的供应商订单号会更新为新单号。\n${tip}\n\n确定再次推送？`);
+}
 
 function MoField({ label, children }) {
   return <div><label className="text-xs text-gray-500 block mb-0.5">{label}</label>{children}</div>;
@@ -939,7 +950,7 @@ function AssignOrderModal({ order, onClose, onDone }) {
 }
 
 // 确认采购弹窗（BOSS/管理员通用）：只显示加价后的采购价，不显示真实采购价/加价%，按系统已算好的金额扣款。
-// 未成功推送到供应商的订单可在此通过 API 重新推送。
+// 可在此通过 API 重新推送到供应商（已推送过的订单也可再次推送）。
 function ConfirmModal({ order, onClose, onDone, onPushed }) {
   const [rate, setRate] = useState(order.exchange_rate || 7.2);
   const [refund, setRefund] = useState(0);
@@ -949,12 +960,12 @@ function ConfirmModal({ order, onClose, onDone, onPushed }) {
   const [pushing, setPushing] = useState(false);
 
   const push = async () => {
-    if (!confirm(`把订单 ${order.order_no} 重新推送到供应商创建？\n（按当前买家地址推送，如需订正地址请先在「详情」中保存）`)) return;
+    if (!confirmPush(order)) return;
     setPushing(true);
     try {
-      const { data } = await api.post(`/admin/orders/${order.id}/push-dropxl`);
+      const { data } = await api.post(`/admin/orders/${order.id}/push-dropxl`, { force: !!order.dropxl_order_id });
       alert(`推送成功${data.dropxl_order_id ? `，供应商订单号：${data.dropxl_order_id}` : ''}`);
-      onPushed({ dropxl_order_id: data.dropxl_order_id || null, dropxl_push_status: 'success', dropxl_push_error: null });
+      onPushed({ dropxl_order_id: data.dropxl_order_id ? String(data.dropxl_order_id) : null, dropxl_push_status: 'success', dropxl_push_error: null });
     } catch (e) {
       const msg = e.response?.data?.error || '推送失败';
       alert(msg);
@@ -983,11 +994,9 @@ function ConfirmModal({ order, onClose, onDone, onPushed }) {
           <div>国家/店铺：{order.country} / {order.shop_name}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <span>供应商订单 ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></span>
-            {!order.dropxl_order_id && (
-              <button onClick={push} disabled={pushing} className="btn btn-warning text-xs py-0.5 px-2">{pushing ? '推送中...' : '🚚 API 重新推送'}</button>
-            )}
+            <button onClick={push} disabled={pushing} className="btn btn-warning text-xs py-0.5 px-2">{pushing ? '推送中...' : '🚚 API 重新推送'}</button>
           </div>
-          {!order.dropxl_order_id && order.dropxl_push_error && <div className="text-xs text-red-500 break-all">上次推送失败：{order.dropxl_push_error}</div>}
+          {order.dropxl_push_status === 'failed' && order.dropxl_push_error && <div className="text-xs text-red-500 break-all">上次推送失败：{order.dropxl_push_error}</div>}
           <div className="text-blue-700">采购价（加价后）：<b>{amazonSym(order.country)}{(order.purchase_amount_usd || 0).toFixed(2)}</b></div>
         </div>
         <label className="text-sm">汇率 *</label>
