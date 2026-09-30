@@ -522,6 +522,23 @@ router.put('/orders/:id/purchase-price', ownerRequired, (req, res) => {
   res.json({ ok: true, purchase_amount_cny: newCny });
 });
 
+// 仅 BOSS：任意订单状态下修改真实成本(原币)。只订正记录（影响真实采购价¥/差价利润），
+// 不重算用户采购价、不二次结算分销商余额；如需同步调整用户采购价请再改「采购(原币)」或加价%。
+router.put('/orders/:id/real-price', ownerRequired, (req, res) => {
+  const { real_amount_usd } = req.body || {};
+  const v = Number(real_amount_usd);
+  if (!isFinite(v) || v < 0) return res.status(400).json({ error: '请输入非负数' });
+  const order = db.prepare('SELECT id, order_no, real_amount_usd FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: '订单不存在' });
+  db.prepare('UPDATE purchase_orders SET real_amount_usd = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(v, order.id);
+  setAudit(res, {
+    target_id: String(order.id),
+    target_name: order.order_no,
+    summary: `订单 ${order.order_no} 真实成本 ${(Number(order.real_amount_usd) || 0).toFixed(2)} → ${v.toFixed(2)}`,
+  });
+  res.json({ ok: true });
+});
+
 // 仅 BOSS：任意订单状态下修改加价%，按 真实USD ×(1+加价%) 重算用户采购价(USD)与采购¥。
 // 与 purchase-price 一致：只订正记录，不再二次结算分销商余额。real_amount_usd 不动。
 router.put('/orders/:id/markup', ownerRequired, (req, res) => {
