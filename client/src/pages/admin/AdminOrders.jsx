@@ -2,8 +2,6 @@ import { useEffect, useState, lazy, Suspense } from 'react';
 import api from '../../api';
 import EditableAmount from '../../components/EditableAmount.jsx';
 
-// 店主版确认弹窗 - 通过动态 import 隔离，员工不会下载此 chunk
-const OwnerConfirmModal = lazy(() => import('./OwnerConfirmModal.jsx'));
 const OwnerCols = lazy(() => import('./OwnerColumns.jsx').then(m => ({
   default: ({ kind, order, onChanged, isOwner, sym }) => kind === 'h' ? <m.OrderRealHeader /> : <m.OrderRealCells order={order} onChanged={onChanged} isOwner={isOwner} sym={sym} />
 })));
@@ -109,6 +107,16 @@ export default function AdminOrders() {
       if (data?.refunded > 0) alert(`已删除，并退回分销商余额 ¥${data.refunded.toFixed(2)}`);
       load();
     } catch (e) { alert(e.response?.data?.error || '删除失败'); }
+  };
+
+  // 通过 API 重新推送订单到供应商(DropXL)，用于首次推送失败/未推送的订单
+  const pushDropxl = async (o) => {
+    if (!confirm(`把订单 ${o.order_no} 重新推送到供应商创建？\n（按当前买家地址推送，如需订正地址请先在「详情」中保存）`)) return;
+    try {
+      const { data } = await api.post(`/admin/orders/${o.id}/push-dropxl`);
+      alert(`推送成功${data.dropxl_order_id ? `，供应商订单号：${data.dropxl_order_id}` : ''}`);
+      load();
+    } catch (e) { alert(e.response?.data?.error || '推送失败'); load(); }
   };
 
   // 仅 BOSS：一键补算所有"采购¥为 0 / 未计算"的订单（不动已正常的订单）
@@ -273,9 +281,10 @@ export default function AdminOrders() {
                 {o.status === 'pending_purchase' && (
                   <>
                     <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline">确认采购</button>
-                    <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline">详情</button>
+                    {!o.dropxl_order_id && <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>}
                   </>
                 )}
+                <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline">详情</button>
                 <button onClick={() => setAssignOrder(o)} className="text-blue-600 hover:underline">👤 分配</button>
                 <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline">删除</button>
               </div>
@@ -388,9 +397,10 @@ export default function AdminOrders() {
                   {o.status === 'pending_purchase' && (
                     <>
                       <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
-                      <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs ml-2">详情</button>
+                      {!o.dropxl_order_id && <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline text-xs ml-2" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>}
                     </>
                   )}
+                  <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs ml-2">详情</button>
                   <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline text-xs ml-2">删除</button>
                 </td>
               </tr>
@@ -490,9 +500,8 @@ export default function AdminOrders() {
       )}
 
       {confirmOrder && (
-        isOwner
-          ? <Suspense fallback={null}><OwnerConfirmModal order={confirmOrder} cur={COUNTRY_CURRENCY[confirmOrder.country] || 'USD'} sym={amazonSym(confirmOrder.country)} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} /></Suspense>
-          : <StaffConfirmModal order={confirmOrder} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }} />
+        <ConfirmModal order={confirmOrder} onClose={() => setConfirmOrder(null)} onDone={() => { setConfirmOrder(null); load(); }}
+          onPushed={(p) => { setConfirmOrder(c => c && { ...c, ...p }); load(); }} />
       )}
 
       {assignOrder && (
@@ -521,7 +530,7 @@ export default function AdminOrders() {
   );
 }
 
-// 订单详情（BOSS/管理员，待采购单）。可订正分销商填错的买家收货地址。
+// 订单详情（BOSS/管理员，所有状态均可查看）。价格只显示加价后的采购价。可订正分销商填错的买家收货地址。
 function OrderDetailModal({ orderId, onClose, onSaved }) {
   const [data, setData] = useState(null);
   const [ship, setShip] = useState(null);
@@ -585,7 +594,7 @@ function OrderDetailModal({ orderId, onClose, onSaved }) {
                   <th className="px-2 py-1 text-left">SKU</th>
                   <th className="px-2 py-1 text-left">名称</th>
                   <th className="px-2 py-1 text-right">数量</th>
-                  <th className="px-2 py-1 text-right">单价</th>
+                  <th className="px-2 py-1 text-right">采购单价</th>
                 </tr></thead>
                 <tbody>
                   {(data.items || []).map(it => (
@@ -929,13 +938,29 @@ function AssignOrderModal({ order, onClose, onDone }) {
   );
 }
 
-// 员工版确认弹窗：看不到真实价/加价，仅按系统已算好的金额扣款
-function StaffConfirmModal({ order, onClose, onDone }) {
+// 确认采购弹窗（BOSS/管理员通用）：只显示加价后的采购价，不显示真实采购价/加价%，按系统已算好的金额扣款。
+// 未成功推送到供应商的订单可在此通过 API 重新推送。
+function ConfirmModal({ order, onClose, onDone, onPushed }) {
   const [rate, setRate] = useState(order.exchange_rate || 7.2);
   const [refund, setRefund] = useState(0);
   const [note, setNote] = useState('');
   const cny = (Number(order.purchase_amount_usd) || 0) * (Number(rate) || 0);
   const deduct = cny - (Number(refund) || 0);
+  const [pushing, setPushing] = useState(false);
+
+  const push = async () => {
+    if (!confirm(`把订单 ${order.order_no} 重新推送到供应商创建？\n（按当前买家地址推送，如需订正地址请先在「详情」中保存）`)) return;
+    setPushing(true);
+    try {
+      const { data } = await api.post(`/admin/orders/${order.id}/push-dropxl`);
+      alert(`推送成功${data.dropxl_order_id ? `，供应商订单号：${data.dropxl_order_id}` : ''}`);
+      onPushed({ dropxl_order_id: data.dropxl_order_id || null, dropxl_push_status: 'success', dropxl_push_error: null });
+    } catch (e) {
+      const msg = e.response?.data?.error || '推送失败';
+      alert(msg);
+      onPushed({ dropxl_push_status: 'failed', dropxl_push_error: msg });
+    } finally { setPushing(false); }
+  };
 
   const submit = async () => {
     try {
@@ -956,8 +981,14 @@ function StaffConfirmModal({ order, onClose, onDone }) {
           <div>订单号：<span className="font-mono">{order.order_no}</span></div>
           <div>用户：{order.display_name || order.username}</div>
           <div>国家/店铺：{order.country} / {order.shop_name}</div>
-          <div>供应商订单 ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></div>
-          <div className="text-blue-700">系统计算采购价：<b>{amazonSym(order.country)}{(order.purchase_amount_usd || 0).toFixed(2)}</b></div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span>供应商订单 ID：<span className="font-mono">{order.dropxl_order_id || '(未创建)'}</span></span>
+            {!order.dropxl_order_id && (
+              <button onClick={push} disabled={pushing} className="btn btn-warning text-xs py-0.5 px-2">{pushing ? '推送中...' : '🚚 API 重新推送'}</button>
+            )}
+          </div>
+          {!order.dropxl_order_id && order.dropxl_push_error && <div className="text-xs text-red-500 break-all">上次推送失败：{order.dropxl_push_error}</div>}
+          <div className="text-blue-700">采购价（加价后）：<b>{amazonSym(order.country)}{(order.purchase_amount_usd || 0).toFixed(2)}</b></div>
         </div>
         <label className="text-sm">汇率 *</label>
         <input className="field mb-2" type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} />
