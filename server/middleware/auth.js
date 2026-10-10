@@ -17,6 +17,7 @@ const GRANTABLE_PERMISSIONS = [
   { key: 'aftersales_policy', label: '售后政策维护' },
   { key: 'settings', label: '系统设置' },
   { key: 'aftersales_template', label: '售后处理模板（编辑）' },
+  { key: 'cost_view', label: '查看真实采购价/加价' },
 ];
 const GRANTABLE_KEYS = GRANTABLE_PERMISSIONS.map(p => p.key);
 const DEFAULT_GRANTED_KEYS = GRANTABLE_PERMISSIONS.filter(p => p.default).map(p => p.key);
@@ -112,7 +113,14 @@ function permRequired(key) {
   };
 }
 
+// 能否看到订单真实采购价 / 加价% / PayPal 汇率：BOSS 始终可见，管理员需被授予 cost_view
+function canViewCost(user) {
+  if (!user?.is_admin) return false;
+  return !!user.is_owner || getUserPermissions(user.id).includes('cost_view');
+}
+
 module.exports = {
+  canViewCost,
   sign, signTicket, verifyTicket,
   authRequired, authOrTicket, adminRequired, ownerRequired, permRequired,
   getUserPermissions, parsePermissions, GRANTABLE_PERMISSIONS, GRANTABLE_KEYS,

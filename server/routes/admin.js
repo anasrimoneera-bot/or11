@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const db = require('../db');
 const dropxl = require('../dropxl');
-const { authRequired, adminRequired, ownerRequired, permRequired, GRANTABLE_KEYS, parsePermissions, BASE_CONFIGURED_FLAG } = require('../middleware/auth');
+const { authRequired, adminRequired, ownerRequired, permRequired, canViewCost, GRANTABLE_KEYS, parsePermissions, BASE_CONFIGURED_FLAG } = require('../middleware/auth');
 const { audit, setAudit } = require('../middleware/audit');
 
 const router = express.Router();
@@ -22,9 +22,9 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// 工具：剥离内部字段。管理员（含普通管理员）可见真实成本/加价/PayPal汇率，
+// 工具：剥离内部字段。BOSS 及被授予 cost_view 的管理员可见真实成本/加价/PayPal汇率，
 // 始终剥除 raw_payload/raw_response（原始报文无需前端展示）。
-// isAdmin=true：返回 real_amount_usd / markup_pct / paypal_rate。
+// isAdmin=true（即 canViewCost）：返回 real_amount_usd / markup_pct / paypal_rate。
 function stripSensitive(obj, isAdmin = false) {
   if (Array.isArray(obj)) return obj.map(o => stripSensitive(o, isAdmin));
   if (!obj || typeof obj !== 'object') return obj;
@@ -347,7 +347,7 @@ router.get('/orders', (req, res) => {
     ORDER BY o.created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders o JOIN users u ON u.id = o.user_id ${where}`).get(...args).c;
-  res.json({ rows: stripSensitive(rows, !!req.user.is_admin), total });
+  res.json({ rows: stripSensitive(rows, canViewCost(req.user)), total });
 });
 
 router.get('/orders/:id', (req, res) => {
@@ -1364,7 +1364,7 @@ router.post('/orders/export', (req, res) => {
     }
   });
 
-  worker.send({ type: 'start', filters, isAdmin: !!req.user.is_admin, filePath: tmpFile });
+  worker.send({ type: 'start', filters, isAdmin: canViewCost(req.user), filePath: tmpFile });
 });
 
 // ============ 系统设置（BOSS 或被授权 settings 权限的管理员） ============

@@ -35,7 +35,8 @@ export default function AdminOrders() {
   const [detailOrder, setDetailOrder] = useState(null);
   const [exporting, setExporting] = useState('');  // '' | 'filtered' | 'all'
   const isOwner = !!me?.is_owner;
-  const canSeeCost = !!me?.is_admin; // 店主+管理员都能看成本相关列（页面本身仅管理员可进）
+  // 成本相关列：BOSS 始终可见；管理员需 BOSS 在「管理员」页授予「查看真实采购价/加价」
+  const canSeeCost = isOwner || (me?.permissions || []).includes('cost_view');
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const noFilter = filters.status === 'all' && !filters.q && !filters.start && !filters.end && !filters.country && !filters.user_id;
 
