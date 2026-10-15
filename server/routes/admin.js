@@ -1197,17 +1197,34 @@ router.post('/aftersales/:id/refund', (req, res) => {
 
 // ============ 导出 DropXL 采购模板 ============
 const XLSX_LIB = require('xlsx');
+// 欧洲订单采购模板的完整表头（顺序与模板文件一致）
+const EU_TEMPLATE_HEADER = [
+  'order-id', 'order-item-id', 'purchase-date', 'payments-date', 'buyer-email', 'buyer-name', 'buyer-phone-number',
+  'shop-sku', 'product-name-extra', 'quantity-purchased', 'currency', 'item-price', 'item-tax', 'shipping-price',
+  'shipping-tax', 'ship-service-level', 'recipient-name', 'ship-address-1', 'ship-address-2', 'ship-address-3',
+  'ship-city', 'ship-state', 'ship-postal-code', 'ship-country', 'ship-phone-number', 'delivery-start-date',
+  'product-name', 'shop-name', 'sku', 'remark', 'is-business-order', 'purchase-order-number', 'price-designation', 'is-iba',
+];
 
+// 与订单管理列表用同一套筛选条件（状态/搜索/国家/用户/创建时间），只导出当前筛选结果。
+// format='eu' 时导出欧洲订单采购模板（34 列，仅填映射列，shop-name 固定为 1）。
 router.post('/orders/dropxl-template-export', (req, res) => {
-  const { from_date, to_date, include_exported = false, user_id } = req.body || {};
-  const conds = ["po.status IN ('pending_purchase', 'pending_shipment')"];
+  const { status, q, user_id, country, start, end, format } = req.body || {};
+  const conds = [];
   const args = [];
-  if (!include_exported) {
-    conds.push('po.dropxl_exported_at IS NULL');
+  if (status && status !== 'all') { conds.push('po.status = ?'); args.push(status); }
+  if (user_id) { conds.push('po.user_id = ?'); args.push(user_id); }
+  if (country) { conds.push('po.country = ?'); args.push(country); }
+  if (q) {
+    conds.push('(po.order_no LIKE ? OR u.username LIKE ? OR u.display_name LIKE ? OR po.shop_name LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
-  if (from_date) { conds.push('date(po.created_at) >= ?'); args.push(from_date); }
-  if (to_date) { conds.push('date(po.created_at) <= ?'); args.push(to_date); }
-  if (user_id) { conds.push('po.user_id = ?'); args.push(Number(user_id)); }
+  if (start) { conds.push('po.created_at >= ?'); args.push(start); }
+  if (end) { conds.push('po.created_at <= ?'); args.push(end); }
+  // 至少指定一个筛选条件，避免无条件拉全表
+  if (conds.length === 0) {
+    return res.status(400).json({ error: '请先选择状态 / 搜索 / 时间范围再导出采购模板' });
+  }
   const where = 'WHERE ' + conds.join(' AND ');
 
   const orders = db.prepare(`
@@ -1215,6 +1232,7 @@ router.post('/orders/dropxl-template-export', (req, res) => {
            pos.name, pos.address1, pos.address2, pos.city, pos.state,
            pos.postal, pos.country, pos.phone, pos.buyer_email
     FROM purchase_orders po
+    JOIN users u ON u.id = po.user_id
     LEFT JOIN purchase_order_shipping pos ON pos.order_id = po.id
     ${where}
     ORDER BY po.id ASC
@@ -1268,19 +1286,41 @@ router.post('/orders/dropxl-template-export', (req, res) => {
   });
   tx();
 
-  const ws = XLSX_LIB.utils.json_to_sheet(dropxlRows, {
-    header: ['order_reference', 'product_code', 'quantity', 'address', 'address2', 'province', 'city', 'country', 'postal_code', 'phone', 'name', 'email'],
-  });
-  ws['!cols'] = [
-    { wch: 22 }, { wch: 14 }, { wch: 8 }, { wch: 32 }, { wch: 20 }, { wch: 8 }, { wch: 16 },
-    { wch: 8 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 32 },
-  ];
+  const isEu = format === 'eu';
   const wb = XLSX_LIB.utils.book_new();
-  XLSX_LIB.utils.book_append_sheet(wb, ws, 'DropXL Purchase Orders');
+  if (isEu) {
+    // DropXL 列 → 欧洲订单采购模板列；未列出的列留空
+    const euRows = dropxlRows.map(r => ({
+      'order-id': r.order_reference,
+      'sku': r.product_code,
+      'quantity-purchased': r.quantity,
+      'ship-address-1': r.address,
+      'ship-address-2': r.address2,
+      'ship-state': r.province,
+      'ship-city': r.city,
+      'ship-country': r.country,
+      'ship-postal-code': r.postal_code,
+      'ship-phone-number': r.phone,
+      'recipient-name': r.name,
+      'buyer-email': r.email,
+      'shop-name': 1,
+    }));
+    const ws = XLSX_LIB.utils.json_to_sheet(euRows, { header: EU_TEMPLATE_HEADER });
+    XLSX_LIB.utils.book_append_sheet(wb, ws, '采购订单模板');
+  } else {
+    const ws = XLSX_LIB.utils.json_to_sheet(dropxlRows, {
+      header: ['order_reference', 'product_code', 'quantity', 'address', 'address2', 'province', 'city', 'country', 'postal_code', 'phone', 'name', 'email'],
+    });
+    ws['!cols'] = [
+      { wch: 22 }, { wch: 14 }, { wch: 8 }, { wch: 32 }, { wch: 20 }, { wch: 8 }, { wch: 16 },
+      { wch: 8 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 32 },
+    ];
+    XLSX_LIB.utils.book_append_sheet(wb, ws, 'DropXL Purchase Orders');
+  }
   const buf = XLSX_LIB.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
-  setAudit(res, { summary: `导出 DropXL 采购模板：${orders.length} 个订单 / ${dropxlRows.length} 行商品` });
-  const fileName = `dropxl-purchase-orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
+  setAudit(res, { summary: `导出${isEu ? '欧洲' : ' DropXL '}采购模板：${orders.length} 个订单 / ${dropxlRows.length} 行商品` });
+  const fileName = `${isEu ? 'eu' : 'dropxl'}-purchase-orders-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`;
   res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
