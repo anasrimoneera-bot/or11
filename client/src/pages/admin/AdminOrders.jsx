@@ -169,15 +169,26 @@ export default function AdminOrders() {
     }
   };
 
-  const exportDropxlTemplate = async () => {
-    if (!confirm('确认导出待处理订单为供应商采购模板？\n• 默认只导出未导出过的订单\n• 导出后会标记为"已导出"，下次不再重复\n• 导出后请前往供应商后台手动提交')) return;
+  // 按当前筛选条件导出采购模板；format='eu' 导出欧洲订单采购模板
+  const exportDropxlTemplate = async (format) => {
+    const body = { ...buildDateParams() };
+    if (filters.status !== 'all') body.status = filters.status;
+    if (filters.q) body.q = filters.q;
+    if (filters.country) body.country = filters.country;
+    if (filters.user_id) body.user_id = filters.user_id;
+    if (!body.status && !body.q && !body.start && !body.end && !body.country && !body.user_id) {
+      return alert('请先选择状态 / 搜索 / 时间范围再导出采购模板');
+    }
+    if (format === 'eu') body.format = 'eu';
+    const label = format === 'eu' ? '欧洲订单采购模板' : '供应商采购模板';
+    if (!confirm(`确认将当前筛选条件下的订单（共 ${total} 单）导出为${label}？\n• 导出后请前往供应商后台手动提交`)) return;
     try {
-      const r = await api.post('/admin/orders/dropxl-template-export', {}, { responseType: 'blob' });
+      const r = await api.post('/admin/orders/dropxl-template-export', body, { responseType: 'blob' });
       const blob = r.data;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `purchase-orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `${format === 'eu' ? 'eu-' : ''}purchase-orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -201,7 +212,8 @@ export default function AdminOrders() {
           {isOwner && <button onClick={recomputeAllMissing} className="btn btn-ghost border text-sm py-1.5" title='把所有"采购¥为0/未计算"的订单按各国当前采购汇率补算'>🔄 补算采购¥(零值单)</button>}
           <button onClick={() => exportOrders(false)} disabled={!!exporting} className="btn btn-ghost border text-sm py-1.5" title="导出当前筛选结果的订单列表为 Excel">📤 {exporting === 'filtered' ? '导出中…' : '导出筛选订单'}</button>
           <button onClick={() => exportOrders(true)} disabled={!!exporting} className="btn btn-ghost border text-sm py-1.5" title="不带筛选条件，导出全部订单为 Excel">📤 {exporting === 'all' ? '导出中…' : '导出全部订单'}</button>
-          <button onClick={exportDropxlTemplate} className="btn btn-success text-sm py-1.5">📥 导出采购模板</button>
+          <button onClick={() => exportDropxlTemplate()} className="btn btn-success text-sm py-1.5" title="按当前筛选条件导出供应商采购模板">📥 导出采购模板</button>
+          <button onClick={() => exportDropxlTemplate('eu')} className="btn btn-success text-sm py-1.5" title="按当前筛选条件导出欧洲订单采购模板">📥 导出欧洲采购模板</button>
           <button onClick={importHistory} className="btn btn-warning text-sm py-1.5">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary text-sm py-1.5">🔄 从供应商同步跟踪号/状态</button>
         </div>
