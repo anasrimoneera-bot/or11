@@ -7,6 +7,13 @@ const { authRequired, authOrTicket, signTicket } = require('../middleware/auth')
 
 const router = express.Router();
 
+function recallMessage(id) {
+  db.transaction(() => {
+    db.prepare("UPDATE aftersales_messages SET recalled = 1, content = '' WHERE id = ?").run(id);
+    db.prepare('DELETE FROM aftersales_attachments WHERE message_id = ?').run(id);
+  })();
+}
+
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -24,10 +31,11 @@ const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 const forDistributor = ({ admin_note, admin_unread, ...t }) => t;
 
 router.get('/', authRequired, (req, res) => {
-  const { q, status, limit = 20, offset = 0 } = req.query;
+  const { q, status, country, limit = 20, offset = 0 } = req.query;
   const conds = ['user_id = ?'];
   const args = [req.user.id];
   if (status && status !== 'all') { conds.push('status = ?'); args.push(status); }
+  if (country) { conds.push('country = ?'); args.push(country); }
   if (q) {
     conds.push('(order_no LIKE ? OR title LIKE ? OR description LIKE ?)');
     args.push(`%${q}%`, `%${q}%`, `%${q}%`);
@@ -73,7 +81,9 @@ router.get('/:id', authRequired, (req, res) => {
   const t = db.prepare('SELECT * FROM aftersales_tickets WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!t) return res.status(404).json({ error: '工单不存在' });
   if (t.has_new_message) db.prepare('UPDATE aftersales_tickets SET has_new_message = 0 WHERE id = ?').run(t.id);
-  const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
+  // mine：分销商只能撤回自己发的（非管理员）消息
+  const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id)
+    .map(m => ({ ...m, mine: !m.is_admin }));
   const attachments = db.prepare('SELECT id, message_id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
   res.json({ ...forDistributor(t), messages, attachments });
 });
@@ -146,6 +156,20 @@ router.post('/:id/messages', authRequired, upload.array('files', 10), (req, res)
     db.prepare('UPDATE aftersales_tickets SET updated_at = CURRENT_TIMESTAMP, has_new_message = 1, admin_unread = 1 WHERE id = ?').run(t.id);
   });
   tx();
+  res.json({ ok: true });
+});
+
+// 分销商撤回自己在工单里发的消息
+router.post('/:id/messages/:mid/recall', authRequired, (req, res) => {
+  const m = db.prepare(`
+    SELECT m.id, m.is_admin, m.recalled FROM aftersales_messages m
+    JOIN aftersales_tickets t ON t.id = m.ticket_id
+    WHERE m.id = ? AND m.ticket_id = ? AND t.user_id = ?
+  `).get(req.params.mid, req.params.id, req.user.id);
+  if (!m) return res.status(404).json({ error: '消息不存在' });
+  if (m.is_admin) return res.status(403).json({ error: '只能撤回自己发送的消息' });
+  if (m.recalled) return res.json({ ok: true });
+  recallMessage(m.id);
   res.json({ ok: true });
 });
 

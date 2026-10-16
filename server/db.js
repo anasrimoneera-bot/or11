@@ -462,6 +462,9 @@ ensureColumn('aftersales_tickets', 'admin_unread', 'INTEGER DEFAULT 0');
 // 每个账号看过的最新论坛问题 id：大于它且非本人发的问题即为「新问题」，打开论坛页时更新
 ensureColumn('users', 'forum_seen_id', 'INTEGER DEFAULT 0');
 
+// 售后沟通消息撤回：撤回后保留记录（显示「已撤回」），清空内容并删除该消息的附件记录
+ensureColumn('aftersales_messages', 'recalled', 'INTEGER DEFAULT 0');
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {

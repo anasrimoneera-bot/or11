@@ -23,6 +23,7 @@ const ACTIONS = [
   { re: /^POST \/aftersales$/, action: '代用户提交售后工单', target: 'ticket' },
   { re: /^PUT \/aftersales\/(\d+)$/, action: '更新售后工单', target: 'ticket' },
   { re: /^POST \/aftersales\/(\d+)\/reply$/, action: '回复售后工单', target: 'ticket' },
+  { re: /^POST \/aftersales\/(\d+)\/messages\/\d+\/recall$/, action: '撤回售后工单消息', target: 'ticket' },
   { re: /^POST \/aftersales\/(\d+)\/refund$/, action: '售后退款给用户', target: 'ticket' },
   // 员工
   { re: /^POST \/staff$/, action: '创建员工账号', target: 'staff' },

@@ -19,11 +19,12 @@ export default function AfterSales() {
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [country, setCountry] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [detailId, setDetailId] = useState(null);
 
-  const load = (sf = statusFilter) => {
-    api.get('/aftersales', { params: { q, status: sf } }).then(r => setList(r.data.rows));
+  const load = (sf = statusFilter, c = country) => {
+    api.get('/aftersales', { params: { q, status: sf, country: c || undefined } }).then(r => setList(r.data.rows));
     api.get('/aftersales/stats').then(r => setStats(r.data));
   };
 
@@ -56,7 +57,11 @@ export default function AfterSales() {
       <div className="bg-white rounded-xl shadow p-4">
         <div className="flex flex-col sm:flex-row gap-2 mb-4">
           <input className="field sm:max-w-md" placeholder="搜索订单号、标题或描述" value={q} onChange={e => setQ(e.target.value)} />
-          <button className="btn btn-primary" onClick={load}>搜索</button>
+          <select className="field sm:w-36" value={country} onChange={e => { setCountry(e.target.value); load(statusFilter, e.target.value); }}>
+            <option value="">全部国家</option>
+            {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button className="btn btn-primary" onClick={() => load()}>搜索</button>
         </div>
         <div className="space-y-3">
           {list.map(t => (
@@ -410,6 +415,17 @@ function DetailModal({ id, onClose }) {
     }
   };
 
+  const recall = async (m) => {
+    if (!confirm('确认撤回这条消息？撤回后内容和附件将不再显示。')) return;
+    try {
+      await api.post(`/aftersales/${id}/messages/${m.id}/recall`);
+      const r = await api.get(`/aftersales/${id}`);
+      setT(r.data);
+    } catch (e) {
+      alert(e.response?.data?.error || '撤回失败');
+    }
+  };
+
   // 附件直链无法带 Authorization 头，先换票据再打开。先同步开空白标签页避免被拦截弹窗。
   const openAttachment = async (attId) => {
     const w = window.open('', '_blank');
@@ -462,8 +478,12 @@ function DetailModal({ id, onClose }) {
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {t.messages?.map(m => (
                 <div key={m.id} className={`p-2 rounded text-sm ${m.is_admin ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
-                  <div className="text-xs text-gray-500">{m.is_admin ? '管理员' : '用户'} {m.author} · {m.created_at}</div>
-                  {m.content && <div className="mt-1 whitespace-pre-wrap">{m.content}</div>}
+                  <div className="text-xs text-gray-500 flex items-center justify-between gap-2">
+                    <span>{m.is_admin ? '管理员' : '用户'} {m.author} · {m.created_at}</span>
+                    {m.mine && !m.recalled && <button type="button" onClick={() => recall(m)} className="text-gray-400 hover:text-red-500 shrink-0">↩ 撤回</button>}
+                  </div>
+                  {m.recalled ? <div className="mt-1 text-gray-400 italic">该消息已撤回</div>
+                    : m.content && <div className="mt-1 whitespace-pre-wrap">{m.content}</div>}
                   {t.attachments?.filter(a => a.message_id === m.id).map(a => (
                     <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="mt-1 mr-1 inline-block border rounded px-2 py-1 text-xs bg-white hover:bg-gray-50">
                       📎 {a.original_name}

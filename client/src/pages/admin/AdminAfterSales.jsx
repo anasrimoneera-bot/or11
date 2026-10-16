@@ -28,6 +28,7 @@ export default function AdminAfterSales() {
   const [shops, setShops] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [shopFilter, setShopFilter] = useState('');
+  const [countryFilter, setCountryFilter] = useState('');
   const [orderNoFilter, setOrderNoFilter] = useState('');
   const [q, setQ] = useState('');
   const [detailId, setDetailId] = useState(null);
@@ -50,6 +51,7 @@ export default function AdminAfterSales() {
     const params = {};
     if (statusFilter !== 'all') params.status = statusFilter;
     if (shopFilter) params.shop_name = shopFilter;
+    if (countryFilter) params.country = countryFilter;
     if (orderNoFilter.trim()) params.order_no = orderNoFilter.trim();
     if (q.trim()) params.q = q.trim();
     api.get('/admin/aftersales', { params }).then(r => {
@@ -57,9 +59,9 @@ export default function AdminAfterSales() {
       setShops(r.data?.shops || []);
     });
   };
-  useEffect(load, [statusFilter, shopFilter]);
+  useEffect(load, [statusFilter, shopFilter, countryFilter]);
   const onSearch = () => load();
-  const onReset = () => { setShopFilter(''); setOrderNoFilter(''); setQ(''); setStatusFilter('all'); };
+  const onReset = () => { setShopFilter(''); setCountryFilter(''); setOrderNoFilter(''); setQ(''); setStatusFilter('all'); };
 
   return (
     <div className="space-y-4">
@@ -82,6 +84,13 @@ export default function AdminAfterSales() {
           <select className="field" value={shopFilter} onChange={e => setShopFilter(e.target.value)}>
             <option value="">全部店铺</option>
             {shops.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="flex-1 min-w-[120px]">
+          <label className="text-xs text-gray-500 block">国家</label>
+          <select className="field" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
+            <option value="">全部国家</option>
+            {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div className="flex-1 min-w-[160px]">
@@ -293,6 +302,15 @@ function Detail({ id, onClose, onChanged }) {
       alert(e.response?.data?.error || '发送失败');
     }
   };
+  const recall = async (m) => {
+    if (!confirm('确认撤回这条消息？撤回后内容和附件将不再显示。')) return;
+    try {
+      await api.post(`/admin/aftersales/${id}/messages/${m.id}/recall`);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.error || '撤回失败');
+    }
+  };
   const doRefund = async () => {
     const amt = Number(refundAmount);
     if (!amt || amt <= 0) return alert('请输入退款金额');
@@ -337,8 +355,12 @@ function Detail({ id, onClose, onChanged }) {
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {t.messages?.map(m => (
                   <div key={m.id} className={`p-2 rounded text-sm ${m.is_admin ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
-                    <div className="text-xs text-gray-500">{m.is_admin ? '👨‍💼 管理员' : '👤 用户'} {m.author} · {m.created_at}</div>
-                    {m.content && <div className="mt-1 whitespace-pre-wrap">{m.content}</div>}
+                    <div className="text-xs text-gray-500 flex items-center justify-between gap-2">
+                      <span>{m.is_admin ? '👨‍💼 管理员' : '👤 用户'} {m.author} · {m.created_at}</span>
+                      {m.mine && !m.recalled && <button type="button" onClick={() => recall(m)} className="text-gray-400 hover:text-red-500 shrink-0">↩ 撤回</button>}
+                    </div>
+                    {m.recalled ? <div className="mt-1 text-gray-400 italic">该消息已撤回</div>
+                      : m.content && <div className="mt-1 whitespace-pre-wrap">{m.content}</div>}
                     {t.attachments?.filter(a => a.message_id === m.id).map(a => (
                       <button key={a.id} type="button" onClick={() => openAttachment(a.id)} className="mt-1 mr-1 inline-block border rounded px-2 py-1 text-xs bg-white hover:bg-gray-50">
                         📎 {a.original_name}
