@@ -1062,7 +1062,7 @@ router.get('/aftersales', (req, res) => {
     LEFT JOIN purchase_orders po ON po.order_no = t.order_no AND po.user_id = t.user_id
   `;
   const rows = db.prepare(`
-    SELECT t.*, u.username, u.display_name, po.shop_name
+    SELECT t.*, u.username, u.display_name, po.shop_name, po.created_at AS order_created_at
     ${baseFrom}
     ${where}
     ORDER BY t.created_at DESC LIMIT ? OFFSET ?
@@ -1083,6 +1083,8 @@ router.get('/aftersales/:id', (req, res) => {
     JOIN users u ON u.id = t.user_id WHERE t.id = ?
   `).get(req.params.id);
   if (!t) return res.status(404).json({ error: '工单不存在' });
+  // 管理员打开详情即视为已读分销商的新消息
+  if (t.admin_unread) db.prepare('UPDATE aftersales_tickets SET admin_unread = 0 WHERE id = ?').run(t.id);
   const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
   const attachments = db.prepare('SELECT id, message_id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
   res.json({ ...t, messages, attachments });

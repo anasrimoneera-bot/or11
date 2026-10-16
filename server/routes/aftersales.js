@@ -140,7 +140,7 @@ router.post('/:id/messages', authRequired, upload.array('files', 10), (req, res)
     const msgId = info.lastInsertRowid;
     const insAtt = db.prepare('INSERT INTO aftersales_attachments (ticket_id, message_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?)');
     for (const f of files) insAtt.run(t.id, msgId, f.filename, Buffer.from(f.originalname, 'latin1').toString('utf8'), f.mimetype, f.size);
-    db.prepare('UPDATE aftersales_tickets SET updated_at = CURRENT_TIMESTAMP, has_new_message = 1 WHERE id = ?').run(t.id);
+    db.prepare('UPDATE aftersales_tickets SET updated_at = CURRENT_TIMESTAMP, has_new_message = 1, admin_unread = 1 WHERE id = ?').run(t.id);
   });
   tx();
   res.json({ ok: true });

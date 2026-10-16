@@ -419,6 +419,10 @@ ensureColumn('users', 'permissions', 'TEXT');
 // 售后附件挂到具体的沟通消息上（NULL = 用户建单时的原始附件）。管理员/用户回复可带附件。
 ensureColumn('aftersales_attachments', 'message_id', 'INTEGER');
 
+// 管理员侧未读：分销商在工单下发新消息时置 1，管理员打开工单详情时清 0。
+// （has_new_message 是给分销商看的未读标记，管理员回复时置 1，二者方向相反不能共用）
+ensureColumn('aftersales_tickets', 'admin_unread', 'INTEGER DEFAULT 0');
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {
