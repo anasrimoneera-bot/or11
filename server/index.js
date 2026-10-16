@@ -23,6 +23,7 @@ app.use('/api/aftersales-templates', require('./routes/aftersalesTemplates'));
 app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/tools', require('./routes/tools'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/forum', require('./routes/forum'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
