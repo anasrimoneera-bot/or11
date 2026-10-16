@@ -107,6 +107,7 @@ export default function AdminAfterSales() {
                   <span>#{t.id} {t.title}</span>
                   <span className="badge bg-yellow-100 text-yellow-700">{t.priority}</span>
                   <span className={`badge ${statusColor[t.status] || 'bg-gray-100'}`}>{statusLabel[t.status]}</span>
+                  {!!t.admin_unread && <span className="badge bg-red-500 text-white animate-pulse">🔔 新消息</span>}
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   用户: <b>{t.display_name || t.username}</b> &nbsp;
@@ -114,8 +115,14 @@ export default function AdminAfterSales() {
                   订单: <span className="font-mono">{t.order_no}</span> &nbsp;
                   国家: {t.country || '-'}
                 </div>
+                <div className="text-xs text-gray-500 mt-0.5">下单时间: {t.order_created_at || '-'}</div>
                 <div className="text-sm text-gray-700 mt-1 line-clamp-2">{t.description}</div>
-                <div className="text-xs text-gray-400 mt-1">{t.created_at}</div>
+                {t.admin_note && (
+                  <div className="text-sm mt-1 bg-blue-50 border border-blue-100 rounded px-2 py-1 whitespace-pre-wrap line-clamp-3">
+                    <span className="text-blue-700 font-medium">管理员备注：</span>{t.admin_note}
+                  </div>
+                )}
+                <div className="text-xs text-gray-400 mt-1">工单创建: {t.created_at}</div>
               </div>
               <div className="flex sm:flex-col gap-2 sm:self-start shrink-0">
                 <button onClick={() => setDetailId(t.id)} className="btn btn-primary text-sm">处理工单</button>
@@ -130,7 +137,8 @@ export default function AdminAfterSales() {
       </div>
 
       {showCreate && <CreateTicket onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
-      {detailId && <Detail id={detailId} onClose={() => setDetailId(null)} onChanged={load} />}
+      {/* 关闭时刷新列表：打开详情会清掉该工单的「新消息」提示 */}
+      {detailId && <Detail id={detailId} onClose={() => { setDetailId(null); load(); }} onChanged={load} />}
     </div>
   );
 }
@@ -210,7 +218,7 @@ function CreateTicket({ onClose, onCreated }) {
           <div>
             <label className="text-xs text-gray-500 block mb-0.5">附件（可选）</label>
             <input type="file" multiple accept="image/*,application/pdf" className="text-sm"
-              onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+              onChange={e => { const picked = Array.from(e.target.files || []); setFiles(prev => [...prev, ...picked]); e.target.value = ''; }} />
             {files.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {files.map((file, i) => (

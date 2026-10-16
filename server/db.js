@@ -272,6 +272,42 @@ CREATE TABLE IF NOT EXISTS aftersales_templates (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 问题论坛：所有登录用户可提问/评论；comment_count / admin_replied 为快照列，
+-- 列表页直接读取，避免每次对评论表做相关子查询计数
+CREATE TABLE IF NOT EXISTS forum_topics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT DEFAULT '',
+  comment_count INTEGER DEFAULT 0,
+  admin_replied INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS forum_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  topic_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  is_admin INTEGER DEFAULT 0,
+  content TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_forum_comments_topic ON forum_comments(topic_id);
+
+-- comment_id 为 NULL = 提问时上传的附件
+CREATE TABLE IF NOT EXISTS forum_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  topic_id INTEGER NOT NULL,
+  comment_id INTEGER,
+  filename TEXT NOT NULL,
+  original_name TEXT,
+  mimetype TEXT,
+  size INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_forum_attachments_topic ON forum_attachments(topic_id);
+
 CREATE TABLE IF NOT EXISTS password_reset_codes (
   user_id INTEGER PRIMARY KEY,
   code_hash TEXT NOT NULL,
@@ -418,6 +454,10 @@ ensureColumn('users', 'permissions', 'TEXT');
 
 // 售后附件挂到具体的沟通消息上（NULL = 用户建单时的原始附件）。管理员/用户回复可带附件。
 ensureColumn('aftersales_attachments', 'message_id', 'INTEGER');
+
+// 管理员侧未读：分销商在工单下发新消息时置 1，管理员打开工单详情时清 0。
+// （has_new_message 是给分销商看的未读标记，管理员回复时置 1，二者方向相反不能共用）
+ensureColumn('aftersales_tickets', 'admin_unread', 'INTEGER DEFAULT 0');
 
 ensureDefaultUser();
 
