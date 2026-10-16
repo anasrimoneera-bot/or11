@@ -6,7 +6,11 @@ import ReactECharts from 'echarts-for-react';
 
 export default function Dashboard() {
   const [d, setD] = useState(null);
-  useEffect(() => { api.get('/dashboard').then(r => setD(r.data)); }, []);
+  const [forum, setForum] = useState(null);
+  useEffect(() => {
+    api.get('/dashboard').then(r => setD(r.data));
+    api.get('/forum/unread').then(r => setForum(r.data)).catch(() => {});
+  }, []);
   if (!d) return <div>加载中...</div>;
 
   const statusMap = { pending_purchase: '待采购', pending_shipment: '待发货', shipped: '已发货', completed: '已完成', cancelled: '已取消', refunded: '已退款', replaced: '已替换' };
@@ -53,12 +57,13 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold">📊 仪表板</h1>
         <span className="badge bg-cyan-100 text-cyan-700 font-medium">DISTRIBUTOR</span>
       </div>
-      <ForumNotice to="/forum" />
+      <ForumNotice d={forum} to="/forum" />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" to="/balance" />
         <Stat title="我的订单" value={d.orders_total} bg="bg-blue-500" icon="🛒" to="/orders" />
         <Stat title="待处理工单" value={d.pending_tickets} bg="bg-teal-600" icon="📄" to="/after-sales" badge={d.new_message_tickets > 0 ? d.new_message_tickets : 0} />
+        <Stat title="问题论坛" value={forum?.total ?? '-'} bg="bg-purple-500" icon="💬" to="/forum" badge={forum?.count || 0} />
       </div>
 
       <div>

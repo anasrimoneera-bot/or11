@@ -1,12 +1,9 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api';
 
-// 控制台顶部提示：问题论坛有别人新发的问题时显示，打开论坛后自动消失
-export default function ForumNotice({ to }) {
+// 控制台提示：问题论坛有别人新发的问题时显示，打开论坛后自动消失。
+// d 为 GET /forum/unread 的结果，由控制台页面获取（同时用于「问题论坛」统计卡片）
+export default function ForumNotice({ d, to }) {
   const navigate = useNavigate();
-  const [d, setD] = useState(null);
-  useEffect(() => { api.get('/forum/unread').then(r => setD(r.data)).catch(() => {}); }, []);
   if (!d?.count) return null;
 
   return (
