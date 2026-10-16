@@ -1045,10 +1045,11 @@ router.post('/orders/import-from-dropxl', async (req, res) => {
 
 // ============ 售后管理 ============
 router.get('/aftersales', (req, res) => {
-  const { status, q, shop_name, order_no, limit = 50, offset = 0 } = req.query;
+  const { status, q, shop_name, order_no, country, limit = 50, offset = 0 } = req.query;
   const conds = [];
   const args = [];
   if (status && status !== 'all') { conds.push('t.status = ?'); args.push(status); }
+  if (country) { conds.push('t.country = ?'); args.push(country); }
   if (order_no) { conds.push('t.order_no LIKE ?'); args.push(`%${order_no.trim()}%`); }
   if (shop_name) { conds.push('po.shop_name LIKE ?'); args.push(`%${shop_name.trim()}%`); }
   if (q) {
@@ -1085,7 +1086,9 @@ router.get('/aftersales/:id', (req, res) => {
   if (!t) return res.status(404).json({ error: '工单不存在' });
   // 管理员打开详情即视为已读分销商的新消息
   if (t.admin_unread) db.prepare('UPDATE aftersales_tickets SET admin_unread = 0 WHERE id = ?').run(t.id);
-  const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
+  // mine：管理员只能撤回自己发的回复
+  const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id)
+    .map(m => ({ ...m, mine: !!m.is_admin && m.author === req.user.username }));
   const attachments = db.prepare('SELECT id, message_id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
   res.json({ ...t, messages, attachments });
 });
@@ -1167,6 +1170,20 @@ router.post('/aftersales/:id/reply', upload.array('files', 10), (req, res) => {
     db.prepare('UPDATE aftersales_tickets SET has_new_message = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(t.id);
   });
   tx();
+  res.json({ ok: true });
+});
+
+// 管理员撤回自己发送的回复
+router.post('/aftersales/:id/messages/:mid/recall', (req, res) => {
+  const m = db.prepare('SELECT id, is_admin, author, recalled FROM aftersales_messages WHERE id = ? AND ticket_id = ?').get(req.params.mid, req.params.id);
+  if (!m) return res.status(404).json({ error: '消息不存在' });
+  if (!m.is_admin || m.author !== req.user.username) return res.status(403).json({ error: '只能撤回自己发送的消息' });
+  if (!m.recalled) {
+    db.transaction(() => {
+      db.prepare("UPDATE aftersales_messages SET recalled = 1, content = '' WHERE id = ?").run(m.id);
+      db.prepare('DELETE FROM aftersales_attachments WHERE message_id = ?').run(m.id);
+    })();
+  }
   res.json({ ok: true });
 });
 

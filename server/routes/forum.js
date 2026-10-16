@@ -58,6 +58,22 @@ function authorName(row, viewer) {
   return name ? `${name.slice(0, 1)}**` : '用户';
 }
 
+// 控制台提示：自上次打开论坛后，别人新发的问题数 + 最近几条标题（走主键范围，开销很小）
+router.get('/unread', (req, res) => {
+  const seen = db.prepare('SELECT forum_seen_id FROM users WHERE id = ?').get(req.user.id)?.forum_seen_id || 0;
+  const cond = 'WHERE id > ? AND user_id != ?';
+  const count = db.prepare(`SELECT COUNT(*) AS c FROM forum_topics ${cond}`).get(seen, req.user.id).c;
+  const latest = count ? db.prepare(`SELECT id, title, created_at FROM forum_topics ${cond} ORDER BY id DESC LIMIT 3`).all(seen, req.user.id) : [];
+  res.json({ count, latest });
+});
+
+// 打开论坛页即视为已看过当前全部问题
+router.post('/seen', (req, res) => {
+  const maxId = db.prepare('SELECT MAX(id) AS m FROM forum_topics').get().m || 0;
+  db.prepare('UPDATE users SET forum_seen_id = ? WHERE id = ? AND COALESCE(forum_seen_id, 0) < ?').run(maxId, req.user.id, maxId);
+  res.json({ ok: true });
+});
+
 router.get('/', (req, res) => {
   const q = String(req.query.q || '').trim();
   const limit = Math.min(Number(req.query.limit) || 20, 100);
