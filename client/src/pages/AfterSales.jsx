@@ -457,12 +457,6 @@ function DetailModal({ id, onClose }) {
               </div>
             </div>
           )}
-          {t.admin_note && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
-              <div className="font-medium text-yellow-700 text-sm">管理员备注：</div>
-              <div className="text-sm mt-1">{t.admin_note}</div>
-            </div>
-          )}
           <div>
             <div className="text-sm font-medium mb-2">沟通记录：</div>
             <div className="space-y-2 max-h-60 overflow-y-auto">

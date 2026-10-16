@@ -20,6 +20,9 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
+// 管理员备注 / 管理员侧未读标记仅供管理员内部使用，不返回给分销商
+const forDistributor = ({ admin_note, admin_unread, ...t }) => t;
+
 router.get('/', authRequired, (req, res) => {
   const { q, status, limit = 20, offset = 0 } = req.query;
   const conds = ['user_id = ?'];
@@ -32,7 +35,7 @@ router.get('/', authRequired, (req, res) => {
   const where = 'WHERE ' + conds.join(' AND ');
   const rows = db.prepare(`SELECT * FROM aftersales_tickets ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM aftersales_tickets ${where}`).get(...args).c;
-  res.json({ rows, total });
+  res.json({ rows: rows.map(forDistributor), total });
 });
 
 router.get('/stats', authRequired, (req, res) => {
@@ -72,7 +75,7 @@ router.get('/:id', authRequired, (req, res) => {
   if (t.has_new_message) db.prepare('UPDATE aftersales_tickets SET has_new_message = 0 WHERE id = ?').run(t.id);
   const messages = db.prepare('SELECT * FROM aftersales_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
   const attachments = db.prepare('SELECT id, message_id, original_name, mimetype, size, created_at FROM aftersales_attachments WHERE ticket_id = ?').all(t.id);
-  res.json({ ...t, messages, attachments });
+  res.json({ ...forDistributor(t), messages, attachments });
 });
 
 // 签发短期下载票据：浏览器 <a>/新标签页直连附件接口时无法带 Authorization 头，
