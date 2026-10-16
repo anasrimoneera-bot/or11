@@ -19,6 +19,8 @@ export default function Forum({ isAdmin = false }) {
     api.get('/forum', { params }).then(r => { setRows(r.data.rows || []); setTotal(r.data.total || 0); });
   };
   useEffect(() => { load(); }, [page]);
+  // 打开论坛即标记已看过，控制台的新问题提示随之消失
+  useEffect(() => { api.post('/forum/seen').catch(() => {}); }, []);
   const doSearch = () => { if (page !== 0) setPage(0); else load(); };
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 

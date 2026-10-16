@@ -459,6 +459,9 @@ ensureColumn('aftersales_attachments', 'message_id', 'INTEGER');
 // （has_new_message 是给分销商看的未读标记，管理员回复时置 1，二者方向相反不能共用）
 ensureColumn('aftersales_tickets', 'admin_unread', 'INTEGER DEFAULT 0');
 
+// 每个账号看过的最新论坛问题 id：大于它且非本人发的问题即为「新问题」，打开论坛页时更新
+ensureColumn('users', 'forum_seen_id', 'INTEGER DEFAULT 0');
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {

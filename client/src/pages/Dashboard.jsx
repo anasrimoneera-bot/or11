@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import ForumNotice from '../components/ForumNotice.jsx';
 import ReactECharts from 'echarts-for-react';
 
 export default function Dashboard() {
@@ -52,6 +53,7 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold">📊 仪表板</h1>
         <span className="badge bg-cyan-100 text-cyan-700 font-medium">DISTRIBUTOR</span>
       </div>
+      <ForumNotice to="/forum" />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Stat title="账户余额" value={`¥${(d.balance || 0).toFixed(2)}`} bg="bg-emerald-500" icon="💼" to="/balance" />
