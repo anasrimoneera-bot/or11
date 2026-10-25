@@ -53,6 +53,16 @@ export default function Orders() {
     try { await api.put(`/orders/${o.id}`, { tracking_no: v.trim() }); load(); }
     catch (e) { alert(e.response?.data?.error || '保存失败'); }
   };
+  // 分销商自行确认采购：从自己余额扣除采购¥（余额不足会提示联系 BOSS 充值）
+  const confirmPurchase = async (o) => {
+    const cny = Number(o.purchase_amount_cny) || (Number(o.purchase_amount_usd) || 0) * (Number(o.exchange_rate) || 0);
+    if (!confirm(`确认采购订单 ${o.order_no}？\n将从你的余额扣除约 ¥${cny.toFixed(2)}（以系统计算为准）。`)) return;
+    try {
+      const { data } = await api.post(`/orders/${o.id}/confirm`);
+      alert(`确认成功，已扣除 ¥${Number(data.deducted).toFixed(2)}`);
+      load();
+    } catch (e) { alert(e.response?.data?.error || '确认失败'); }
+  };
   // 仅「待采购」订单可删除；只删本地记录，不会取消供应商那边的订单
   const deleteOrder = async (o) => {
     if (!confirm(`确定删除订单 ${o.order_no}？\n只删除本系统内的记录，不会取消已提交给供应商的订单。\n此操作不可恢复。`)) return;
@@ -158,6 +168,7 @@ export default function Orders() {
                 </div>
                 <div className="flex gap-3 mt-1 text-xs" onClick={e => e.stopPropagation()}>
                   <button onClick={() => editTracking(o)} className="text-blue-600">✏️ {o.tracking_no ? '改跟踪号' : '填跟踪号'}</button>
+                  {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="text-green-600 font-medium">✓ 确认采购</button>}
                   {o.status === 'pending_purchase' && <button onClick={() => deleteOrder(o)} className="text-red-500">🗑️ 删除</button>}
                 </div>
               </div>
@@ -233,6 +244,7 @@ export default function Orders() {
                   <td className="px-3 py-2">{(o.created_at || '').replace('T', ' ').slice(0, 19)}</td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => setDetailId(o.id)} className="text-blue-600 hover:underline text-xs mr-2">查看</button>
+                    {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="text-green-600 hover:underline text-xs mr-2 font-medium">确认采购</button>}
                     {o.status === 'pending_purchase' && <button onClick={() => deleteOrder(o)} className="text-red-500 hover:underline text-xs">删除</button>}
                   </td>
                 </tr>

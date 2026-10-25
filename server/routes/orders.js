@@ -3,6 +3,7 @@ const path = require('path');
 const db = require('../db');
 const { authRequired } = require('../middleware/auth');
 const dropxl = require('../dropxl');
+const { getExchangeRate } = require('../settings');
 
 const router = express.Router();
 
@@ -159,6 +160,46 @@ router.put('/:id', authRequired, (req, res) => {
     WHERE id = ? AND user_id = ?
   `).run(amt, tax, ship, track, req.params.id, req.user.id);
   res.json({ ok: true });
+});
+
+// 分销商自己确认采购：按系统已算好的加价后采购价 × 订单锁定汇率，从自己余额扣款，
+// 余额不足则拦截（需 BOSS 先手动充值）。与管理员确认采购的非 BOSS 路径一致，
+// 分销商不能改汇率/价格，也不返回真实采购价。
+router.post('/:id/confirm', authRequired, (req, res) => {
+  const o = db.prepare(`
+    SELECT id, order_no, status, purchase_amount_usd, real_amount_usd, markup_pct, exchange_rate
+    FROM purchase_orders WHERE id = ? AND user_id = ?
+  `).get(req.params.id, req.user.id);
+  if (!o) return res.status(404).json({ error: '订单不存在或不属于你' });
+  if (o.status !== 'pending_purchase') return res.status(400).json({ error: '只有「待采购」订单可以确认采购' });
+
+  const rate = o.exchange_rate || getExchangeRate();
+  const displayUsd = o.purchase_amount_usd || ((o.real_amount_usd || 0) * (1 + (o.markup_pct || 0) / 100));
+  const cny = displayUsd * rate;
+  if (!(cny > 0)) return res.status(400).json({ error: '订单采购金额为 0，请联系管理员核对后再确认' });
+
+  const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(req.user.id);
+  // 管理员/BOSS 账号自己名下的订单允许透支（同管理员端确认采购）
+  if (!req.user.is_admin && (bal?.balance || 0) < cny) {
+    return res.status(400).json({ error: `余额不足，需要 ¥${cny.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}，请联系 BOSS 充值` });
+  }
+
+  db.transaction(() => {
+    if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(req.user.id);
+    const newBal = (bal?.balance || 0) - cny;
+    db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, req.user.id);
+    db.prepare(`
+      INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
+      VALUES (?, '扣除', ?, ?, ?, ?)
+    `).run(req.user.id, -cny, newBal, `订单采购 - ${o.order_no}（用户自行确认）`, o.order_no);
+    db.prepare(`
+      UPDATE purchase_orders
+      SET purchase_amount_usd = ?, exchange_rate = ?, purchase_amount_cny = ?,
+          status = 'pending_shipment', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(displayUsd, rate, cny, o.id);
+  })();
+  res.json({ ok: true, deducted: cny });
 });
 
 // 用户删除自己的订单：仅限「待采购」（尚未确认采购），避免删单绕过扣款。
