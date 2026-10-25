@@ -47,7 +47,7 @@ export default function AdminStaff() {
       <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
         💡 <b>权限说明：</b>
         <ul className="list-disc list-inside mt-1 space-y-0.5 text-gray-700">
-          <li>管理员可以：管理用户、确认订单（不知真实成本）、处理售后、给用户充值/退款</li>
+          <li>管理员可以：管理用户、确认订单（不知真实成本）、处理售后（用户余额充值仅 BOSS 可操作）</li>
           <li>管理员默认<b className="text-red-600">看不到</b>：订单的真实采购价、加价%、PayPal汇率、差价利润（勾选「查看真实采购价/加价」后可见）、供应商接口测试页</li>
           <li>仅店主可以：查看真实成本、调用供应商测试接口、管理员管理</li>
           <li>📌 <b>按需开通</b>：点每行「权限」可勾选该管理员能看到的全部功能界面（基础界面默认可见、可取消；<b>财务管理 / 售后政策维护 / 系统设置 / 查看真实采购价/加价</b>需单独开通；改动后对方刷新页面即生效）</li>

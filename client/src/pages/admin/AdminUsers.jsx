@@ -37,7 +37,7 @@ export default function AdminUsers() {
               <span className="text-gray-400">{(u.created_at || '').slice(0, 10)}</span>
             </div>
             <div className="flex gap-3 text-xs">
-              <button onClick={() => setBalanceUser(u)} className="text-blue-600 hover:underline">充值/扣款</button>
+              {isOwner && <button onClick={() => setBalanceUser(u)} className="text-blue-600 hover:underline">充值/扣款</button>}
               <button onClick={() => setEditUser(u)} className="text-gray-700 hover:underline">编辑</button>
               {isOwner && (
                 <button onClick={async () => {
@@ -78,7 +78,7 @@ export default function AdminUsers() {
                 <td className={`px-3 py-2 text-right font-semibold ${u.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>¥{(u.balance || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-xs">{u.created_at}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button onClick={() => setBalanceUser(u)} className="text-blue-600 text-xs mr-2 hover:underline">充值/扣款</button>
+                  {isOwner && <button onClick={() => setBalanceUser(u)} className="text-blue-600 text-xs mr-2 hover:underline">充值/扣款</button>}
                   <button onClick={() => setEditUser(u)} className="text-gray-600 text-xs mr-2 hover:underline">编辑</button>
                   {isOwner && (
                     <button
