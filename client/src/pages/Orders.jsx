@@ -53,10 +53,11 @@ export default function Orders() {
     try { await api.put(`/orders/${o.id}`, { tracking_no: v.trim() }); load(); }
     catch (e) { alert(e.response?.data?.error || '保存失败'); }
   };
-  // 分销商自行确认采购：从自己余额扣除采购¥（余额不足会提示联系 BOSS 充值）
+  // 分销商自行确认采购：按「采购(¥)」列金额从自己余额扣除（余额不足会提示联系 BOSS 充值）
   const confirmPurchase = async (o) => {
-    const cny = Number(o.purchase_amount_cny) || (Number(o.purchase_amount_usd) || 0) * (Number(o.exchange_rate) || 0);
-    if (!confirm(`确认采购订单 ${o.order_no}？\n将从你的余额扣除约 ¥${cny.toFixed(2)}（以系统计算为准）。`)) return;
+    const cny = Number(o.purchase_amount_cny) || 0;
+    if (!(cny > 0)) return alert('该订单采购(¥)金额尚未计算，请联系管理员核对后再确认');
+    if (!confirm(`确认采购订单 ${o.order_no}？\n将从你的余额扣除采购(¥)：¥${cny.toFixed(2)}`)) return;
     try {
       const { data } = await api.post(`/orders/${o.id}/confirm`);
       alert(`确认成功，已扣除 ¥${Number(data.deducted).toFixed(2)}`);
