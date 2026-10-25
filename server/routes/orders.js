@@ -140,23 +140,52 @@ router.post('/', authRequired, async (req, res) => {
   res.json({ ok: true, id, dropxl_order_id: dropxlOrderId, message: 'DropXL订单创建成功，等待管理员确认采购金额' });
 });
 
-// 用户只允许更新本地销售/费用字段，不会推回 DropXL，不影响订单状态/跟踪号/采购价
+// 用户只允许更新本地销售/费用字段与物流跟踪号，不会推回 DropXL，不影响订单状态/采购价
 router.put('/:id', authRequired, (req, res) => {
-  const { amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
+  const { amazon_amount, amazon_tax_amount, shipping_fee, tracking_no } = req.body || {};
   const own = db.prepare('SELECT id FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!own) return res.status(404).json({ error: '订单不存在或不属于你' });
   const amt = amazon_amount === undefined ? null : Number(amazon_amount);
   const tax = amazon_tax_amount === undefined ? null : Number(amazon_tax_amount);
   const ship = shipping_fee === undefined ? null : Number(shipping_fee);
+  const track = tracking_no === undefined ? null : String(tracking_no).trim().slice(0, 100);
   db.prepare(`
     UPDATE purchase_orders
     SET amazon_amount = COALESCE(?, amazon_amount),
         amazon_tax_amount = COALESCE(?, amazon_tax_amount),
         shipping_fee = COALESCE(?, shipping_fee),
+        tracking_no = COALESCE(?, tracking_no),
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND user_id = ?
-  `).run(amt, tax, ship, req.params.id, req.user.id);
+  `).run(amt, tax, ship, track, req.params.id, req.user.id);
   res.json({ ok: true });
+});
+
+// 用户删除自己的订单：仅限「待采购」（尚未确认采购），避免删单绕过扣款。
+// 个别「待采购」单可能已扣过款（管理员手工新增订单时扣款），删除时按净扣款退回余额（同管理员删单）。
+// 只删本地记录，不会取消已推送到供应商的订单。
+router.delete('/:id', authRequired, (req, res) => {
+  const o = db.prepare('SELECT id, order_no, status FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!o) return res.status(404).json({ error: '订单不存在或不属于你' });
+  if (o.status !== 'pending_purchase') return res.status(400).json({ error: '只能删除「待采购」状态的订单' });
+  const net = db.prepare('SELECT IFNULL(SUM(amount), 0) AS s FROM balance_records WHERE user_id = ? AND related_order = ?').get(req.user.id, o.order_no).s;
+  const refund = net < 0 ? -net : 0;
+  db.transaction(() => {
+    if (refund > 0) {
+      const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(req.user.id);
+      if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(req.user.id);
+      const newBal = (bal?.balance || 0) + refund;
+      db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, req.user.id);
+      db.prepare(`
+        INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
+        VALUES (?, '退款', ?, ?, ?, ?)
+      `).run(req.user.id, refund, newBal, `订单删除退款 - ${o.order_no}`, o.order_no);
+    }
+    db.prepare('DELETE FROM purchase_order_items WHERE order_id = ?').run(o.id);
+    db.prepare('DELETE FROM purchase_order_shipping WHERE order_id = ?').run(o.id);
+    db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(o.id);
+  })();
+  res.json({ ok: true, refunded: refund });
 });
 
 // 注意：DropXL 同步功能已下放到管理后台 (POST /api/admin/orders/sync)，

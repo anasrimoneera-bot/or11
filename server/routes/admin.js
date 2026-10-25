@@ -259,8 +259,8 @@ router.post('/users/:id/reset-password', (req, res) => {
   res.json({ ok: true });
 });
 
-// ============ 用户余额管理 ============
-router.post('/users/:id/balance', (req, res) => {
+// ============ 用户余额管理（仅 BOSS 手动充值/扣款）============
+router.post('/users/:id/balance', ownerRequired, (req, res) => {
   const { amount, type, description } = req.body || {};
   const amt = Number(amount);
   if (!amt || !isFinite(amt)) return res.status(400).json({ error: '请输入有效金额' });
@@ -397,20 +397,19 @@ router.post('/orders/:id/confirm', (req, res) => {
 
   const deduct = displayCny - refund;
 
+  // 确认采购只从用户余额扣款，不自动充值：余额须由 BOSS 在「用户管理」手动充值。
+  // 管理员/BOSS 账号名下的订单允许透支（同手工新增订单），分销商余额不足则拦截。
   const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
+  const orderUser = db.prepare('SELECT is_admin, is_owner FROM users WHERE id = ?').get(order.user_id);
+  const allowOverdraft = !!(orderUser && (orderUser.is_admin || orderUser.is_owner));
+  if (!allowOverdraft && (bal?.balance || 0) < deduct) {
+    return res.status(400).json({ error: `用户余额不足，需要 ¥${deduct.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}，请先由 BOSS 为该用户充值` });
+  }
 
   const tx = db.transaction(() => {
     if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(order.user_id);
-    // 确认采购时自动把采购¥充值到下单用户余额，免去 BOSS/管理员为该单手动充值后再扣款
-    const afterRecharge = (bal?.balance || 0) + displayCny;
-    db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(afterRecharge, order.user_id);
-    db.prepare(`
-      INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
-      VALUES (?, '充值', ?, ?, ?, ?)
-    `).run(order.user_id, displayCny, afterRecharge, `订单采购自动充值 - ${order.order_no}`, order.order_no);
-
-    // 再按采购金额扣款（扣除额可含分销商退回额）
-    const newBal = afterRecharge - deduct;
+    // 按采购金额扣款（扣除额可含分销商退回额）
+    const newBal = (bal?.balance || 0) - deduct;
     db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, order.user_id);
     db.prepare(`
       INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
