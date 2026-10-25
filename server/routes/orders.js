@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const db = require('../db');
 const { authRequired } = require('../middleware/auth');
-const dropxl = require('../dropxl');
+const { ensurePushed, withUserLock } = require('../supplierPush');
 
 const router = express.Router();
 
@@ -94,25 +94,14 @@ router.post('/', authRequired, async (req, res) => {
   if (!order_no) return res.status(400).json({ error: '请填写订单号' });
   if (!items.length) return res.status(400).json({ error: '请至少添加一个商品' });
 
-  // 用户提交时立刻调用 DropXL 创建订单（不扣款）
-  const payload = {
-    customer_order_reference: customer_ref || order_no,
-    shipping_address,
-    products: items.map(i => ({ sku: i.sku, quantity: Number(i.quantity) || 1 })),
-  };
-
-  let dropxlOrderId = null;
-  let rawResp = null;
+  // 提交时只在本地入库（待采购），不推送供应商；点击「确认采购」时才推送。
+  // 价格按 (国家, SKU) 从本地供应商商品库取（与批量导入一致），SKU 不在库时按 0 入库，由管理员核定。
+  const qProduct = db.prepare('SELECT b2b_price FROM dropxl_products WHERE country = ? AND code = ?');
   let realUsd = 0;
-  try {
-    const resp = await dropxl.createOrder(payload);
-    rawResp = JSON.stringify(resp);
-    dropxlOrderId = resp?.id || resp?.order_id || null;
-    realUsd = dropxl.extractRealAmountUSD(resp);
-  } catch (e) {
-    return res.status(502).json({ error: 'DropXL下单失败: ' + e.message, detail: e.data });
+  for (const i of items) {
+    const p = qProduct.get(country, String(i.sku || '').trim());
+    realUsd += (Number(p?.b2b_price) || 0) * (Number(i.quantity) || 1);
   }
-
   // 读取订单国家的加价百分比（与批量导入一致），自动计算用户可见的"显示采购价"
   const m = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
   const markupPct = Number(m?.markup_pct) || 0;
@@ -125,19 +114,25 @@ router.post('/', authRequired, async (req, res) => {
       INSERT INTO purchase_orders
       (user_id, order_no, customer_ref, shop_name, country, amazon_amount, amazon_tax_amount, shipping_fee,
        real_amount_usd, purchase_amount_usd, purchase_amount_cny, exchange_rate, markup_pct,
-       status, dropxl_order_id, raw_payload, raw_response)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_purchase', ?, ?, ?)
+       status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_purchase')
     `).run(req.user.id, order_no, customer_ref, shop_name, country, amazon_amount, amazon_tax_amount, shipping_fee,
-      realUsd, displayUsd, displayCny, exchange_rate, markupPct, dropxlOrderId, JSON.stringify(payload), rawResp);
+      realUsd, displayUsd, displayCny, exchange_rate, markupPct);
 
     const orderId = info.lastInsertRowid;
     const insItem = db.prepare('INSERT INTO purchase_order_items (order_id, sku, product_name, quantity, unit_price) VALUES (?, ?, ?, ?, ?)');
     for (const it of items) insItem.run(orderId, it.sku, it.product_name || '', it.quantity || 1, it.unit_price || 0);
+    // 收货地址存入 purchase_order_shipping，确认采购推送供应商时据此拼请求体
+    const a = shipping_address || {};
+    db.prepare(`
+      INSERT INTO purchase_order_shipping (order_id, name, address1, address2, city, state, postal, country, phone, buyer_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(orderId, a.name || null, a.street || null, null, a.city || null, a.state || null, a.zip || null, a.country || null, a.phone || null, a.email || null);
     return orderId;
   });
 
   const id = tx();
-  res.json({ ok: true, id, dropxl_order_id: dropxlOrderId, message: 'DropXL订单创建成功，等待管理员确认采购金额' });
+  res.json({ ok: true, id, message: '订单已提交（待采购），点击「确认采购」后才会推送到供应商' });
 });
 
 // 用户只允许更新本地销售/费用字段与物流跟踪号，不会推回 DropXL，不影响订单状态/采购价
@@ -163,7 +158,8 @@ router.put('/:id', authRequired, (req, res) => {
 
 // 分销商自己确认采购：按订单已记录的「采购(¥)」金额（列表所见金额）从自己余额扣款，
 // 余额不足则拦截（需 BOSS 先手动充值）。分销商不能改汇率/价格，也不返回真实采购价。
-router.post('/:id/confirm', authRequired, (req, res) => {
+// 余额检查通过后先推送供应商（未推送过的订单），推送成功才扣款；推送失败不扣款、订单保持待采购。
+router.post('/:id/confirm', authRequired, async (req, res) => {
   const o = db.prepare(`
     SELECT id, order_no, status, purchase_amount_cny
     FROM purchase_orders WHERE id = ? AND user_id = ?
@@ -174,13 +170,17 @@ router.post('/:id/confirm', authRequired, (req, res) => {
   const cny = Number(o.purchase_amount_cny) || 0;
   if (!(cny > 0)) return res.status(400).json({ error: '该订单采购(¥)金额尚未计算，请联系管理员核对后再确认' });
 
-  const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(req.user.id);
+  let bal;
   // 管理员/BOSS 账号自己名下的订单允许透支（同管理员端确认采购）
-  if (!req.user.is_admin && (bal?.balance || 0) < cny) {
-    return res.status(400).json({ error: `余额不足，需要 ¥${cny.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}，请联系 BOSS 充值` });
-  }
-
-  db.transaction(() => {
+  const checkBalance = () => {
+    bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(req.user.id);
+    if (!req.user.is_admin && (bal?.balance || 0) < cny) {
+      throw Object.assign(new Error(`余额不足，需要 ¥${cny.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}，请联系 BOSS 充值`), { status: 400 });
+    }
+  };
+  const tx = db.transaction(() => {
+    const st = db.prepare('SELECT status FROM purchase_orders WHERE id = ?').get(o.id);
+    if (st?.status !== 'pending_purchase') throw Object.assign(new Error('订单状态已变化，请刷新后重试'), { status: 409 });
     if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(req.user.id);
     const newBal = (bal?.balance || 0) - cny;
     db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, req.user.id);
@@ -191,7 +191,19 @@ router.post('/:id/confirm', authRequired, (req, res) => {
     db.prepare(`
       UPDATE purchase_orders SET status = 'pending_shipment', updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(o.id);
-  })();
+  });
+  try {
+    await withUserLock(req.user.id, async () => {
+      const fresh = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(o.id);
+      if (fresh?.status !== 'pending_purchase') throw Object.assign(new Error('订单状态已变化，请刷新后重试'), { status: 409 });
+      checkBalance();
+      await ensurePushed(fresh);
+      checkBalance();
+      tx();
+    });
+  } catch (e) {
+    return res.status(e.status || 502).json({ error: e.message });
+  }
   res.json({ ok: true, deducted: cny });
 });
 

@@ -98,11 +98,7 @@ export default function PurchaseProducts() {
     try {
       const r = await api.post('/orders/batch/submit', { rows: submittable });
       const s = r.data.summary;
-      const pushMsg = s.dropxl_pushed != null
-        ? `\n\n供应商系统推送：成功 ${s.dropxl_pushed} / 失败 ${s.dropxl_push_failed}` +
-          (s.dropxl_push_failed > 0 ? '\n失败订单可在订单管理页查看错误并由管理员重试' : '\n订单已成功推送至供应商，等待店主完成支付')
-        : '';
-      alert(`本地入库：成功 ${s.created} / 跳过(已存在) ${s.skipped} / 失败 ${s.failed}${pushMsg}`);
+      alert(`本地入库：成功 ${s.created} / 跳过(已存在) ${s.skipped} / 失败 ${s.failed}\n\n订单为「待采购」状态，请到订单管理点击「确认采购」，确认后才会推送到供应商并扣款`);
       setShowConfirmModal(false);
       setPreview(null);
       setPickedFile(null);
@@ -145,7 +141,7 @@ export default function PurchaseProducts() {
     setSubmitting(true);
     try {
       const { data } = await api.post('/orders', form);
-      alert(`采购成功! 供应商订单 ID: ${data.dropxl_order_id || '(空)'}`);
+      alert(data.message || '订单已提交');
       setForm({ ...form, order_no: '', items: [{ sku: '', product_name: '', quantity: 1, unit_price: 0 }] });
     } catch (e) {
       alert('采购失败: ' + (e.response?.data?.error || e.message));
@@ -525,7 +521,7 @@ function OrderGroupCard({ group, exchangeRate, onRemove, onEditShipping }) {
             <button type="button" onClick={cancelAddr} className="text-xs px-3 py-1 rounded border">取消</button>
             <button type="button" onClick={saveAddr} className="text-xs px-3 py-1 rounded bg-blue-600 text-white">✓ 应用到本订单</button>
           </div>
-          <div className="text-xs text-gray-500 mt-1">修改后将用新地址提交并推送到供应商。</div>
+          <div className="text-xs text-gray-500 mt-1">修改后将用新地址提交，确认采购时按此地址推送到供应商。</div>
         </div>
       )}
       <div className="font-medium mb-1">商品列表：</div>

@@ -1,4 +1,4 @@
-// 拼 DropXL Create Order 请求体的共享逻辑（批量提交与订单管理「重试推送」共用，保证一致）
+// 拼 DropXL Create Order 请求体的共享逻辑（确认采购推送与订单管理「手动推送」共用，保证一致）
 
 // 把 address 截到 30 字符以内，溢出部分挪到 addr2 前面（DropXL 规则）
 function splitAddress(addr1, addr2) {

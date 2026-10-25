@@ -57,7 +57,7 @@ export default function Orders() {
   const confirmPurchase = async (o) => {
     const cny = Number(o.purchase_amount_cny) || 0;
     if (!(cny > 0)) return alert('该订单采购(¥)金额尚未计算，请联系管理员核对后再确认');
-    if (!confirm(`确认采购订单 ${o.order_no}？\n将从你的余额扣除采购(¥)：¥${cny.toFixed(2)}`)) return;
+    if (!confirm(`确认采购订单 ${o.order_no}？\n确认后将推送到供应商下单，并从你的余额扣除采购(¥)：¥${cny.toFixed(2)}`)) return;
     try {
       const { data } = await api.post(`/orders/${o.id}/confirm`);
       alert(`确认成功，已扣除 ¥${Number(data.deducted).toFixed(2)}`);
