@@ -2,12 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const db = require('../db');
-const dropxl = require('../dropxl');
-const { buildDropxlPayload } = require('../dropxlPayload');
 const { authRequired } = require('../middleware/auth');
-
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const DROPXL_RATE_LIMIT_MS = 1100; // DropXL 限速 1 请求/秒，加 100ms 缓冲
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -466,49 +461,15 @@ router.post('/submit', authRequired, async (req, res) => {
   });
   tx();
 
-  // 本地落库成功后，逐订单推送到 DropXL（按对应国家 token）
-  // 限速 1 req/sec；推送结果存回 purchase_orders；失败的订单店主可后台重试
-  const updatePush = db.prepare(`
-    UPDATE purchase_orders
-    SET dropxl_order_id = ?, dropxl_push_status = ?, dropxl_push_error = ?, dropxl_pushed_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-  const dropxlPush = { success: 0, failed: 0, details: [] };
-  for (const created of results.created) {
-    // 重新查必要数据用于拼 payload
-    const order = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(created.id);
-    const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(created.id);
-    const itemRows = db.prepare('SELECT sku, quantity FROM purchase_order_items WHERE order_id = ?').all(created.id);
-    if (!order || !shipping) {
-      dropxlPush.failed++;
-      dropxlPush.details.push({ amazon_order_id: created.amazon_order_id, ok: false, error: '本地数据残缺' });
-      continue;
-    }
-    try {
-      const payload = buildDropxlPayload(order.order_no, shipping, itemRows);
-      const resp = await dropxl.createOrder(payload, order.country);
-      const dropxlOrderId = resp?.order?.id || resp?.id || null;
-      updatePush.run(dropxlOrderId ? String(dropxlOrderId) : null, 'success', null, created.id);
-      dropxlPush.success++;
-      dropxlPush.details.push({ amazon_order_id: created.amazon_order_id, ok: true, dropxl_order_id: dropxlOrderId });
-    } catch (e) {
-      updatePush.run(null, 'failed', String(e.message || e).slice(0, 500), created.id);
-      dropxlPush.failed++;
-      dropxlPush.details.push({ amazon_order_id: created.amazon_order_id, ok: false, error: e.message });
-    }
-    await sleep(DROPXL_RATE_LIMIT_MS);
-  }
-
+  // 只在本地入库（待采购），不推送供应商：分销商/管理员点击「确认采购」时才推送，
+  // 避免不能采购的订单被误下到供应商
   res.json({
     ok: true,
     ...results,
-    dropxl_push: dropxlPush,
     summary: {
       created: results.created.length,
       skipped: results.skipped.length,
       failed: results.failed.length,
-      dropxl_pushed: dropxlPush.success,
-      dropxl_push_failed: dropxlPush.failed,
     },
   });
 });

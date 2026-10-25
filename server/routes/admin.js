@@ -7,6 +7,7 @@ const db = require('../db');
 const dropxl = require('../dropxl');
 const { authRequired, adminRequired, ownerRequired, permRequired, canViewCost, GRANTABLE_KEYS, parsePermissions, BASE_CONFIGURED_FLAG } = require('../middleware/auth');
 const { audit, setAudit } = require('../middleware/audit');
+const { pushOrderToSupplier, ensurePushed, withUserLock } = require('../supplierPush');
 
 const router = express.Router();
 router.use(authRequired, adminRequired, audit);
@@ -364,7 +365,7 @@ router.get('/orders/:id', (req, res) => {
 });
 
 // 管理员确认订单：默认按系统已算好的加价后采购价扣款；店主显式传入真实价/加价时按其重算
-router.post('/orders/:id/confirm', (req, res) => {
+router.post('/orders/:id/confirm', async (req, res) => {
   const isOwner = !!req.user.is_owner && req.body?.real_amount_usd != null;
   const { exchange_rate, distributor_refund = 0, note } = req.body || {};
   const order = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
@@ -399,14 +400,13 @@ router.post('/orders/:id/confirm', (req, res) => {
 
   // 确认采购只从用户余额扣款，不自动充值：余额须由 BOSS 在「用户管理」手动充值。
   // 管理员/BOSS 账号名下的订单允许透支（同手工新增订单），分销商余额不足则拦截。
-  const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
+  // 余额检查通过后先推送供应商（未推送过的订单），推送成功才扣款；推送失败不扣款、订单保持待采购。
   const orderUser = db.prepare('SELECT is_admin, is_owner FROM users WHERE id = ?').get(order.user_id);
   const allowOverdraft = !!(orderUser && (orderUser.is_admin || orderUser.is_owner));
-  if (!allowOverdraft && (bal?.balance || 0) < deduct) {
-    return res.status(400).json({ error: `用户余额不足，需要 ¥${deduct.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}，请先由 BOSS 为该用户充值` });
-  }
-
+  let bal;
   const tx = db.transaction(() => {
+    const st = db.prepare('SELECT status FROM purchase_orders WHERE id = ?').get(order.id);
+    if (st?.status !== 'pending_purchase') throw Object.assign(new Error('订单状态已变化，请刷新后重试'), { status: 409 });
     if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(order.user_id);
     // 按采购金额扣款（扣除额可含分销商退回额）
     const newBal = (bal?.balance || 0) - deduct;
@@ -424,7 +424,24 @@ router.post('/orders/:id/confirm', (req, res) => {
       WHERE id = ?
     `).run(realUsd, markup, displayUsd, rate, displayCny, refund, order.id);
   });
-  tx();
+  try {
+    await withUserLock(order.user_id, async () => {
+      const checkBalance = () => {
+        bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
+        if (!allowOverdraft && (bal?.balance || 0) < deduct) {
+          throw Object.assign(new Error(`用户余额不足，需要 ¥${deduct.toFixed(2)}，当前 ¥${(bal?.balance || 0).toFixed(2)}，请先由 BOSS 为该用户充值`), { status: 400 });
+        }
+      };
+      const fresh = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(order.id);
+      if (fresh?.status !== 'pending_purchase') throw Object.assign(new Error('订单状态已变化，请刷新后重试'), { status: 409 });
+      checkBalance();
+      await ensurePushed(fresh);
+      checkBalance();
+      tx();
+    });
+  } catch (e) {
+    return res.status(e.status || 502).json({ error: e.message });
+  }
   const u = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(order.user_id);
   // 员工的审计记录里也不暴露真实价/加价
   setAudit(res, {
@@ -778,28 +795,13 @@ router.post('/orders/:id/push-dropxl', async (req, res) => {
   if (!order) return res.status(404).json({ error: '订单不存在' });
   const repush = !!order.dropxl_order_id;
   if (repush && req.body?.force !== true) return res.status(400).json({ error: '该订单已推送过供应商，如需再次推送请确认后重试' });
-  const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(order.id);
-  if (!shipping) return res.status(400).json({ error: '缺少买家收货地址，无法推送' });
-  const items = db.prepare('SELECT sku, quantity FROM purchase_order_items WHERE order_id = ?').all(order.id);
-  if (!items.length) return res.status(400).json({ error: '订单无商品明细，无法推送' });
-
-  const { buildDropxlPayload } = require('../dropxlPayload');
-  const updatePush = db.prepare(`
-    UPDATE purchase_orders
-    SET dropxl_order_id = ?, dropxl_push_status = ?, dropxl_push_error = ?, dropxl_pushed_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
   try {
-    const payload = buildDropxlPayload(order.order_no, shipping, items);
-    const resp = await dropxl.createOrder(payload, order.country);
-    const dropxlOrderId = resp?.order?.id || resp?.id || null;
-    updatePush.run(dropxlOrderId ? String(dropxlOrderId) : null, 'success', null, order.id);
-    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `${repush ? `再次推送（原供应商单号 ${order.dropxl_order_id}）` : '重试推送'}供应商成功 ${order.order_no}` });
+    const dropxlOrderId = await pushOrderToSupplier(order);
+    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `${repush ? `再次推送（原供应商单号 ${order.dropxl_order_id}）` : '手动推送'}供应商成功 ${order.order_no}` });
     res.json({ ok: true, dropxl_order_id: dropxlOrderId });
   } catch (e) {
-    updatePush.run(order.dropxl_order_id || null, 'failed', String(e.message || e).slice(0, 500), order.id);
-    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `${repush ? '再次推送' : '重试推送'}供应商失败 ${order.order_no}` });
-    res.status(502).json({ error: '推送供应商失败：' + (e.message || e) });
+    setAudit(res, { target_id: String(order.id), target_name: order.order_no, summary: `${repush ? '再次推送' : '手动推送'}供应商失败 ${order.order_no}` });
+    res.status(502).json({ error: e.message });
   }
 });
 

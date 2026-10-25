@@ -1023,6 +1023,7 @@ function ConfirmModal({ order, onClose, onDone, onPushed }) {
           <div className="flex justify-between"><span>分销补款(¥)：</span><b>-¥{(Number(refund) || 0).toFixed(2)}</b></div>
           <div className="flex justify-between border-t mt-1 pt-1"><span>从用户余额扣除：</span><b className="text-red-600">¥{deduct.toFixed(2)}</b></div>
         </div>
+        {!order.dropxl_order_id && <div className="text-xs text-gray-500 -mt-2 mb-3">该订单尚未推送供应商：确认后先推送，推送成功才扣款；推送失败不扣款，订单保持待采购。</div>}
         <div className="flex justify-end gap-2">
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
           <button className="btn btn-success" onClick={submit}>✓ 确认扣款</button>
