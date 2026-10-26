@@ -21,6 +21,14 @@ function getAccount(country) {
   };
 }
 
+// 该国家是否已对接供应商 API：有启用的国家账号，或美国走 .env 遗留凭据。
+// 未对接的国家（如英国）若直接调用会回落到美国账号，被供应商拒绝（Country XX is not allowed）
+function hasSupplierApi(country) {
+  const row = db.prepare('SELECT email, token FROM dropxl_accounts WHERE country = ? AND enabled = 1').get(country);
+  if (row?.email && row?.token) return true;
+  return country === '美国' && !!(process.env.DROPXL_API_EMAIL && process.env.DROPXL_API_TOKEN);
+}
+
 function createClient(country) {
   const acc = getAccount(country);
   const client = axios.create({
@@ -118,5 +126,6 @@ module.exports = {
   createClient,
   getAccount,
   extractRealAmountUSD,
+  hasSupplierApi,
   client: defaultClient,
 };

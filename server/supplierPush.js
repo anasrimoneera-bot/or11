@@ -12,6 +12,9 @@ const updatePush = db.prepare(`
 
 // 推送单个订单；成功返回供应商订单号，失败记录错误并抛出（错误信息可直接展示给用户）
 async function pushOrderToSupplier(order) {
+  if (!dropxl.hasSupplierApi(order.country)) {
+    throw new Error(`${order.country || '该国家'}尚未对接供应商 API，请导出采购模板到供应商后台手动下单`);
+  }
   const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(order.id);
   if (!shipping) throw new Error('缺少买家收货地址，无法推送');
   const items = db.prepare('SELECT sku, quantity FROM purchase_order_items WHERE order_id = ?').all(order.id);
@@ -27,9 +30,11 @@ async function pushOrderToSupplier(order) {
   }
 }
 
-// 确认采购前确保已推送：已推送成功过（有供应商单号）的历史订单不重复推送
+// 确认采购前确保已推送：已推送成功过（有供应商单号）的历史订单不重复推送；
+// 未对接供应商 API 的国家不推送，直接确认（由管理员导出采购模板手动下单）
 async function ensurePushed(order) {
   if (order.dropxl_order_id) return order.dropxl_order_id;
+  if (!dropxl.hasSupplierApi(order.country)) return null;
   return pushOrderToSupplier(order);
 }
 

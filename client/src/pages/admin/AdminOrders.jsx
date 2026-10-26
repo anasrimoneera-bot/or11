@@ -118,7 +118,7 @@ export default function AdminOrders() {
     if (isOwner) return setConfirmOrder(o);
     const cny = Number(o.purchase_amount_cny) || 0;
     if (!(cny > 0)) return alert('该订单采购(¥)金额尚未计算，请联系 BOSS 核对后再确认');
-    if (!confirm(`确认采购订单 ${o.order_no}？\n${o.dropxl_order_id ? '' : '确认后将推送到供应商下单，'}并从 ${o.display_name || o.username} 的余额扣除采购(¥)：¥${cny.toFixed(2)}`)) return;
+    if (!confirm(`确认采购订单 ${o.order_no}？\n${o.dropxl_order_id ? '' : '确认后将推送到供应商下单（未对接 API 的国家不推送，需手动下单），'}并从 ${o.display_name || o.username} 的余额扣除采购(¥)：¥${cny.toFixed(2)}`)) return;
     try {
       const { data } = await api.post(`/admin/orders/${o.id}/confirm`, {});
       alert(`确认成功，已扣除 ¥${Number(data.deducted).toFixed(2)}`);
@@ -1075,7 +1075,7 @@ function ConfirmModal({ order, onClose, onDone, onPushed }) {
           <div className="flex justify-between"><span>分销补款(¥)：</span><b>-¥{(Number(refund) || 0).toFixed(2)}</b></div>
           <div className="flex justify-between border-t mt-1 pt-1"><span>从用户余额扣除：</span><b className="text-red-600">¥{deduct.toFixed(2)}</b></div>
         </div>
-        {!order.dropxl_order_id && <div className="text-xs text-gray-500 -mt-2 mb-3">该订单尚未推送供应商：确认后先推送，推送成功才扣款；推送失败不扣款，订单保持待采购。</div>}
+        {!order.dropxl_order_id && <div className="text-xs text-gray-500 -mt-2 mb-3">该订单尚未推送供应商：确认后先推送，推送成功才扣款；推送失败不扣款，订单保持待采购。未对接供应商 API 的国家不推送，直接确认，需导出采购模板手动下单。</div>}
         <div className="flex justify-end gap-2">
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
           <button className="btn btn-success" onClick={submit}>✓ 确认扣款</button>
