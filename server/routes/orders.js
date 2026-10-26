@@ -42,7 +42,7 @@ router.get('/', authRequired, (req, res) => {
            amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
            purchase_amount_usd, purchase_amount_cny, exchange_rate,
            distributor_refund, tracking_no, shipping_carrier, status,
-           created_at, updated_at
+           created_at, updated_at, confirmed_at
     FROM purchase_orders ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders ${where}`).get(...args).c;
@@ -70,11 +70,22 @@ router.get('/:id', authRequired, (req, res) => {
            amazon_amount, amazon_tax_amount, shipping_fee, amazon_rate_locked,
            purchase_amount_usd, purchase_amount_cny, exchange_rate,
            distributor_refund, tracking_no, shipping_carrier, status,
-           created_at, updated_at
+           created_at, updated_at, confirmed_at
     FROM purchase_orders WHERE id = ? AND user_id = ?
   `).get(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: '订单不存在' });
-  const items = db.prepare('SELECT * FROM purchase_order_items WHERE order_id = ?').all(row.id);
+  // 商品单价不直接返回库里存的 unit_price：部分来源（如「导入历史订单」）存的是供应商真实单价。
+  // 按各行金额占比把订单「采购(原币)」总额分摊到各行，保证分销商看到的单价合计 = 其采购价，不暴露真实成本。
+  const rawItems = db.prepare('SELECT id, sku, product_name, quantity, unit_price FROM purchase_order_items WHERE order_id = ?').all(row.id);
+  const lineTotal = (it) => (Number(it.unit_price) || 0) * (Number(it.quantity) || 0);
+  const rawSum = rawItems.reduce((t, it) => t + lineTotal(it), 0);
+  const totalQty = rawItems.reduce((t, it) => t + (Number(it.quantity) || 0), 0);
+  const display = Number(row.purchase_amount_usd) || 0;
+  const items = rawItems.map(it => {
+    const qty = Number(it.quantity) || 0;
+    const share = rawSum > 0 ? lineTotal(it) / rawSum : (totalQty > 0 ? qty / totalQty : 0);
+    return { id: it.id, sku: it.sku, product_name: it.product_name, quantity: it.quantity, unit_price: qty > 0 ? display * share / qty : 0 };
+  });
   const shipping = db.prepare('SELECT * FROM purchase_order_shipping WHERE order_id = ?').get(row.id);
   res.json({ ...row, items, shipping: shipping || null });
 });
@@ -156,6 +167,31 @@ router.put('/:id', authRequired, (req, res) => {
   res.json({ ok: true });
 });
 
+// 分销商编辑自己「待采购」订单的收货地址与亚马逊金额（确认采购时按新地址推送供应商）
+router.put('/:id/shipping', authRequired, (req, res) => {
+  const o = db.prepare('SELECT id, status FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!o) return res.status(404).json({ error: '订单不存在或不属于你' });
+  if (o.status !== 'pending_purchase') return res.status(400).json({ error: '只有「待采购」订单可以修改收货信息' });
+  const b = req.body || {};
+  const s = (v) => (v == null ? null : String(v).trim().slice(0, 200));
+  const amt = b.amazon_amount === undefined || b.amazon_amount === '' ? null : Number(b.amazon_amount);
+  if (amt != null && (!isFinite(amt) || amt < 0)) return res.status(400).json({ error: '亚马逊金额无效' });
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO purchase_order_shipping (order_id, name, address1, address2, city, state, postal, phone, buyer_email)
+      VALUES (@order_id, @name, @address1, @address2, @city, @state, @postal, @phone, @buyer_email)
+      ON CONFLICT(order_id) DO UPDATE SET
+        name=@name, address1=@address1, address2=@address2, city=@city, state=@state,
+        postal=@postal, phone=@phone, buyer_email=@buyer_email
+    `).run({
+      order_id: o.id, name: s(b.name), address1: s(b.address1), address2: s(b.address2),
+      city: s(b.city), state: s(b.state), postal: s(b.postal), phone: s(b.phone), buyer_email: s(b.buyer_email),
+    });
+    if (amt != null) db.prepare('UPDATE purchase_orders SET amazon_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(amt, o.id);
+  })();
+  res.json({ ok: true });
+});
+
 // 分销商自己确认采购：按订单已记录的「采购(¥)」金额（列表所见金额）从自己余额扣款，
 // 余额不足则拦截（需 BOSS 先手动充值）。分销商不能改汇率/价格，也不返回真实采购价。
 // 余额检查通过后先推送供应商（未推送过的订单），推送成功才扣款；推送失败不扣款、订单保持待采购。
@@ -189,7 +225,7 @@ router.post('/:id/confirm', authRequired, async (req, res) => {
       VALUES (?, '扣除', ?, ?, ?, ?)
     `).run(req.user.id, -cny, newBal, `订单采购 - ${o.order_no}（用户自行确认）`, o.order_no);
     db.prepare(`
-      UPDATE purchase_orders SET status = 'pending_shipment', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+      UPDATE purchase_orders SET status = 'pending_shipment', confirmed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(o.id);
   });
   try {

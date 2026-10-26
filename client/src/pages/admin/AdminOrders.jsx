@@ -20,6 +20,10 @@ const statusColor = {
 const COUNTRY_CURRENCY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
 const CURRENCY_SYMBOL = { USD: '$', GBP: '£', EUR: '€', PLN: 'zł' };
 const amazonSym = (country) => CURRENCY_SYMBOL[COUNTRY_CURRENCY[country]] || '$';
+// 12 小时内新确认采购、已转入待发货的订单显示「新」标识（confirmed_at 为 UTC）
+const isNewConfirmed = (o) => o.status === 'pending_shipment' && o.confirmed_at
+  && Date.now() - Date.parse(o.confirmed_at.replace(' ', 'T') + 'Z') < 12 * 3600 * 1000;
+const NewBadge = () => <span className="badge bg-red-500 text-white text-[10px] whitespace-nowrap" title="12 小时内新确认采购">🆕 新</span>;
 
 export default function AdminOrders() {
   const [rows, setRows] = useState([]);
@@ -34,6 +38,14 @@ export default function AdminOrders() {
   const [showManual, setShowManual] = useState(false);
   const [detailOrder, setDetailOrder] = useState(null);
   const [exporting, setExporting] = useState('');  // '' | 'filtered' | 'all'
+  const [selected, setSelected] = useState(() => new Set()); // 勾选的订单 id（导出欧洲采购模板用）
+  const toggleSel = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allPageSelected = rows.length > 0 && rows.every(o => selected.has(o.id));
+  const togglePage = () => setSelected(prev => {
+    const n = new Set(prev);
+    if (allPageSelected) rows.forEach(o => n.delete(o.id)); else rows.forEach(o => n.add(o.id));
+    return n;
+  });
   const isOwner = !!me?.is_owner;
   // 成本相关列：BOSS 始终可见；管理员需 BOSS 在「管理员」页授予「查看真实采购价/加价」
   const canSeeCost = isOwner || (me?.permissions || []).includes('cost_view');
@@ -99,6 +111,19 @@ export default function AdminOrders() {
       await api.post(`/admin/orders/${o.id}/recompute-cny`);
       load();
     } catch (e) { alert(e.response?.data?.error || '重算失败'); }
+  };
+
+  // 确认采购：BOSS 打开确认窗口（可改汇率/补款）；其他管理员一键确认，按「采购(¥)」列金额从分销商余额扣款
+  const confirmPurchase = async (o) => {
+    if (isOwner) return setConfirmOrder(o);
+    const cny = Number(o.purchase_amount_cny) || 0;
+    if (!(cny > 0)) return alert('该订单采购(¥)金额尚未计算，请联系 BOSS 核对后再确认');
+    if (!confirm(`确认采购订单 ${o.order_no}？\n${o.dropxl_order_id ? '' : '确认后将推送到供应商下单，'}并从 ${o.display_name || o.username} 的余额扣除采购(¥)：¥${cny.toFixed(2)}`)) return;
+    try {
+      const { data } = await api.post(`/admin/orders/${o.id}/confirm`, {});
+      alert(`确认成功，已扣除 ¥${Number(data.deducted).toFixed(2)}`);
+    } catch (e) { alert(e.response?.data?.error || '确认失败'); }
+    load();
   };
 
   const deleteOrder = async (o) => {
@@ -170,18 +195,25 @@ export default function AdminOrders() {
   };
 
   // 按当前筛选条件导出采购模板；format='eu' 导出欧洲订单采购模板
+  // 欧洲采购模板：有勾选的订单时只导出勾选的订单，否则按当前筛选条件导出
   const exportDropxlTemplate = async (format) => {
-    const body = { ...buildDateParams() };
-    if (filters.status !== 'all') body.status = filters.status;
-    if (filters.q) body.q = filters.q;
-    if (filters.country) body.country = filters.country;
-    if (filters.user_id) body.user_id = filters.user_id;
-    if (!body.status && !body.q && !body.start && !body.end && !body.country && !body.user_id) {
-      return alert('请先选择状态 / 搜索 / 时间范围再导出采购模板');
-    }
-    if (format === 'eu') body.format = 'eu';
     const label = format === 'eu' ? '欧洲订单采购模板' : '供应商采购模板';
-    if (!confirm(`确认将当前筛选条件下的订单（共 ${total} 单）导出为${label}？\n• 导出后请前往供应商后台手动提交`)) return;
+    let body;
+    if (format === 'eu' && selected.size > 0) {
+      body = { ids: [...selected], format: 'eu' };
+      if (!confirm(`确认将勾选的 ${selected.size} 个订单导出为${label}？\n• 导出后请前往供应商后台手动提交`)) return;
+    } else {
+      body = { ...buildDateParams() };
+      if (filters.status !== 'all') body.status = filters.status;
+      if (filters.q) body.q = filters.q;
+      if (filters.country) body.country = filters.country;
+      if (filters.user_id) body.user_id = filters.user_id;
+      if (!body.status && !body.q && !body.start && !body.end && !body.country && !body.user_id) {
+        return alert('请先选择状态 / 搜索 / 时间范围再导出采购模板');
+      }
+      if (format === 'eu') body.format = 'eu';
+      if (!confirm(`确认将当前筛选条件下的订单（共 ${total} 单）导出为${label}？\n• 导出后请前往供应商后台手动提交`)) return;
+    }
     try {
       const r = await api.post('/admin/orders/dropxl-template-export', body, { responseType: 'blob' });
       const blob = r.data;
@@ -213,7 +245,8 @@ export default function AdminOrders() {
           <button onClick={() => exportOrders(false)} disabled={!!exporting} className="btn btn-ghost border text-sm py-1.5" title="导出当前筛选结果的订单列表为 Excel">📤 {exporting === 'filtered' ? '导出中…' : '导出筛选订单'}</button>
           <button onClick={() => exportOrders(true)} disabled={!!exporting} className="btn btn-ghost border text-sm py-1.5" title="不带筛选条件，导出全部订单为 Excel">📤 {exporting === 'all' ? '导出中…' : '导出全部订单'}</button>
           <button onClick={() => exportDropxlTemplate()} className="btn btn-success text-sm py-1.5" title="按当前筛选条件导出供应商采购模板">📥 导出采购模板</button>
-          <button onClick={() => exportDropxlTemplate('eu')} className="btn btn-success text-sm py-1.5" title="按当前筛选条件导出欧洲订单采购模板">📥 导出欧洲采购模板</button>
+          <button onClick={() => exportDropxlTemplate('eu')} className="btn btn-success text-sm py-1.5" title="有勾选订单时只导出勾选的订单，否则按当前筛选条件导出">📥 导出欧洲采购模板{selected.size > 0 ? `（已选 ${selected.size}）` : ''}</button>
+          {selected.size > 0 && <button onClick={() => setSelected(new Set())} className="btn btn-ghost border text-sm py-1.5" title="清空勾选">✕ 清空勾选</button>}
           <button onClick={importHistory} className="btn btn-warning text-sm py-1.5">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary text-sm py-1.5">🔄 从供应商同步跟踪号/状态</button>
         </div>
@@ -270,7 +303,10 @@ export default function AdminOrders() {
             <div key={o.id} className="bg-white rounded-lg shadow p-3 text-sm">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <span className="font-mono text-xs truncate">{o.order_no}</span>
-                <span className={`badge ${statusColor[o.status] || 'bg-gray-100'} text-xs`}>{statusLabel[o.status] || o.status}</span>
+                <span className="flex items-center gap-1 shrink-0">
+                  {isNewConfirmed(o) && <NewBadge />}
+                  <span className={`badge ${statusColor[o.status] || 'bg-gray-100'} text-xs`}>{statusLabel[o.status] || o.status}</span>
+                </span>
               </div>
               <div className="text-xs text-gray-600 mb-1 truncate">
                 {o.display_name || o.username} · {o.country} / {o.shop_name || '-'}
@@ -293,7 +329,7 @@ export default function AdminOrders() {
               <div className="flex gap-3 text-xs mt-2">
                 {o.status === 'pending_purchase' && (
                   <>
-                    <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline">确认采购</button>
+                    <button onClick={() => confirmPurchase(o)} className="text-green-600 hover:underline">确认采购</button>
                     <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
                   </>
                 )}
@@ -312,10 +348,15 @@ export default function AdminOrders() {
       </div>
 
       <div className="bg-white rounded-xl shadow overflow-x-auto hidden md:block">
-        <table className="w-full text-sm">
+        {/* 紧凑布局：单元格内边距/字号收小，创建时间并入订单号列，操作按钮竖排；订单号列横向滚动时固定在左侧 */}
+        <table className="w-full text-xs [&_td]:px-2 [&_th]:px-2 [&_td]:py-1.5">
           <thead className="bg-gray-50 text-gray-600 text-xs [&_th]:whitespace-nowrap">
             <tr>
-              <th className="px-3 py-2 text-left">订单号</th>
+              <th className="px-3 py-2 text-left sticky left-0 z-10 bg-gray-50">
+                <label className="inline-flex items-center gap-1 cursor-pointer" title="勾选本页全部（用于导出欧洲采购模板）">
+                  <input type="checkbox" checked={allPageSelected} onChange={togglePage} />订单号 / 创建时间
+                </label>
+              </th>
               <th className="px-3 py-2 text-left">用户</th>
               <th className="px-3 py-2 text-left">国家/店铺</th>
               <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
@@ -328,7 +369,6 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-left">供应商 ID</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
               <th className="px-3 py-2 text-left">状态</th>
-              <th className="px-3 py-2 text-left">创建时间</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -344,8 +384,18 @@ export default function AdminOrders() {
               const canComputeCny = sales > 0 && amazonRate > 0;
               const profitCny = canComputeCny ? sales * amazonRate - purchaseCny : 0;
               return (
-              <tr key={o.id} className="border-t hover:bg-gray-50">
-                <td className="px-3 py-2 font-mono text-xs">{o.order_no}</td>
+              <tr key={o.id} className={`border-t hover:bg-gray-50 ${selected.has(o.id) ? 'bg-blue-50' : 'bg-white'}`}>
+                <td className="px-3 py-2 sticky left-0 z-10 bg-inherit">
+                  <label className="flex items-start gap-1 cursor-pointer">
+                    <input type="checkbox" className="mt-0.5" checked={selected.has(o.id)} onChange={() => toggleSel(o.id)} />
+                    <span>
+                      <span className="font-mono block">{o.order_no}</span>
+                      <span className="text-[11px] text-gray-400 whitespace-nowrap" title={o.created_at}>
+                        {o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { hour12: false }) : '-'}
+                      </span>
+                    </span>
+                  </label>
+                </td>
                 <td className="px-3 py-2">
                   <div>{o.display_name || o.username}</div>
                   <button
@@ -401,24 +451,26 @@ export default function AdminOrders() {
                   <TrackingCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { tracking_no: v }); load(); }} />
                 </td>
                 <td className="px-3 py-2">
-                  <StatusCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { status: v }); load(); }} />
-                </td>
-                <td className="px-3 py-2 text-xs whitespace-nowrap" title={o.created_at}>
-                  {o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { hour12: false }) : '-'}
+                  <div className="flex flex-col items-start gap-1">
+                    <StatusCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { status: v }); load(); }} />
+                    {isNewConfirmed(o) && <NewBadge />}
+                  </div>
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                  {o.status === 'pending_purchase' && (
-                    <>
-                      <button onClick={() => setConfirmOrder(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
-                      <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline text-xs ml-2" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
-                    </>
-                  )}
-                  <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs ml-2">详情</button>
-                  <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline text-xs ml-2">删除</button>
+                  <div className="flex flex-col items-end gap-0.5">
+                    {o.status === 'pending_purchase' && (
+                      <>
+                        <button onClick={() => confirmPurchase(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
+                        <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline text-xs" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
+                      </>
+                    )}
+                    <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs">详情</button>
+                    <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline text-xs">删除</button>
+                  </div>
                 </td>
               </tr>
             );})}
-            {rows.length === 0 && <tr><td colSpan={canSeeCost ? 19 : 14} className="p-6 text-center text-gray-400">
+            {rows.length === 0 && <tr><td colSpan={canSeeCost ? 18 : 13} className="p-6 text-center text-gray-400">
               {noFilter ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
@@ -457,7 +509,7 @@ export default function AdminOrders() {
             return (
               <tfoot className="bg-gray-50 border-t-2 font-semibold">
                 <tr>
-                  <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({rows.length} 单)</td>
+                  <td className="px-3 py-2.5 text-gray-700 sticky left-0 bg-gray-50" colSpan={3}>📊 本页合计 ({rows.length} 单)</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap" title="各国币种不同，按各订单锁定汇率折算人民币后合计">¥{t.salesCny.toFixed(2)}</td>
                   <td className={`px-3 py-2.5 text-right whitespace-nowrap ${rowSym ? '' : 'text-gray-400'}`}
                       title={rowSym ? '' : '本页含多种站点币种，无法直接合计，请看采购(¥)合计'}>
@@ -487,7 +539,7 @@ export default function AdminOrders() {
                       {t.profitDiff >= 0 ? '+' : ''}¥{t.profitDiff.toFixed(2)}
                     </td>
                   </>}
-                  <td colSpan={5} />
+                  <td colSpan={4} />
                 </tr>
               </tfoot>
             );
