@@ -81,7 +81,7 @@ export default function Layout({ user, setUser }) {
         `}
       >
         <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
-          <img src="/logo.svg" alt="" className="w-10 h-10 shrink-0 rounded-lg" />
+          <img src="/logo.png" alt="" className="w-10 h-10 shrink-0 rounded-lg" />
           <div className="min-w-0">
             <div className="font-semibold tracking-wide truncate">B2BSXLJ</div>
             <div className="text-xs text-gray-400">{user?.is_admin ? '管理后台' : '分销平台'}</div>
@@ -118,7 +118,7 @@ export default function Layout({ user, setUser }) {
             >
               ☰
             </button>
-            <img src="/logo.svg" alt="" className="w-7 h-7 md:w-8 md:h-8 shrink-0 rounded-md" />
+            <img src="/logo.png" alt="" className="w-7 h-7 md:w-8 md:h-8 shrink-0 rounded-md" />
             <span className="font-semibold truncate hidden sm:inline">B2BSXLJ分销订单管理系统</span>
             <span className="font-semibold truncate sm:hidden text-sm">B2BSXLJ</span>
           </div>

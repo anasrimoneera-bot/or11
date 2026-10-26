@@ -36,7 +36,7 @@ export default function Login({ onLogin }) {
       {/* 左侧品牌介绍区 */}
       <div className="hidden lg:flex flex-col justify-center px-14 xl:px-20 flex-1 text-white relative z-10 max-w-3xl">
         <div className="flex items-center gap-4 mb-8">
-          <img src="/logo.svg" alt="" className="w-16 h-16 shrink-0 rounded-2xl shadow-lg" />
+          <img src="/logo.png" alt="" className="w-16 h-16 shrink-0 rounded-2xl shadow-lg" />
           <div className="text-4xl font-bold tracking-wide">B2BSXLJ</div>
         </div>
         <p className="text-purple-200/90 leading-relaxed mb-10 text-base max-w-xl">
@@ -55,7 +55,7 @@ export default function Login({ onLogin }) {
         <form onSubmit={submit} className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 lg:p-10">
           {/* 移动端小 Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-4">
-            <img src="/logo.svg" alt="" className="w-9 h-9 shrink-0 rounded-lg" />
+            <img src="/logo.png" alt="" className="w-9 h-9 shrink-0 rounded-lg" />
             <span className="font-bold">B2BSXLJ</span>
           </div>
 
