@@ -372,9 +372,11 @@ router.post('/orders/:id/confirm', async (req, res) => {
   if (!order) return res.status(404).json({ error: '订单不存在' });
   if (order.status !== 'pending_purchase') return res.status(400).json({ error: '订单状态不允许确认' });
 
+  // 非 BOSS 管理员一键确认：按订单「采购(¥)」列金额扣款（与分销商自行确认一致），不可改汇率/补款
+  const staffOneClick = !req.user.is_owner;
   // 汇率取值优先级：请求体覆盖（仅店主可改） > 订单已锁定的汇率 > 当前系统设置
-  const rate = Number(exchange_rate) || order.exchange_rate || getExchangeRate();
-  const refund = Number(distributor_refund) || 0;
+  const rate = (staffOneClick ? 0 : Number(exchange_rate)) || order.exchange_rate || getExchangeRate();
+  const refund = staffOneClick ? 0 : (Number(distributor_refund) || 0);
   if (!rate || rate <= 0) return res.status(400).json({ error: '请填写汇率' });
 
   let realUsd, markup, displayUsd, displayCny;
@@ -390,9 +392,9 @@ router.post('/orders/:id/confirm', async (req, res) => {
     realUsd = order.real_amount_usd || 0;
     markup = order.markup_pct || 0;
     displayUsd = order.purchase_amount_usd || (realUsd * (1 + markup / 100));
-    displayCny = displayUsd * rate;
+    displayCny = staffOneClick ? (Number(order.purchase_amount_cny) || 0) : displayUsd * rate;
     if (displayCny <= 0) {
-      return res.status(400).json({ error: '订单显示金额为0，请联系店主调整后再确认' });
+      return res.status(400).json({ error: staffOneClick ? '该订单采购(¥)金额尚未计算，请联系 BOSS 核对后再确认' : '订单显示金额为0，请联系店主调整后再确认' });
     }
   }
 
@@ -420,7 +422,7 @@ router.post('/orders/:id/confirm', async (req, res) => {
       UPDATE purchase_orders
       SET real_amount_usd = ?, markup_pct = ?, purchase_amount_usd = ?, exchange_rate = ?,
           purchase_amount_cny = ?, distributor_refund = ?,
-          status = 'pending_shipment', updated_at = CURRENT_TIMESTAMP
+          status = 'pending_shipment', confirmed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(realUsd, markup, displayUsd, rate, displayCny, refund, order.id);
   });
@@ -1229,10 +1231,13 @@ const EU_TEMPLATE_HEADER = [
 // 与订单管理列表用同一套筛选条件（状态/搜索/国家/用户/创建时间），只导出当前筛选结果。
 // format='eu' 时导出欧洲订单采购模板（34 列，仅填映射列，shop-name 固定为 1）。
 router.post('/orders/dropxl-template-export', (req, res) => {
-  const { status, q, user_id, country, start, end, format } = req.body || {};
+  const { status, q, user_id, country, start, end, format, ids } = req.body || {};
   const conds = [];
   const args = [];
-  if (status && status !== 'all') { conds.push('po.status = ?'); args.push(status); }
+  // 勾选导出：传入订单 id 时只导出勾选的订单，忽略其他筛选条件
+  const pickedIds = Array.isArray(ids) ? ids.map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 5000) : [];
+  if (pickedIds.length) { conds.push(`po.id IN (${pickedIds.map(() => '?').join(',')})`); args.push(...pickedIds); }
+  else if (status && status !== 'all') { conds.push('po.status = ?'); args.push(status); }
   if (user_id) { conds.push('po.user_id = ?'); args.push(user_id); }
   if (country) { conds.push('po.country = ?'); args.push(country); }
   if (q) {

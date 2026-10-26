@@ -6,6 +6,10 @@ const countryCode = { 美国: 'US', 英国: 'GB', 德国: 'DE', 法国: 'FR', �
 const CURRENCY_BY_COUNTRY = { 美国: 'USD', 英国: 'GBP', 德国: 'EUR', 法国: 'EUR', 荷兰: 'EUR', 意大利: 'EUR', 西班牙: 'EUR', 波兰: 'PLN' };
 const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
 const sym = (country) => CURRENCY_SYMBOL[CURRENCY_BY_COUNTRY[country]] || '$';
+// 12 小时内新确认采购、已转入待发货的订单显示「新」标识（confirmed_at 为 UTC）
+const isNewConfirmed = (o) => o.status === 'pending_shipment' && o.confirmed_at
+  && Date.now() - Date.parse(o.confirmed_at.replace(' ', 'T') + 'Z') < 12 * 3600 * 1000;
+const NewBadge = () => <span className="badge bg-red-500 text-white ml-1" title="12 小时内新确认采购">🆕 新</span>;
 
 const statusColor = {
   pending_purchase: 'bg-orange-100 text-orange-700',
@@ -145,6 +149,7 @@ export default function Orders() {
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="font-mono text-xs truncate flex-1">{o.order_no}</div>
                   <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
+                  {isNewConfirmed(o) && <NewBadge />}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
                   <span className="px-1.5 py-0.5 rounded bg-gray-100 font-mono">{countryCode[o.country] || o.country || '-'}</span>
@@ -241,6 +246,7 @@ export default function Orders() {
                   </td>
                   <td className="px-3 py-2">
                     <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
+                    {isNewConfirmed(o) && <NewBadge />}
                   </td>
                   <td className="px-3 py-2">{(o.created_at || '').replace('T', ' ').slice(0, 19)}</td>
                   <td className="px-3 py-2 text-right">
@@ -294,20 +300,38 @@ export default function Orders() {
         </div>
       </div>
 
-      {detailId && <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />}
+      {detailId && <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} onChanged={load} />}
     </div>
   );
 }
 
-function OrderDetailModal({ id, onClose }) {
+function OrderDetailModal({ id, onClose, onChanged }) {
   const [order, setOrder] = useState(null);
   const [err, setErr] = useState('');
+  const [edit, setEdit] = useState(null); // 编辑中的收货信息 + 亚马逊金额（仅待采购订单）
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    api.get(`/orders/${id}`)
-      .then(r => setOrder(r.data))
-      .catch(e => setErr(e.response?.data?.error || '加载失败'));
-  }, [id]);
+  const fetchOrder = () => api.get(`/orders/${id}`)
+    .then(r => setOrder(r.data))
+    .catch(e => setErr(e.response?.data?.error || '加载失败'));
+  useEffect(() => { fetchOrder(); }, [id]);
+
+  const startEdit = () => {
+    const sh = order.shipping || {};
+    setEdit({
+      name: sh.name || '', phone: sh.phone || '', buyer_email: sh.buyer_email || '',
+      address1: sh.address1 || '', address2: sh.address2 || '', city: sh.city || '',
+      state: sh.state || '', postal: sh.postal || '', amazon_amount: order.amazon_amount ?? 0,
+    });
+  };
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/orders/${id}/shipping`, edit);
+      setEdit(null); await fetchOrder(); onChanged && onChanged();
+    } catch (e) { alert(e.response?.data?.error || '保存失败'); }
+    finally { setSaving(false); }
+  };
 
   const currency = order ? (CURRENCY_BY_COUNTRY[order.country] || 'USD') : 'USD';
   const symbol = CURRENCY_SYMBOL[currency];
@@ -338,7 +362,33 @@ function OrderDetailModal({ id, onClose }) {
                 <div>采购汇率: {rate > 0 ? `1 ${currency} = ${rate.toFixed(4)} CNY` : '-'}</div>
               </div>
 
-              {order.shipping && (
+              {edit && (
+                <div className="border border-blue-200 bg-blue-50/50 rounded p-3 mb-3 space-y-2">
+                  <div className="font-medium">✏️ 编辑订单信息</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {[['name', '客户名称'], ['phone', '客户电话'], ['buyer_email', '买家邮箱'], ['address1', '地址1'], ['address2', '地址2'],
+                      ['city', '城市'], ['state', '州/省'], ['postal', '邮编']].map(([k, label]) => (
+                      <label key={k} className="text-xs text-gray-500">{label}
+                        <input className="field mt-0.5" value={edit[k]} onChange={e => setEdit({ ...edit, [k]: e.target.value })} />
+                      </label>
+                    ))}
+                    <label className="text-xs text-gray-500">亚马逊金额（{symbol}）
+                      <input className="field mt-0.5" type="number" step="0.01" min="0" value={edit.amazon_amount} onChange={e => setEdit({ ...edit, amazon_amount: e.target.value })} />
+                    </label>
+                  </div>
+                  <div className="text-xs text-gray-500">确认采购时将按此地址推送到供应商。</div>
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setEdit(null)} className="btn btn-ghost border text-sm py-1">取消</button>
+                    <button onClick={saveEdit} disabled={saving} className="btn btn-primary text-sm py-1">{saving ? '保存中...' : '✓ 保存'}</button>
+                  </div>
+                </div>
+              )}
+
+              {!edit && order.status === 'pending_purchase' && (
+                <div className="mb-2"><button onClick={startEdit} className="text-blue-600 hover:underline text-sm">✏️ 编辑收货信息 / 亚马逊金额</button></div>
+              )}
+
+              {!edit && order.shipping && (
                 <>
                   <div className="font-medium mb-2">收货信息：</div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-gray-700 mb-3">

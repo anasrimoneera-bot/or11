@@ -465,6 +465,9 @@ ensureColumn('users', 'forum_seen_id', 'INTEGER DEFAULT 0');
 // 售后沟通消息撤回：撤回后保留记录（显示「已撤回」），清空内容并删除该消息的附件记录
 ensureColumn('aftersales_messages', 'recalled', 'INTEGER DEFAULT 0');
 
+// 确认采购（转入待发货）的时间：订单列表据此给 12 小时内新确认的订单显示「新」标识
+ensureColumn('purchase_orders', 'confirmed_at', 'TEXT');
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {
