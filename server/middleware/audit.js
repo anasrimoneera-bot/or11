@@ -77,6 +77,7 @@ const FIELD_NAMES = {
   balance: '余额',
   status: '状态',
   tracking_no: '跟踪号',
+  shipping_carrier: '承运人',
   refund_amount: '退款金额',
   admin_note: '管理员备注',
   priority: '优先级',

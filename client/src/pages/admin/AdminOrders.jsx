@@ -367,6 +367,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
               {canSeeCost && <Suspense fallback={<><th /><th /><th /><th /><th /></>}><OwnerCols kind="h" /></Suspense>}
               <th className="px-3 py-2 text-left">供应商 ID</th>
+              <th className="px-3 py-2 text-left" title="供应商同步回来的承运人，BOSS/管理员可编辑">承运人</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
               <th className="px-3 py-2 text-left">状态</th>
               <th className="px-3 py-2"></th>
@@ -447,7 +448,9 @@ export default function AdminOrders() {
                 {canSeeCost && <Suspense fallback={<><td /><td /><td /><td /><td /></>}><OwnerCols kind="c" order={o} onChanged={load} isOwner={isOwner} sym={amazonSym(o.country)} /></Suspense>}
                 <td className="px-3 py-2 text-xs font-mono">{o.dropxl_order_id || '-'}</td>
                 <td className="px-3 py-2 text-xs">
-                  {o.shipping_carrier && <div className="text-gray-400 text-[11px] mb-0.5">{o.shipping_carrier}</div>}
+                  <TrackingCell order={o} field="shipping_carrier" placeholder="如 FedEx / DPD" onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { shipping_carrier: v }); load(); }} />
+                </td>
+                <td className="px-3 py-2 text-xs">
                   <TrackingCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { tracking_no: v }); load(); }} />
                 </td>
                 <td className="px-3 py-2">
@@ -470,7 +473,7 @@ export default function AdminOrders() {
                 </td>
               </tr>
             );})}
-            {rows.length === 0 && <tr><td colSpan={canSeeCost ? 18 : 13} className="p-6 text-center text-gray-400">
+            {rows.length === 0 && <tr><td colSpan={canSeeCost ? 19 : 14} className="p-6 text-center text-gray-400">
               {noFilter ? '请先在上方选择具体状态查看订单' : '暂无订单'}
             </td></tr>}
           </tbody>
@@ -539,7 +542,7 @@ export default function AdminOrders() {
                       {t.profitDiff >= 0 ? '+' : ''}¥{t.profitDiff.toFixed(2)}
                     </td>
                   </>}
-                  <td colSpan={4} />
+                  <td colSpan={5} />
                 </tr>
               </tfoot>
             );
@@ -735,30 +738,32 @@ function MoField({ label, children }) {
 }
 
 // 点击就地编辑跟踪号（BOSS/管理员）。留空保存即清除跟踪号。
-function TrackingCell({ order, onSave }) {
+// 点击编辑的文本单元格：默认编辑跟踪号（多个逗号分隔、分行显示），field="shipping_carrier" 时编辑承运人
+function TrackingCell({ order, onSave, field = 'tracking_no', placeholder = '多个用逗号分隔' }) {
   const [editing, setEditing] = useState(false);
-  const [v, setV] = useState(order.tracking_no || '');
-  useEffect(() => { setV(order.tracking_no || ''); }, [order.tracking_no]);
+  const cur = order[field] || '';
+  const [v, setV] = useState(cur);
+  useEffect(() => { setV(cur); }, [cur]);
   if (editing) {
     return (
       <input
         autoFocus
         className="border border-blue-400 rounded px-1 py-0.5 text-xs w-32 focus:outline-none"
         value={v}
-        placeholder="多个用逗号分隔"
+        placeholder={placeholder}
         onChange={e => setV(e.target.value)}
-        onBlur={async () => { if (v !== (order.tracking_no || '')) await onSave(v); setEditing(false); }}
+        onBlur={async () => { if (v !== cur) await onSave(v); setEditing(false); }}
         onKeyDown={async e => {
-          if (e.key === 'Enter') { if (v !== (order.tracking_no || '')) await onSave(v); setEditing(false); }
-          else if (e.key === 'Escape') { setV(order.tracking_no || ''); setEditing(false); }
+          if (e.key === 'Enter') { if (v !== cur) await onSave(v); setEditing(false); }
+          else if (e.key === 'Escape') { setV(cur); setEditing(false); }
         }}
       />
     );
   }
   return (
-    <button type="button" onClick={() => setEditing(true)} title="点击填写/修改跟踪号" className="text-left hover:bg-blue-50 rounded px-1 w-full">
-      {order.tracking_no
-        ? order.tracking_no.split(',').map((t, i) => <div key={i} className="whitespace-nowrap">{t.trim()}</div>)
+    <button type="button" onClick={() => setEditing(true)} title={field === 'tracking_no' ? '点击填写/修改跟踪号' : '点击填写/修改承运人'} className="text-left hover:bg-blue-50 rounded px-1 w-full">
+      {cur
+        ? cur.split(',').map((t, i) => <div key={i} className="whitespace-nowrap">{t.trim()}</div>)
         : <span className="text-blue-500">＋填写</span>}
     </button>
   );

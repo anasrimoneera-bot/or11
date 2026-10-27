@@ -197,6 +197,7 @@ export default function Orders() {
                 <th className="px-3 py-2 text-right">利润(原币)</th>
                 <th className="px-3 py-2 text-right" title="人民币利润 = 亚马逊金额 × 锁定汇率 − 采购(¥)">利润 (¥)</th>
                 <th className="px-3 py-2 text-right" title="成本利润率 = 人民币利润 / 人民币采购价">成本利润率</th>
+                <th className="px-3 py-2 text-left">承运人</th>
                 <th className="px-3 py-2 text-left">物流跟踪号</th>
                 <th className="px-3 py-2 text-left">状态</th>
                 <th className="px-3 py-2 text-left">创建时间</th>
@@ -239,8 +240,8 @@ export default function Orders() {
                       title={canComputeRate ? `按订单锁定亚马逊汇率 ${amazonRate} 计算` : (sales === 0 ? '未填亚马逊金额' : '该国未设亚马逊汇率')}>
                     {!canComputeRate ? '—' : `${profitRate >= 0 ? '+' : ''}${(profitRate * 100).toFixed(2)}%`}
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{o.shipping_carrier || '-'}</td>
                   <td className="px-3 py-2">
-                    {o.shipping_carrier && <div className="text-gray-400 text-[11px]">{o.shipping_carrier}</div>}
                     <span className="font-mono">{o.tracking_no || '-'}</span>
                     <button onClick={() => editTracking(o)} className="ml-1 text-gray-400 hover:text-blue-600" title="编辑跟踪号">✏️</button>
                   </td>
@@ -256,7 +257,7 @@ export default function Orders() {
                   </td>
                 </tr>
               );})}
-              {orders.length === 0 && <tr><td colSpan="13" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
+              {orders.length === 0 && <tr><td colSpan="14" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
             {orders.length > 0 && (() => {
               const t = orders.reduce((a, o) => {
@@ -291,7 +292,7 @@ export default function Orders() {
                         title="本页合计：总人民币利润 / 总人民币采购价">
                       {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
                     </td>
-                    <td colSpan={4} />
+                    <td colSpan={5} />
                   </tr>
                 </tfoot>
               );
