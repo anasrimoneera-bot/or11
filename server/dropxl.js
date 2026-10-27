@@ -43,7 +43,8 @@ function createClient(country) {
       const status = err.response?.status;
       const data = err.response?.data;
       const message = data?.message || data?.error || err.message;
-      const e = new Error(`DropXL API error${status ? ' ' + status : ''}: ${message}`);
+      // 报错信息不带供应商名称（会展示给分销商/管理员），只保留状态码 + 供应商返回的原因
+      const e = new Error(`${status ? status + ': ' : ''}${message}`);
       e.status = status;
       e.data = data;
       throw e;
