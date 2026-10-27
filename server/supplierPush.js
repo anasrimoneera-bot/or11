@@ -26,7 +26,8 @@ async function pushOrderToSupplier(order) {
     return id;
   } catch (e) {
     updatePush.run(order.dropxl_order_id || null, 'failed', String(e.message || e).slice(0, 500), order.id);
-    throw new Error('推送供应商失败：' + (e.message || e));
+    // 提示给用户时去掉「DropXL API error」字样（不暴露供应商名称），库里的 dropxl_push_error 保留原文供管理员排查
+    throw new Error('推送供应商失败：' + String(e.message || e).replace(/^DropXL API error\s*/i, ''));
   }
 }
 
