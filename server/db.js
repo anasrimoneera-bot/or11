@@ -468,6 +468,10 @@ ensureColumn('aftersales_messages', 'recalled', 'INTEGER DEFAULT 0');
 // 确认采购（转入待发货）的时间：订单列表据此给 12 小时内新确认的订单显示「新」标识
 ensureColumn('purchase_orders', 'confirmed_at', 'TEXT');
 
+// 已有跟踪号却仍停在「待发货」的订单，启动时统一转为「已发货」（之后由同步/填写跟踪号时逐单维护）。
+// 只在主进程跑一次：子进程（workers）也会加载本文件，有 process.send 的是 fork 出来的子进程
+if (!process.send) db.prepare("UPDATE purchase_orders SET status = 'shipped', updated_at = CURRENT_TIMESTAMP WHERE status = 'pending_shipment' AND COALESCE(tracking_no, '') <> ''").run();
+
 ensureDefaultUser();
 
 function ensureDefaultPolicies() {

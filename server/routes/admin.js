@@ -762,6 +762,8 @@ router.put('/orders/:id', (req, res) => {
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(status, tracking_no, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
+  // 填写了跟踪号的待发货订单自动转为已发货（本次显式改状态时以管理员选择为准）
+  if (tracking_no && !status) db.prepare("UPDATE purchase_orders SET status = 'shipped' WHERE id = ? AND status = 'pending_shipment' AND COALESCE(tracking_no, '') <> ''").run(req.params.id);
   res.json({ ok: true });
 });
 

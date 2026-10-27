@@ -18,12 +18,13 @@ function mapStatus(s) {
   return 'pending_shipment';
 }
 
+// 供应商状态仍是处理中（映射为待发货）但订单已有跟踪号时，按已发货处理（见下方 SQL 的 CASE）
 // DropXL 列表返回的订单 id 形如 "B2BDS15810358"(带前缀)，而本地 dropxl_order_id
 // 可能存的是纯数字 "15810358"(下单接口返回的) 或带前缀(历史导入的)。所以按两种形式都匹配，
 // 否则前缀对不上 → 永远命不中 → 跟踪号/状态同步不进来(踩过的坑)。
 const byId = db.prepare(`
   UPDATE purchase_orders
-  SET status = ?,
+  SET status = CASE WHEN ? = 'pending_shipment' AND COALESCE(NULLIF(?, ''), tracking_no, '') <> '' THEN 'shipped' ELSE ? END,
       tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
       shipping_carrier = CASE WHEN ? <> '' THEN ? ELSE shipping_carrier END,
       updated_at = CURRENT_TIMESTAMP
@@ -31,7 +32,7 @@ const byId = db.prepare(`
 `);
 const byRef = db.prepare(`
   UPDATE purchase_orders
-  SET status = ?,
+  SET status = CASE WHEN ? = 'pending_shipment' AND COALESCE(NULLIF(?, ''), tracking_no, '') <> '' THEN 'shipped' ELSE ? END,
       tracking_no = CASE WHEN ? <> '' THEN ? ELSE tracking_no END,
       shipping_carrier = CASE WHEN ? <> '' THEN ? ELSE shipping_carrier END,
       dropxl_order_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -60,8 +61,8 @@ async function run(msg) {
         const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
         const carrier = o.shipping_option_name || o.shipping_carrier || o.carrier_name || o.carrier || '';
         const status = mapStatus(o.status_order_name || o.status);
-        let r = byId.run(status, tracking, tracking, carrier, carrier, rawId, numId);
-        if (r.changes === 0 && ref) r = byRef.run(status, tracking, tracking, carrier, carrier, rawId, ref);
+        let r = byId.run(status, tracking, status, tracking, tracking, carrier, carrier, rawId, numId);
+        if (r.changes === 0 && ref) r = byRef.run(status, tracking, status, tracking, tracking, carrier, carrier, rawId, ref);
         if (r.changes > 0) updated++; else notFound++;
       }
       totalFetched += wraps.length;
