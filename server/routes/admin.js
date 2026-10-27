@@ -729,7 +729,8 @@ router.post('/orders/manual', (req, res) => {
 });
 
 router.put('/orders/:id', (req, res) => {
-  const { status, tracking_no, amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
+  const { status, tracking_no, shipping_carrier, amazon_amount, amazon_tax_amount, shipping_fee } = req.body || {};
+  const carrier = shipping_carrier === undefined ? null : String(shipping_carrier).trim().slice(0, 100);
   const amazonAmt = amazon_amount === undefined ? null : Number(amazon_amount);
   const amazonTax = amazon_tax_amount === undefined ? null : Number(amazon_tax_amount);
   const shipFee = shipping_fee === undefined ? null : Number(shipping_fee);
@@ -755,13 +756,14 @@ router.put('/orders/:id', (req, res) => {
     UPDATE purchase_orders
     SET status = COALESCE(?, status),
         tracking_no = COALESCE(?, tracking_no),
+        shipping_carrier = COALESCE(?, shipping_carrier),
         amazon_amount = COALESCE(?, amazon_amount),
         amazon_tax_amount = COALESCE(?, amazon_tax_amount),
         shipping_fee = COALESCE(?, shipping_fee),
         amazon_rate_locked = CASE WHEN ? THEN ? ELSE amazon_rate_locked END,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(status, tracking_no, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
+  `).run(status, tracking_no, carrier, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
   // 填写了跟踪号的待发货订单自动转为已发货（本次显式改状态时以管理员选择为准）
   if (tracking_no && !status) db.prepare("UPDATE purchase_orders SET status = 'shipped' WHERE id = ? AND status = 'pending_shipment' AND COALESCE(tracking_no, '') <> ''").run(req.params.id);
   res.json({ ok: true });
