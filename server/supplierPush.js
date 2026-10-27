@@ -26,17 +26,24 @@ async function pushOrderToSupplier(order) {
     return id;
   } catch (e) {
     updatePush.run(order.dropxl_order_id || null, 'failed', String(e.message || e).slice(0, 500), order.id);
-    // 提示给用户时去掉「DropXL API error」字样（不暴露供应商名称），库里的 dropxl_push_error 保留原文供管理员排查
-    throw new Error('推送供应商失败：' + String(e.message || e).replace(/^DropXL API error\s*/i, ''));
+    const err = new Error('推送供应商失败：' + (e.message || e));
+    err.orderingDisabled = /ordering is disabled/i.test(String(e.message || ''));
+    throw err;
   }
 }
 
 // 确认采购前确保已推送：已推送成功过（有供应商单号）的历史订单不重复推送；
-// 未对接供应商 API 的国家不推送，直接确认（由管理员导出采购模板手动下单）
+// 未对接供应商 API 的国家不推送，直接确认（由管理员导出采购模板手动下单）；
+// 供应商账号被禁用下单（Ordering is disabled）时同样放行确认，推送失败原因已记录在订单上供管理员手动下单
 async function ensurePushed(order) {
   if (order.dropxl_order_id) return order.dropxl_order_id;
   if (!dropxl.hasSupplierApi(order.country)) return null;
-  return pushOrderToSupplier(order);
+  try {
+    return await pushOrderToSupplier(order);
+  } catch (e) {
+    if (e.orderingDisabled) return null;
+    throw e;
+  }
 }
 
 // 同一用户的确认采购串行执行：推送是异步的，防止重复点击把同一订单推两次，

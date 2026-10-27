@@ -164,6 +164,8 @@ router.put('/:id', authRequired, (req, res) => {
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND user_id = ?
   `).run(amt, tax, ship, track, req.params.id, req.user.id);
+  // 填写了跟踪号的待发货订单自动转为已发货
+  if (track) db.prepare("UPDATE purchase_orders SET status = 'shipped' WHERE id = ? AND status = 'pending_shipment' AND COALESCE(tracking_no, '') <> ''").run(req.params.id);
   res.json({ ok: true });
 });
 
