@@ -23,6 +23,8 @@ const amazonSym = (country) => CURRENCY_SYMBOL[COUNTRY_CURRENCY[country]] || '$'
 // 12 小时内新确认采购、已转入待发货的订单显示「新」标识（confirmed_at 为 UTC）
 const isNewConfirmed = (o) => o.status === 'pending_shipment' && o.confirmed_at
   && Date.now() - Date.parse(o.confirmed_at.replace(' ', 'T') + 'Z') < 12 * 3600 * 1000;
+// 操作列固定在表格右侧：小屏/高缩放（如 1920 宽 125% 缩放）下表格横向滚动时「确认采购」等按钮始终可见
+const STICKY_ACTION = 'sticky right-0 z-10 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]';
 const NewBadge = () => <span className="badge bg-red-500 text-white text-[10px] whitespace-nowrap" title="12 小时内新确认采购">🆕 新</span>;
 
 export default function AdminOrders() {
@@ -370,7 +372,7 @@ export default function AdminOrders() {
               <th className="px-3 py-2 text-left" title="供应商同步回来的承运人，BOSS/管理员可编辑">承运人</th>
               <th className="px-3 py-2 text-left">跟踪号</th>
               <th className="px-3 py-2 text-left">状态</th>
-              <th className="px-3 py-2"></th>
+              <th className={`px-3 py-2 text-right bg-gray-50 ${STICKY_ACTION}`}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -459,7 +461,7 @@ export default function AdminOrders() {
                     {isNewConfirmed(o) && <NewBadge />}
                   </div>
                 </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
+                <td className={`px-3 py-2 text-right whitespace-nowrap bg-inherit ${STICKY_ACTION}`}>
                   <div className="flex flex-col items-end gap-0.5">
                     {o.status === 'pending_purchase' && (
                       <>
@@ -542,7 +544,8 @@ export default function AdminOrders() {
                       {t.profitDiff >= 0 ? '+' : ''}¥{t.profitDiff.toFixed(2)}
                     </td>
                   </>}
-                  <td colSpan={5} />
+                  <td colSpan={4} />
+                  <td className={`bg-gray-50 ${STICKY_ACTION}`} />
                 </tr>
               </tfoot>
             );
