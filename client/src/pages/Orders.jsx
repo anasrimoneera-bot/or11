@@ -9,6 +9,8 @@ const sym = (country) => CURRENCY_SYMBOL[CURRENCY_BY_COUNTRY[country]] || '$';
 // 12 小时内新确认采购、已转入待发货的订单显示「新」标识（confirmed_at 为 UTC）
 const isNewConfirmed = (o) => o.status === 'pending_shipment' && o.confirmed_at
   && Date.now() - Date.parse(o.confirmed_at.replace(' ', 'T') + 'Z') < 12 * 3600 * 1000;
+// 操作列固定在表格右侧：小屏/高缩放（如 1920 宽 125% 缩放）下表格横向滚动时「确认采购」等按钮始终可见
+const STICKY_ACTION = 'sticky right-0 z-10 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]';
 const NewBadge = () => <span className="badge bg-red-500 text-white ml-1" title="12 小时内新确认采购">🆕 新</span>;
 
 const statusColor = {
@@ -185,12 +187,12 @@ export default function Orders() {
 
         {/* 桌面端：完整表格 */}
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
+          {/* 紧凑布局：单元格内边距/字号收小，创建时间并入订单号列、国家并入店铺列，操作列固定在右侧 */}
+          <table className="w-full text-xs [&_td]:px-2 [&_th]:px-2 [&_td]:py-1.5">
+            <thead className="bg-gray-50 text-gray-600 [&_th]:whitespace-nowrap">
               <tr>
-                <th className="px-3 py-2 text-left">订单号</th>
-                <th className="px-3 py-2 text-left">国家</th>
-                <th className="px-3 py-2 text-left">店铺</th>
+                <th className="px-3 py-2 text-left">订单号 / 创建时间</th>
+                <th className="px-3 py-2 text-left">国家 / 店铺</th>
                 <th className="px-3 py-2 text-right" title="亚马逊扣除佣金及税后的实际到账金额">亚马逊金额</th>
                 <th className="px-3 py-2 text-right">采购(原币)</th>
                 <th className="px-3 py-2 text-right">采购(¥)</th>
@@ -200,8 +202,7 @@ export default function Orders() {
                 <th className="px-3 py-2 text-left">承运人</th>
                 <th className="px-3 py-2 text-left">物流跟踪号</th>
                 <th className="px-3 py-2 text-left">状态</th>
-                <th className="px-3 py-2 text-left">创建时间</th>
-                <th className="px-3 py-2"></th>
+                <th className={`px-3 py-2 text-right bg-gray-50 ${STICKY_ACTION}`}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -216,14 +217,17 @@ export default function Orders() {
                 const canComputeRate = canComputeCny && purchaseCny > 0;
                 const profitRate = canComputeRate ? profitCny / purchaseCny : 0;
                 return (
-                <tr key={o.id} className="border-t hover:bg-gray-50">
-                  <td className="px-3 py-2 font-mono">{o.order_no}</td>
+                <tr key={o.id} className="border-t bg-white hover:bg-gray-50">
                   <td className="px-3 py-2">
-                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-xs font-mono" title={o.country}>
+                    <div className="font-mono whitespace-nowrap">{o.order_no}</div>
+                    <div className="text-[11px] text-gray-400 whitespace-nowrap">{(o.created_at || '').replace('T', ' ').slice(0, 16)}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono" title={o.country}>
                       {countryCode[o.country] || o.country || '-'}
                     </span>
+                    <div className="mt-0.5 max-w-[7rem] truncate" title={o.shop_name || ''}>{o.shop_name || '-'}</div>
                   </td>
-                  <td className="px-3 py-2">{o.shop_name || '-'}</td>
                   <td className="px-3 py-2 text-right">
                     <EditableAmount value={o.amazon_amount || 0} onSave={async (v) => { await api.put(`/orders/${o.id}`, { amazon_amount: v }); load(); }} />
                   </td>
@@ -242,22 +246,25 @@ export default function Orders() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{o.shipping_carrier || '-'}</td>
                   <td className="px-3 py-2">
-                    <span className="font-mono">{o.tracking_no || '-'}</span>
+                    <span className="font-mono break-all">{o.tracking_no || '-'}</span>
                     <button onClick={() => editTracking(o)} className="ml-1 text-gray-400 hover:text-blue-600" title="编辑跟踪号">✏️</button>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
-                    {isNewConfirmed(o) && <NewBadge />}
+                    <div className="flex flex-col items-start gap-1">
+                      <span className={`badge whitespace-nowrap ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
+                      {isNewConfirmed(o) && <NewBadge />}
+                    </div>
                   </td>
-                  <td className="px-3 py-2">{(o.created_at || '').replace('T', ' ').slice(0, 19)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => setDetailId(o.id)} className="text-blue-600 hover:underline text-xs mr-2">查看</button>
-                    {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="text-green-600 hover:underline text-xs mr-2 font-medium">确认采购</button>}
-                    {o.status === 'pending_purchase' && <button onClick={() => deleteOrder(o)} className="text-red-500 hover:underline text-xs">删除</button>}
+                  <td className={`px-3 py-2 text-right bg-inherit ${STICKY_ACTION}`}>
+                    <div className="flex flex-col items-end gap-1 whitespace-nowrap">
+                      {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white font-medium">确认采购</button>}
+                      <button onClick={() => setDetailId(o.id)} className="text-blue-600 hover:underline">查看</button>
+                      {o.status === 'pending_purchase' && <button onClick={() => deleteOrder(o)} className="text-red-500 hover:underline">删除</button>}
+                    </div>
                   </td>
                 </tr>
               );})}
-              {orders.length === 0 && <tr><td colSpan="14" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
+              {orders.length === 0 && <tr><td colSpan="12" className="p-8 text-center text-gray-400">暂无订单数据</td></tr>}
             </tbody>
             {orders.length > 0 && (() => {
               const t = orders.reduce((a, o) => {
@@ -278,7 +285,7 @@ export default function Orders() {
               return (
                 <tfoot className="bg-gray-50 border-t-2 font-semibold">
                   <tr>
-                    <td className="px-3 py-2.5 text-gray-700" colSpan={3}>📊 本页合计 ({orders.length} 单)</td>
+                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap" colSpan={2}>📊 本页合计 ({orders.length} 单)</td>
                     <td className="px-3 py-2.5 text-right">{t.sales.toFixed(2)}</td>
                     <td className="px-3 py-2.5 text-right">{t.purchase.toFixed(2)}</td>
                     <td className="px-3 py-2.5 text-right text-red-600">¥{t.purchaseCny.toFixed(2)}</td>
@@ -292,7 +299,8 @@ export default function Orders() {
                         title="本页合计：总人民币利润 / 总人民币采购价">
                       {t.purchaseCny <= 0 ? '—' : `${(t.profitCny / t.purchaseCny) >= 0 ? '+' : ''}${((t.profitCny / t.purchaseCny) * 100).toFixed(2)}%`}
                     </td>
-                    <td colSpan={5} />
+                    <td colSpan={3} />
+                    <td className={`bg-gray-50 ${STICKY_ACTION}`} />
                   </tr>
                 </tfoot>
               );
