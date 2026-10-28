@@ -70,15 +70,6 @@ export default function Orders() {
       load();
     } catch (e) { alert(e.response?.data?.error || '确认失败'); }
   };
-  // 仅「待采购」订单可删除；只删本地记录，不会取消供应商那边的订单
-  const deleteOrder = async (o) => {
-    if (!confirm(`确定删除订单 ${o.order_no}？\n只删除本系统内的记录，不会取消已提交给供应商的订单。\n此操作不可恢复。`)) return;
-    try {
-      const { data } = await api.delete(`/orders/${o.id}`);
-      if (data?.refunded > 0) alert(`已删除，并退回余额 ¥${data.refunded.toFixed(2)}`);
-      load();
-    } catch (e) { alert(e.response?.data?.error || '删除失败'); }
-  };
 
   return (
     <div className="space-y-6">
@@ -177,7 +168,6 @@ export default function Orders() {
                 <div className="flex gap-3 mt-1 text-xs" onClick={e => e.stopPropagation()}>
                   <button onClick={() => editTracking(o)} className="text-blue-600">✏️ {o.tracking_no ? '改跟踪号' : '填跟踪号'}</button>
                   {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="text-green-600 font-medium">✓ 确认采购</button>}
-                  {o.status === 'pending_purchase' && <button onClick={() => deleteOrder(o)} className="text-red-500">🗑️ 删除</button>}
                 </div>
               </div>
             );
@@ -259,7 +249,6 @@ export default function Orders() {
                     <div className="flex flex-col items-end gap-1 whitespace-nowrap">
                       {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white font-medium">确认采购</button>}
                       <button onClick={() => setDetailId(o.id)} className="text-blue-600 hover:underline">查看</button>
-                      {o.status === 'pending_purchase' && <button onClick={() => deleteOrder(o)} className="text-red-500 hover:underline">删除</button>}
                     </div>
                   </td>
                 </tr>
