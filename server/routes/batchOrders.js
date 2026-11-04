@@ -30,6 +30,12 @@ const AMAZON_COLS = {
   shipping_tax: 'shipping-tax',
 };
 
+// 地址一/地址二对调：亚马逊 ship-address-2 填到地址一，ship-address-1 填到地址二；
+// ship-address-2 为空时不对调，避免地址一为空
+function swapAddress(a1, a2) {
+  return a2 ? { ship_address1: a2, ship_address2: a1 } : { ship_address1: a1, ship_address2: a2 };
+}
+
 function parseAmazonTemplate(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -47,8 +53,7 @@ function parseAmazonTemplate(buffer) {
       sku: get(AMAZON_COLS.sku),
       quantity: Number(get(AMAZON_COLS.quantity)) || 0,
       recipient_name: get(AMAZON_COLS.recipient_name),
-      ship_address1: get(AMAZON_COLS.ship_address1),
-      ship_address2: get(AMAZON_COLS.ship_address2),
+      ...swapAddress(get(AMAZON_COLS.ship_address1), get(AMAZON_COLS.ship_address2)),
       ship_city: get(AMAZON_COLS.ship_city),
       ship_state: get(AMAZON_COLS.ship_state),
       ship_postal: get(AMAZON_COLS.ship_postal),
@@ -111,8 +116,7 @@ function parseAmazonReportTxt(buffer, shopName) {
       sku: dash >= 0 ? rawSku.slice(dash + 1) : rawSku,
       quantity: Number(get(cols.quantity)) || 0,
       recipient_name: get(cols.recipient_name),
-      ship_address1: get(cols.ship_address1),
-      ship_address2: get(cols.ship_address2),
+      ...swapAddress(get(cols.ship_address1), get(cols.ship_address2)),
       ship_city: get(cols.ship_city),
       ship_state: get(cols.ship_state),
       ship_postal: get(cols.ship_postal),
