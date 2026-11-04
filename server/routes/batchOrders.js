@@ -30,6 +30,15 @@ const AMAZON_COLS = {
   shipping_tax: 'shipping-tax',
 };
 
+// 地址一必须包含房屋号供应商才能下单，而亚马逊订单的房屋号大多在 ship-address-2：
+// - ship-address-2 只是房屋号（如 7、7a、12-14、12/1）：拼到地址一后面（空格分隔），地址二留空
+// - ship-address-2 为空：不处理，避免地址一为空
+// - 其他情况：地址一/地址二对调
+function swapAddress(a1, a2) {
+  if (/^\d+\s?[a-zA-Z]?(\s?[-/]\s?\d+\s?[a-zA-Z]?)?$/.test(a2)) return { ship_address1: a1 ? `${a1} ${a2}` : a2, ship_address2: '' };
+  return a2 ? { ship_address1: a2, ship_address2: a1 } : { ship_address1: a1, ship_address2: a2 };
+}
+
 function parseAmazonTemplate(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -47,8 +56,7 @@ function parseAmazonTemplate(buffer) {
       sku: get(AMAZON_COLS.sku),
       quantity: Number(get(AMAZON_COLS.quantity)) || 0,
       recipient_name: get(AMAZON_COLS.recipient_name),
-      ship_address1: get(AMAZON_COLS.ship_address1),
-      ship_address2: get(AMAZON_COLS.ship_address2),
+      ...swapAddress(get(AMAZON_COLS.ship_address1), get(AMAZON_COLS.ship_address2)),
       ship_city: get(AMAZON_COLS.ship_city),
       ship_state: get(AMAZON_COLS.ship_state),
       ship_postal: get(AMAZON_COLS.ship_postal),
@@ -111,8 +119,7 @@ function parseAmazonReportTxt(buffer, shopName) {
       sku: dash >= 0 ? rawSku.slice(dash + 1) : rawSku,
       quantity: Number(get(cols.quantity)) || 0,
       recipient_name: get(cols.recipient_name),
-      ship_address1: get(cols.ship_address1),
-      ship_address2: get(cols.ship_address2),
+      ...swapAddress(get(cols.ship_address1), get(cols.ship_address2)),
       ship_city: get(cols.ship_city),
       ship_state: get(cols.ship_state),
       ship_postal: get(cols.ship_postal),
