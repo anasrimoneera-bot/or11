@@ -31,11 +31,11 @@ const AMAZON_COLS = {
 };
 
 // 地址一必须包含房屋号供应商才能下单，而亚马逊订单的房屋号大多在 ship-address-2：
-// - ship-address-2 只是数字（房屋号）：拼到地址一后面（空格分隔），地址二留空
+// - ship-address-2 只是房屋号（如 7、7a、12-14、12/1）：拼到地址一后面（空格分隔），地址二留空
 // - ship-address-2 为空：不处理，避免地址一为空
 // - 其他情况：地址一/地址二对调
 function swapAddress(a1, a2) {
-  if (/^\d+$/.test(a2)) return { ship_address1: a1 ? `${a1} ${a2}` : a2, ship_address2: '' };
+  if (/^\d+\s?[a-zA-Z]?(\s?[-/]\s?\d+\s?[a-zA-Z]?)?$/.test(a2)) return { ship_address1: a1 ? `${a1} ${a2}` : a2, ship_address2: '' };
   return a2 ? { ship_address1: a2, ship_address2: a1 } : { ship_address1: a1, ship_address2: a2 };
 }
 
