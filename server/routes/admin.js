@@ -1234,6 +1234,59 @@ const EU_TEMPLATE_HEADER = [
 
 // 与订单管理列表用同一套筛选条件（状态/搜索/国家/用户/创建时间），只导出当前筛选结果。
 // format='eu' 时导出欧洲订单采购模板（34 列，仅填映射列，shop-name 固定为 1）。
+// 导入物流信息：按表格「订单号」匹配订单编号，回填「承运人」「物流跟踪号」。
+// 承运人为 - 或空的行不处理；跟踪号为空时只更新承运人。填了跟踪号的待发货订单自动转为已发货。
+const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+router.post('/orders/import-tracking', memUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '请上传文件' });
+  let rows;
+  try {
+    const wb = XLSX_LIB.read(req.file.buffer, { type: 'buffer' });
+    rows = XLSX_LIB.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+  } catch (e) {
+    return res.status(400).json({ error: '文件解析失败，请上传 xlsx 表格' });
+  }
+  if (!rows.length || !('订单号' in rows[0]) || !('承运人' in rows[0]) || !('物流跟踪号' in rows[0])) {
+    return res.status(400).json({ error: '表格缺少「订单号」「承运人」「物流跟踪号」列' });
+  }
+
+  // 同一订单多行（多商品）只取第一条有效行；跟踪号去掉重复项（如 "A,A" → "A"）
+  const byOrder = new Map();
+  let skipped = 0;
+  for (const r of rows) {
+    const orderNo = String(r['订单号']).trim();
+    const carrier = String(r['承运人']).trim();
+    if (!orderNo) continue;
+    if (!carrier || carrier === '-') { skipped++; continue; }
+    if (byOrder.has(orderNo)) continue;
+    const tracking = [...new Set(String(r['物流跟踪号']).split(/[,，]/).map(t => t.trim()).filter(Boolean))].join(',');
+    byOrder.set(orderNo, { carrier: carrier.slice(0, 100), tracking });
+  }
+
+  const find = db.prepare('SELECT id FROM purchase_orders WHERE order_no = ?');
+  const upd = db.prepare(`
+    UPDATE purchase_orders
+    SET shipping_carrier = ?,
+        tracking_no = COALESCE(NULLIF(?, ''), tracking_no),
+        status = CASE WHEN status = 'pending_shipment' AND NULLIF(?, '') IS NOT NULL THEN 'shipped' ELSE status END,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+  let updated = 0;
+  const notFound = [];
+  db.transaction(() => {
+    for (const [orderNo, v] of byOrder) {
+      const o = find.get(orderNo);
+      if (!o) { notFound.push(orderNo); continue; }
+      upd.run(v.carrier, v.tracking, v.tracking, o.id);
+      updated++;
+    }
+  })();
+
+  setAudit(res, { summary: `导入物流信息：更新 ${updated} 单，未匹配 ${notFound.length} 单，跳过承运人为 - 的 ${skipped} 行` });
+  res.json({ ok: true, updated, skipped, not_found: notFound });
+});
+
 router.post('/orders/dropxl-template-export', (req, res) => {
   const { status, q, user_id, country, start, end, format, ids } = req.body || {};
   const conds = [];

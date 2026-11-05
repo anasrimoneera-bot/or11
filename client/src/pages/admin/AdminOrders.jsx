@@ -105,6 +105,22 @@ export default function AdminOrders() {
     } catch (e) { alert(e.response?.data?.error || '导入失败'); }
   };
 
+  // 导入物流信息表格：按「订单号」匹配订单编号，回填承运人、跟踪号（承运人为 - 的行不处理）
+  const importTracking = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const { data } = await api.post('/admin/orders/import-tracking', fd);
+      let msg = `导入完成：\n  ✓ 更新承运人/跟踪号 ${data.updated} 单\n  · 承运人为 - 跳过 ${data.skipped} 行`;
+      if (data.not_found.length) msg += `\n  ✗ 系统中未找到 ${data.not_found.length} 单：\n${data.not_found.slice(0, 20).join('\n')}${data.not_found.length > 20 ? '\n…' : ''}`;
+      alert(msg);
+      load();
+    } catch (err) { alert(err.response?.data?.error || '导入失败'); }
+  };
+
   // 仅 BOSS：按当前系统汇率重算单个订单的采购¥（补全历史导入单缺失的¥）
   const recomputeCny = async (o) => {
     const cur = COUNTRY_CURRENCY[o.country] || 'USD';
@@ -249,6 +265,10 @@ export default function AdminOrders() {
           <button onClick={() => exportDropxlTemplate()} className="btn btn-success text-sm py-1.5" title="按当前筛选条件导出供应商采购模板">📥 导出采购模板</button>
           <button onClick={() => exportDropxlTemplate('eu')} className="btn btn-success text-sm py-1.5" title="有勾选订单时只导出勾选的订单，否则按当前筛选条件导出">📥 导出欧洲采购模板{selected.size > 0 ? `（已选 ${selected.size}）` : ''}</button>
           {selected.size > 0 && <button onClick={() => setSelected(new Set())} className="btn btn-ghost border text-sm py-1.5" title="清空勾选">✕ 清空勾选</button>}
+          <label className="btn btn-warning text-sm py-1.5 cursor-pointer" title="按表格「订单号」匹配订单，回填「承运人」「物流跟踪号」；承运人为 - 的行不处理">
+            📥 导入物流单号
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={importTracking} />
+          </label>
           <button onClick={importHistory} className="btn btn-warning text-sm py-1.5">📥 导入历史订单</button>
           <button onClick={sync} className="btn btn-primary text-sm py-1.5">🔄 从供应商同步跟踪号/状态</button>
         </div>
