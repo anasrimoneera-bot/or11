@@ -6,7 +6,8 @@ const XLSX = require('xlsx');
 const ExcelJS = require('exceljs');
 const db = require('../db');
 const dropxl = require('../dropxl');
-const { authRequired, adminRequired } = require('../middleware/auth');
+const { authRequired, adminRequired, ownerRequired } = require('../middleware/auth');
+const { vatFactor } = require('../vat');
 const { setAudit } = require('../middleware/audit');
 
 const router = express.Router();
@@ -301,6 +302,10 @@ router.get('/', (req, res) => {
 
   const country_zh = resolveCountry(country);
   if (!country_zh) return res.status(400).json({ error: '请指定国家 (country=美国/US/...)' });
+  // 增值税仅 BOSS 可见：BOSS 看原价 + 税率；管理员看到的 B2B 价直接是含税价（价格筛选也按含税价）
+  const isOwner = !!req.user.is_owner;
+  const vf = vatFactor(country_zh);
+  const priceDiv = isOwner ? 1 : vf;
 
   // 该国是否上传了总表？没有则不过滤（向后兼容老数据），有则只显示总表里的 SKU
   const hasMaster = db.prepare('SELECT 1 FROM country_master_uploads WHERE country = ? LIMIT 1').get(country_zh);
@@ -312,8 +317,8 @@ router.get('/', (req, res) => {
     conds.push('m.sku IS NOT NULL');
   }
   if (q.trim()) { conds.push('p.code LIKE ?'); args.push(`%${q.trim()}%`); }
-  if (min_price !== '' && !isNaN(Number(min_price))) { conds.push('p.b2b_price >= ?'); args.push(Number(min_price)); }
-  if (max_price !== '' && !isNaN(Number(max_price))) { conds.push('p.b2b_price <= ?'); args.push(Number(max_price)); }
+  if (min_price !== '' && !isNaN(Number(min_price))) { conds.push('p.b2b_price >= ?'); args.push(Number(min_price) / priceDiv); }
+  if (max_price !== '' && !isNaN(Number(max_price))) { conds.push('p.b2b_price <= ?'); args.push(Number(max_price) / priceDiv); }
   if (min_stock !== '' && !isNaN(Number(min_stock))) { conds.push('p.stock >= ?'); args.push(Number(min_stock)); }
   if (max_stock !== '' && !isNaN(Number(max_stock))) { conds.push('p.stock <= ?'); args.push(Number(max_stock)); }
   if (stock_filter === 'in_stock') { conds.push('p.stock > 0'); }
@@ -336,12 +341,18 @@ router.get('/', (req, res) => {
   `).all(...args, Number(limit), Number(offset));
 
   const markup = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country_zh);
+  const mf = 1 + (Number(markup?.markup_pct) || 0) / 100;
+  for (const r of rows) {
+    r.display_price = r.b2b_price * vf * mf;
+    if (!isOwner) r.b2b_price *= vf;
+  }
 
   res.json({
     rows,
     total,
     country: country_zh,
     markup_pct: markup?.markup_pct ?? null,
+    ...(isOwner ? { vat_pct: Math.round((vf - 1) * 1e6) / 1e4 } : {}),
   });
 });
 
@@ -373,6 +384,23 @@ router.put('/country-markup/:country', (req, res) => {
     db.prepare('INSERT INTO country_markup (country, markup_pct) VALUES (?, ?)').run(country, v);
     setAudit(res, { target_name: country, summary: `新增 ${country} 加价规则: ${v}%` });
   }
+  res.json({ ok: true });
+});
+
+// ============ 国家增值税（仅 BOSS） ============
+router.get('/country-vat', ownerRequired, (req, res) => {
+  res.json(db.prepare('SELECT country, vat_pct, updated_at FROM country_vat ORDER BY country').all());
+});
+
+router.put('/country-vat/:country', ownerRequired, (req, res) => {
+  const v = Number(req.body?.vat_pct);
+  if (!isFinite(v) || v < 0 || v > 100) return res.status(400).json({ error: '增值税率必须在 0–100 之间' });
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const cur = db.prepare('SELECT vat_pct FROM country_vat WHERE country = ?').get(country);
+  db.prepare(`INSERT INTO country_vat (country, vat_pct) VALUES (?, ?)
+    ON CONFLICT(country) DO UPDATE SET vat_pct = excluded.vat_pct, updated_at = CURRENT_TIMESTAMP`).run(country, v);
+  setAudit(res, { target_name: country, summary: `${country} 增值税: ${Number(cur?.vat_pct) || 0}% → ${v}%` });
   res.json({ ok: true });
 });
 

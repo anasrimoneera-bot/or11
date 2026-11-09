@@ -15,6 +15,8 @@ export default function AdminProducts() {
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({ q: '', min_price: '', max_price: '', stock_filter: 'all' });
   const [page, setPage] = useState(0);
+  const [isOwner, setIsOwner] = useState(false);
+  const [vatPct, setVatPct] = useState(null); // 当前国家增值税率，仅 BOSS 的接口响应里才有
 
   const [masterStatus, setMasterStatus] = useState([]);
   const loadStatus = () => api.get('/admin/products/inventory-status').then(r => setStatus(r.data));
@@ -26,12 +28,13 @@ export default function AdminProducts() {
     const params = { country: activeCountry, limit: PAGE_SIZE, offset: page * PAGE_SIZE, ...filters };
     Object.keys(params).forEach(k => { if (params[k] === '') delete params[k]; });
     api.get('/admin/products', { params })
-      .then(r => { setRows(r.data.rows); setTotal(r.data.total); })
+      .then(r => { setRows(r.data.rows); setTotal(r.data.total); setVatPct(r.data.vat_pct ?? null); })
       .catch(() => { setRows([]); setTotal(0); })
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { loadStatus(); loadMarkup(); loadAccounts(); loadMasterStatus(); }, []);
+  useEffect(() => { api.get('/auth/me').then(r => setIsOwner(!!r.data?.is_owner)).catch(() => {}); }, []);
   // 任一国家正在 API 同步或总表导入时，每 3 秒刷新一次状态卡片
   const anySyncing = status.some(s => s.api_sync_status === 'running' || s.api_sync_status === 'pending');
   const anyImporting = masterStatus.some(s => s.import_status === 'parsing' || s.import_status === 'writing');
@@ -85,6 +88,7 @@ export default function AdminProducts() {
       />
 
       <CountryMarkupCard markup={markup} onChange={loadMarkup} />
+      {isOwner && <CountryVatCard onChange={loadProducts} />}
 
       <div className="bg-white rounded-xl shadow border">
         <div className="border-b p-4 flex items-end gap-3 flex-wrap">
@@ -96,6 +100,7 @@ export default function AdminProducts() {
                 共 {activeStatus.db_total} 行，有库存 {activeStatus.db_in_stock}
                 ，最近更新 {new Date(activeStatus.uploaded_at).toLocaleString()}
                 {activeMarkup && <> · 加价 <b>{activeMarkup.markup_pct}%</b></>}
+                {isOwner && vatPct > 0 && <> · 增值税 <b>{vatPct}%</b></>}
               </div>
             )}
           </div>
@@ -136,8 +141,7 @@ export default function AdminProducts() {
             </div>
           )}
           {!loading && rows.map(r => {
-            const markupPct = activeMarkup?.markup_pct ?? 0;
-            const display = r.b2b_price * (1 + markupPct / 100);
+            const display = r.display_price;
             return (
               <div key={r.code} className="p-3 flex gap-3">
                 {r.image_url
@@ -178,8 +182,7 @@ export default function AdminProducts() {
                 </td></tr>
               )}
               {!loading && rows.map(r => {
-                const markupPct = activeMarkup?.markup_pct ?? 0;
-                const display = r.b2b_price * (1 + markupPct / 100);
+                const display = r.display_price;
                 return (
                   <tr key={r.code} className="border-t hover:bg-gray-50">
                     <td className="px-3 py-2">
@@ -491,7 +494,7 @@ function CountryMarkupCard({ markup, onChange }) {
       <div className="border-b px-4 py-3 font-medium">
         💰 按国家加价规则
         <span className="text-xs text-gray-500 font-normal ml-2">
-          分销商批量采购时：B2B 原价 × (1 + 该国家加价%) 即为展示采购价
+          分销商批量采购时：B2B 价 × (1 + 该国家加价%) 即为展示采购价
         </span>
       </div>
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -505,6 +508,61 @@ function CountryMarkupCard({ markup, onChange }) {
                 step="1"
                 className={`field flex-1 ${dirty ? 'border-orange-400 bg-orange-50' : ''}`}
                 value={dirty ? edits[m.country] : m.markup_pct}
+                onChange={e => setEdits({ ...edits, [m.country]: e.target.value })}
+              />
+              <span className="text-sm text-gray-500">%</span>
+              {dirty && (
+                <button onClick={() => save(m.country)} disabled={saving === m.country} className="btn btn-primary text-xs px-2 py-1">
+                  {saving === m.country ? '...' : '保存'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// 国家增值税（仅 BOSS 可见）：展示采购价 = B2B 原价 × (1+增值税%) × (1+加价%)，真实成本按含税原价计
+function CountryVatCard({ onChange }) {
+  const [rows, setRows] = useState([]);
+  const [edits, setEdits] = useState({});
+  const [saving, setSaving] = useState(null);
+  const load = () => api.get('/admin/products/country-vat').then(r => setRows(r.data));
+  useEffect(() => { load(); }, []);
+  const save = async (country) => {
+    setSaving(country);
+    try {
+      await api.put(`/admin/products/country-vat/${encodeURIComponent(country)}`, { vat_pct: Number(edits[country]) });
+      setEdits(prev => { const next = { ...prev }; delete next[country]; return next; });
+      load();
+      onChange();
+    } catch (e) {
+      alert(e.response?.data?.error || '保存失败');
+    } finally {
+      setSaving(null);
+    }
+  };
+  return (
+    <div className="bg-white rounded-xl shadow border">
+      <div className="border-b px-4 py-3 font-medium">
+        🧾 按国家增值税（仅 BOSS 可见）
+        <span className="text-xs text-gray-500 font-normal ml-2">
+          展示采购价 = B2B 原价 × (1 + 增值税%) × (1 + 加价%)；仅影响之后新提交的订单
+        </span>
+      </div>
+      <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {rows.map(m => {
+          const dirty = edits[m.country] !== undefined;
+          return (
+            <div key={m.country} className="flex items-center gap-2">
+              <span className="w-14 text-sm">{m.country}</span>
+              <input
+                type="number"
+                step="0.1"
+                className={`field flex-1 ${dirty ? 'border-orange-400 bg-orange-50' : ''}`}
+                value={dirty ? edits[m.country] : m.vat_pct}
                 onChange={e => setEdits({ ...edits, [m.country]: e.target.value })}
               />
               <span className="text-sm text-gray-500">%</span>

@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const db = require('../db');
+const { vatFactor } = require('../vat');
 const { authRequired } = require('../middleware/auth');
 const { ensurePushed, withUserLock } = require('../supplierPush');
 
@@ -107,11 +108,13 @@ router.post('/', authRequired, async (req, res) => {
 
   // 提交时只在本地入库（待采购），不推送供应商；点击「确认采购」时才推送。
   // 价格按 (国家, SKU) 从本地供应商商品库取（与批量导入一致），SKU 不在库时按 0 入库，由管理员核定。
+  // 真实成本按含增值税的原价计（vatFactor，仅 BOSS 可设）
   const qProduct = db.prepare('SELECT b2b_price FROM dropxl_products WHERE country = ? AND code = ?');
+  const vf = vatFactor(country);
   let realUsd = 0;
   for (const i of items) {
     const p = qProduct.get(country, String(i.sku || '').trim());
-    realUsd += (Number(p?.b2b_price) || 0) * (Number(i.quantity) || 1);
+    realUsd += (Number(p?.b2b_price) || 0) * vf * (Number(i.quantity) || 1);
   }
   // 读取订单国家的加价百分比（与批量导入一致），自动计算用户可见的"显示采购价"
   const m = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
@@ -166,6 +169,30 @@ router.put('/:id', authRequired, (req, res) => {
   `).run(amt, tax, ship, track, req.params.id, req.user.id);
   // 填写了跟踪号的待发货订单自动转为已发货
   if (track) db.prepare("UPDATE purchase_orders SET status = 'shipped' WHERE id = ? AND status = 'pending_shipment' AND COALESCE(tracking_no, '') <> ''").run(req.params.id);
+  res.json({ ok: true });
+});
+
+// 分销商修改自己订单的状态：发货后状态（待发货/已发货/已完成）之间可互改；
+// 「待采购」只能改为「已取消」（未扣款，不涉及退款）。其余（进入/退出待采购、已退款等）仍由管理员处理，
+// 避免绕过「确认采购」扣款或重复扣款。
+const SHIPPING_STATUSES = ['pending_shipment', 'shipped', 'completed'];
+router.put('/:id/status', authRequired, async (req, res) => {
+  const to = String(req.body?.status || '');
+  try {
+    // 与确认采购共用用户锁：确认采购推送进行中时不允许同时取消
+    await withUserLock(req.user.id, () => {
+      const o = db.prepare('SELECT id, status, dropxl_order_id FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+      if (!o) throw Object.assign(new Error('订单不存在或不属于你'), { status: 404 });
+      if (o.status === to) return;
+      const ok = (SHIPPING_STATUSES.includes(o.status) && SHIPPING_STATUSES.includes(to))
+        || (o.status === 'pending_purchase' && to === 'cancelled');
+      if (!ok) throw Object.assign(new Error('该订单状态不能这样修改，如需处理请联系管理员'), { status: 400 });
+      if (to === 'cancelled' && o.dropxl_order_id) throw Object.assign(new Error('该订单已推送供应商，请联系管理员取消'), { status: 400 });
+      db.prepare('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?').run(to, o.id, o.status);
+    });
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message });
+  }
   res.json({ ok: true });
 });
 
