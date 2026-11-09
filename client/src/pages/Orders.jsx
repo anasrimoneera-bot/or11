@@ -32,6 +32,24 @@ const statusLabel = {
   replaced: '已替换',
 };
 
+// 分销商可改的状态（与后端 PUT /orders/:id/status 规则一致）：
+// 待发货/已发货/已完成之间互改；待采购只能改为已取消；其余状态不可改
+const SHIPPING_STATUSES = ['pending_shipment', 'shipped', 'completed'];
+const statusOptions = (s) => SHIPPING_STATUSES.includes(s) ? SHIPPING_STATUSES
+  : s === 'pending_purchase' ? ['pending_purchase', 'cancelled'] : [];
+
+function StatusCell({ o, onChange }) {
+  const opts = statusOptions(o.status);
+  const cls = `badge whitespace-nowrap ${statusColor[o.status] || 'bg-gray-100'}`;
+  if (!opts.length) return <span className={cls}>{statusLabel[o.status] || o.status}</span>;
+  return (
+    <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => onChange(o, e.target.value)}
+      className={`${cls} border-0 cursor-pointer pr-1`} title="修改订单状态">
+      {opts.map(s => <option key={s} value={s}>{statusLabel[s]}</option>)}
+    </select>
+  );
+}
+
 export default function Orders() {
   const [stats, setStats] = useState({});
   const [orders, setOrders] = useState([]);
@@ -58,6 +76,11 @@ export default function Orders() {
     if (v === null) return;
     try { await api.put(`/orders/${o.id}`, { tracking_no: v.trim() }); load(); }
     catch (e) { alert(e.response?.data?.error || '保存失败'); }
+  };
+  const changeStatus = async (o, status) => {
+    if (status === 'cancelled' && !confirm(`确认取消订单 ${o.order_no}？取消后不能再确认采购。`)) return;
+    try { await api.put(`/orders/${o.id}/status`, { status }); load(); }
+    catch (e) { alert(e.response?.data?.error || '修改失败'); }
   };
   // 分销商自行确认采购：按「采购(¥)」列金额从自己余额扣除（余额不足会提示联系 BOSS 充值）
   const confirmPurchase = async (o) => {
@@ -141,7 +164,7 @@ export default function Orders() {
               <div key={o.id} className="p-3 hover:bg-gray-50 active:bg-gray-100" onClick={() => setDetailId(o.id)}>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="font-mono text-xs truncate flex-1">{o.order_no}</div>
-                  <span className={`badge ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
+                  <StatusCell o={o} onChange={changeStatus} />
                   {isNewConfirmed(o) && <NewBadge />}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
@@ -241,7 +264,7 @@ export default function Orders() {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
-                      <span className={`badge whitespace-nowrap ${statusColor[o.status] || 'bg-gray-100'}`}>{statusLabel[o.status] || o.status}</span>
+                      <StatusCell o={o} onChange={changeStatus} />
                       {isNewConfirmed(o) && <NewBadge />}
                     </div>
                   </td>

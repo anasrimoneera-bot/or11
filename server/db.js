@@ -194,6 +194,13 @@ CREATE TABLE IF NOT EXISTS inventory_uploads (
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_uploads_country ON inventory_uploads(country, uploaded_at DESC);
 
+-- 各国增值税率（仅 BOSS 可见可设）：展示采购价 = B2B 原价 × (1+增值税%) × (1+加价%)，真实成本 = 原价 × (1+增值税%)
+CREATE TABLE IF NOT EXISTS country_vat (
+  country TEXT PRIMARY KEY,
+  vat_pct REAL DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS country_markup (
   country TEXT PRIMARY KEY,
   markup_pct REAL DEFAULT 30,
@@ -531,7 +538,8 @@ ensureDefaultSettings();
 function ensureDefaultCountryMarkup() {
   const defaults = ['美国', '英国', '德国', '法国', '意大利', '荷兰', '西班牙', '波兰'];
   const ins = db.prepare('INSERT OR IGNORE INTO country_markup (country, markup_pct) VALUES (?, 30)');
-  for (const c of defaults) ins.run(c);
+  const insVat = db.prepare('INSERT OR IGNORE INTO country_vat (country, vat_pct) VALUES (?, 0)');
+  for (const c of defaults) { ins.run(c); insVat.run(c); }
 }
 
 ensureDefaultCountryMarkup();

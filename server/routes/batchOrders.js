@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const db = require('../db');
+const { vatFactor } = require('../vat');
 const { authRequired } = require('../middleware/auth');
 
 const router = express.Router();
@@ -172,8 +173,10 @@ const Q_MARKUP = db.prepare('SELECT markup_pct FROM country_markup WHERE country
 // 每个国家只查一次的缓存(markup 对同一国家是固定的，不该每行重查)
 function makeEnrichCache() {
   const mk = new Map();
+  const vt = new Map();
   return {
     markup(c) { if (!c) return null; if (!mk.has(c)) { const m = Q_MARKUP.get(c); mk.set(c, m ? Number(m.markup_pct) : null); } return mk.get(c); },
+    vat(c) { if (!vt.has(c)) vt.set(c, vatFactor(c)); return vt.get(c); },
   };
 }
 
@@ -195,7 +198,7 @@ function enrichRow(row, cache) {
 
   let unitPriceUsd = null;
   if (product && markupPct != null) {
-    unitPriceUsd = Number(product.b2b_price) * (1 + markupPct / 100);
+    unitPriceUsd = Number(product.b2b_price) * cache.vat(country) * (1 + markupPct / 100);
   }
 
   const imageUrl = masterRow?.image_url || product?.image_url || null;
@@ -416,11 +419,13 @@ router.post('/submit', authRequired, async (req, res) => {
       let realUsd = 0;
       const resolvedItems = [];
       const factor = 1 + markupPct / 100;
+      const vf = vatFactor(country);
       for (const it of items) {
         const p = Q_PRODUCT.get(country, String(it.sku).trim());
         // SKU 不在库存时不再拦截：按 0 成本入库，采购价由管理员后续核定
+        // 真实成本按含增值税的原价计（vf，仅 BOSS 可设）
         const qty = Number(it.quantity) || 1;
-        const rawUnit = p ? (Number(p.b2b_price) || 0) : 0;
+        const rawUnit = p ? (Number(p.b2b_price) || 0) * vf : 0;
         realUsd += rawUnit * qty;
         resolvedItems.push({
           sku: it.sku,

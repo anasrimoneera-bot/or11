@@ -20,7 +20,9 @@ async function run(msg) {
     db.pragma('busy_timeout = 30000');
 
     const markupRow = db.prepare('SELECT markup_pct FROM country_markup WHERE country = ?').get(country);
-    const factor = 1 + (Number(markupRow?.markup_pct) || 0) / 100;
+    // 设了增值税的国家：原价 × (1+增值税%) × (1+加价%)
+    const vatRow = db.prepare('SELECT vat_pct FROM country_vat WHERE country = ?').get(country);
+    const factor = (1 + (Number(vatRow?.vat_pct) || 0) / 100) * (1 + (Number(markupRow?.markup_pct) || 0) / 100);
 
     // 是否上传了总表：决定是否按总表 SKU 白名单过滤。
     // 注意：必须用 JOIN / 字面量国家做点查，不能写成
