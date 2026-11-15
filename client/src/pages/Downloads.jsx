@@ -28,12 +28,16 @@ export default function Downloads() {
       for (const s of r.data) map[s.country] = s;
       setStatus(map);
     }).catch(() => {});
-    api.get('/inventory/master-status').then(r => {
-      const map = {};
-      for (const s of r.data) map[s.country] = s;
-      setMasterStatus(map);
+    // 各国销售总表仅 BOSS 可下载
+    api.get('/auth/me').then(r => {
+      setMe(r.data);
+      if (!r.data?.is_owner) return;
+      api.get('/inventory/master-status').then(r2 => {
+        const map = {};
+        for (const s of r2.data) map[s.country] = s;
+        setMasterStatus(map);
+      }).catch(() => {});
     }).catch(() => {});
-    api.get('/auth/me').then(r => setMe(r.data)).catch(() => {});
     loadInstaller();
   }, []);
 
@@ -151,7 +155,7 @@ export default function Downloads() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow border-l-4 border-emerald-500 p-5">
+      {isOwner && <div className="bg-white rounded-xl shadow border-l-4 border-emerald-500 p-5">
         <h2 className="font-semibold mb-3 text-emerald-700">📑 各国销售总表下载</h2>
         <p className="text-sm text-gray-600 mb-4">含 SKU 白名单 + 主图链接的精选目录。</p>
         <div className="grid grid-cols-4 gap-3">
@@ -181,7 +185,7 @@ export default function Downloads() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       <div className="bg-white rounded-xl shadow border-l-4 border-green-500 p-5">
         <h2 className="font-semibold mb-3 text-green-600">📄 工具文件下载</h2>

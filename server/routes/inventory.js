@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { fork } = require('child_process');
 const db = require('../db');
-const { authRequired, authOrTicket, signTicket } = require('../middleware/auth');
+const { authRequired, authOrTicket, signTicket, ownerRequired } = require('../middleware/auth');
 
 const router = express.Router();
 const MASTER_DIR = path.join(__dirname, '..', '..', 'data', 'master');
@@ -21,8 +21,8 @@ function resolveCountry(input) {
   return COUNTRY_TO_CODE[s] ? s : null;
 }
 
-// 总表状态（分销商可见）
-router.get('/master-status', authRequired, (req, res) => {
+// 各国销售总表：仅 BOSS 可查看/下载（分销商、管理员不可）
+router.get('/master-status', authRequired, ownerRequired, (req, res) => {
   const rows = db.prepare(`
     SELECT country, rows_count, uploaded_at FROM country_master_uploads
   `).all();
@@ -37,7 +37,7 @@ router.get('/master-status', authRequired, (req, res) => {
 });
 
 // 申请下载票据：让浏览器原生下载器直连下方 GET（避免 axios 把整个 xlsx 灌进 Blob、缺 Content-Length/Range）
-router.post('/master/:country/ticket', authRequired, (req, res) => {
+router.post('/master/:country/ticket', authRequired, ownerRequired, (req, res) => {
   const country = resolveCountry(req.params.country);
   if (!country) return res.status(400).json({ error: '不支持的国家' });
   const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
@@ -49,7 +49,7 @@ router.post('/master/:country/ticket', authRequired, (req, res) => {
 router.get('/master/:country', authOrTicket('inv-master', (req, p) => {
   const c = resolveCountry(req.params.country);
   return c && p.country !== c ? '票据与请求国家不符' : null;
-}), (req, res) => {
+}), (req, res, next) => (req.user._viaTicket ? next() : ownerRequired(req, res, next)), (req, res) => {
   const country = resolveCountry(req.params.country);
   if (!country) return res.status(400).json({ error: '不支持的国家' });
   const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
