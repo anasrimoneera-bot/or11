@@ -50,7 +50,7 @@ export default function AdminProducts() {
   useEffect(() => { setPage(0); /* eslint-disable-next-line */ }, [activeCountry]);
   useEffect(() => {
     api.get('/catalog/categories', { params: { country: activeCountry } })
-      .then(r => setCategories(r.data.categories.filter(c => c.name))).catch(() => setCategories([]));
+      .then(r => setCategories(r.data.categories.filter(c => c.name && !c.name.includes(' > ')))).catch(() => setCategories([]));
   }, [activeCountry]);
   useEffect(() => { loadProducts(); /* eslint-disable-next-line */ }, [activeCountry, page]);
 

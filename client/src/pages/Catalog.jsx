@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import api from '../api';
 
@@ -57,6 +57,33 @@ export default function Catalog() {
   const pickCategory = (c) => update({ cat: c, page: 0 });
   const search = () => update({ q: q.trim(), page: 0 });
 
+  // 分类树：接口返回每一级路径前缀（「A」「A > B」…）及计数，按「 > 」拼成父子关系
+  const tree = useMemo(() => buildTree(cats.categories), [cats]);
+  const [expanded, setExpanded] = useState(() => new Set());
+  // 选中某个分类时自动展开它的所有上级
+  useEffect(() => {
+    if (!category) return;
+    const parts = category.split(' > ');
+    setExpanded(prev => {
+      const next = new Set(prev);
+      for (let i = 1; i <= parts.length; i++) next.add(parts.slice(0, i).join(' > '));
+      return next;
+    });
+  }, [category]);
+  const toggle = (path) => setExpanded(prev => {
+    const next = new Set(prev);
+    next.has(path) ? next.delete(path) : next.add(path);
+    return next;
+  });
+  // 手机端下拉：全部 + 当前分类的各级上级 + 当前分类 + 它的下一级
+  const mobileOptions = useMemo(() => {
+    if (!category) return tree.roots.map(n => ({ node: n, depth: 0 }));
+    const parts = category.split(' > ');
+    const chain = parts.map((_, i) => tree.byPath.get(parts.slice(0, i + 1).join(' > '))).filter(Boolean);
+    const cur = tree.byPath.get(category);
+    return [...chain.map((n, i) => ({ node: n, depth: i })), ...(cur?.children || []).map(n => ({ node: n, depth: chain.length }))];
+  }, [tree, category]);
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">🛍️ 产品展示</h1>
@@ -75,15 +102,17 @@ export default function Catalog() {
         <div className="md:hidden w-full">
           <select className="field w-full" value={category ?? '__all'} onChange={e => pickCategory(e.target.value === '__all' ? null : e.target.value)}>
             <option value="__all">全部产品 ({cats.total})</option>
-            {cats.categories.map(c => <option key={c.name} value={c.name}>{c.label || '其他'} ({c.total})</option>)}
+            {mobileOptions.map(({ node, depth }) => (
+              <option key={node.path} value={node.path}>{'\u00A0\u00A0'.repeat(depth)}{depth ? '└ ' : ''}{node.label || '其他'} ({node.total})</option>
+            ))}
           </select>
         </div>
-        <aside className="hidden md:block w-60 shrink-0 bg-white rounded-xl shadow border">
+        <aside className="hidden md:block w-64 shrink-0 bg-white rounded-xl shadow border">
           <div className="px-4 py-3 border-b font-medium">☰ 产品类目</div>
-          <div className="p-2 space-y-0.5 max-h-[70vh] overflow-auto">
-            <CatItem label="全部产品" count={cats.total} active={category === null} onClick={() => pickCategory(null)} />
-            {cats.categories.map(c => (
-              <CatItem key={c.name} label={c.label || '其他'} count={c.total} active={category === c.name} onClick={() => pickCategory(c.name)} />
+          <div className="p-2 space-y-0.5">
+            <CatItem label="全部产品" count={cats.total} depth={0} active={category === null} onClick={() => pickCategory(null)} />
+            {tree.roots.map(n => (
+              <CatNode key={n.path} node={n} depth={0} selected={category} expanded={expanded} onToggle={toggle} onPick={pickCategory} />
             ))}
           </div>
         </aside>
@@ -134,12 +163,50 @@ export default function Catalog() {
   );
 }
 
-function CatItem({ label, count, active, onClick }) {
+function buildTree(list) {
+  const byPath = new Map();
+  for (const c of list) {
+    const segs = c.label ? c.label.split(' > ') : [];
+    byPath.set(c.name, { path: c.name, label: segs[segs.length - 1] || '', total: c.total, children: [] });
+  }
+  const roots = [];
+  for (const n of byPath.values()) {
+    const i = n.path.lastIndexOf(' > ');
+    const parent = i >= 0 ? byPath.get(n.path.slice(0, i)) : null;
+    (parent ? parent.children : roots).push(n);
+  }
+  const sort = (arr) => { arr.sort((a, b) => b.total - a.total); arr.forEach(n => sort(n.children)); };
+  sort(roots);
+  return { roots, byPath };
+}
+
+function CatNode({ node, depth, selected, expanded, onToggle, onPick }) {
+  const open = expanded.has(node.path);
+  const hasChildren = node.children.length > 0;
   return (
-    <button onClick={onClick}
-      className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left ${active ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50 text-gray-700'}`}>
-      <span className="truncate">{label}</span>
-      <span className="text-xs bg-gray-100 rounded-full px-2 shrink-0">{count}</span>
-    </button>
+    <>
+      <CatItem label={node.label || '其他'} count={node.total} depth={depth} active={selected === node.path}
+        arrow={hasChildren ? (open ? '▾' : '▸') : null}
+        onArrow={() => onToggle(node.path)}
+        onClick={() => { onPick(node.path); if (hasChildren && !open) onToggle(node.path); }} />
+      {open && node.children.map(c => (
+        <CatNode key={c.path} node={c} depth={depth + 1} selected={selected} expanded={expanded} onToggle={onToggle} onPick={onPick} />
+      ))}
+    </>
+  );
+}
+
+function CatItem({ label, count, active, onClick, depth = 0, arrow = null, onArrow }) {
+  return (
+    <div className={`flex items-center gap-1 rounded-lg text-sm ${active ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50 text-gray-700'}`}
+      style={{ paddingLeft: 4 + depth * 14 }}>
+      <button type="button" onClick={onArrow} disabled={!arrow}
+        className="w-5 h-7 shrink-0 text-gray-400 hover:text-gray-700 disabled:cursor-default">{arrow}</button>
+      <button type="button" onClick={onClick} title={label}
+        className="flex-1 min-w-0 flex items-center justify-between gap-2 py-2 pr-2 text-left">
+        <span className="truncate">{label}</span>
+        <span className="text-xs bg-gray-100 rounded-full px-2 shrink-0">{count}</span>
+      </button>
+    </div>
   );
 }

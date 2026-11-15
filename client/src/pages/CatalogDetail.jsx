@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { currencySymbol } from './Catalog.jsx';
 
@@ -7,6 +7,7 @@ import { currencySymbol } from './Catalog.jsx';
 export default function CatalogDetail() {
   const { country, code } = useParams();
   const navigate = useNavigate();
+  const base = useLocation().pathname.startsWith('/admin') ? '/admin/catalog' : '/catalog';
   const [item, setItem] = useState(null);
   const [error, setError] = useState('');
   const [active, setActive] = useState(0);
@@ -19,13 +20,13 @@ export default function CatalogDetail() {
   }, [country, code]);
 
   const back = <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-blue-600">‹ 返回产品列表</button>;
-  if (error) return <div className="space-y-4">{back}<div className="bg-white rounded-xl border p-6 text-center text-gray-400">{error}</div></div>;
+  if (error) return <div className="space-y-4 max-w-6xl mx-auto">{back}<div className="bg-white rounded-xl border p-6 text-center text-gray-400">{error}</div></div>;
   if (!item) return <div className="p-6 text-center text-gray-400">加载中...</div>;
 
   const sym = currencySymbol[item.country] || '$';
   const img = item.images[active];
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4 max-w-6xl mx-auto">
       {back}
       <div className="bg-white rounded-xl shadow border p-4 md:p-6 grid md:grid-cols-2 gap-6">
         <div className="space-y-3 min-w-0">
@@ -53,7 +54,17 @@ export default function CatalogDetail() {
           </div>
           <h1 className="text-xl md:text-2xl font-bold break-words">{item.name || item.code}</h1>
           {item.category_path && (
-            <div className="text-sm text-gray-500">所属类目：<span className="text-blue-600">{item.category_path}</span></div>
+            <div className="text-sm text-gray-500">
+              所属类目：
+              {/* 每一级都可点击，回到产品列表并按该级分类筛选 */}
+              {item.category_path.split(' > ').map((seg, i, all) => (
+                <span key={i}>
+                  {i > 0 && <span className="mx-1 text-gray-400">›</span>}
+                  <Link className="text-blue-600 hover:underline"
+                    to={`${base}?${new URLSearchParams({ country: item.country, cat: all.slice(0, i + 1).join(' > ') })}`}>{seg}</Link>
+                </span>
+              ))}
+            </div>
           )}
           <div className="grid grid-cols-2 gap-3 border-t pt-4">
             <div className="rounded-lg bg-blue-50 p-3">
