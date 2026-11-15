@@ -317,8 +317,9 @@ router.get('/', (req, res) => {
     // INNER JOIN 白名单：只返回总表里有的 SKU
     conds.push('m.sku IS NOT NULL');
   }
-  if (q.trim()) { conds.push('(p.code LIKE ? OR p.name LIKE ?)'); args.push(`%${q.trim()}%`, `%${q.trim()}%`); }
-  if (category) { conds.push('p.category = ?'); args.push(String(category)); }
+  if (q.trim()) { conds.push('(p.code LIKE ? OR p.name LIKE ? OR m.title LIKE ?)'); args.push(`%${q.trim()}%`, `%${q.trim()}%`, `%${q.trim()}%`); }
+  // 有总表时分类 / 名称取总表（与产品展示一致）
+  if (category) { conds.push(`${hasMaster ? 'm' : 'p'}.category = ?`); args.push(String(category)); }
   if (min_price !== '' && !isNaN(Number(min_price))) { conds.push('p.b2b_price >= ?'); args.push(Number(min_price) / priceDiv); }
   if (max_price !== '' && !isNaN(Number(max_price))) { conds.push('p.b2b_price <= ?'); args.push(Number(max_price) / priceDiv); }
   if (min_stock !== '' && !isNaN(Number(min_stock))) { conds.push('p.stock >= ?'); args.push(Number(min_stock)); }
@@ -333,7 +334,7 @@ router.get('/', (req, res) => {
   `;
   const total = db.prepare(`SELECT COUNT(*) AS c ${joinClause} ${where}`).get(...args).c;
   const rows = db.prepare(`
-    SELECT p.country, p.code, p.name, p.category_path, p.b2b_price, p.stock,
+    SELECT p.country, p.code, COALESCE(m.title, p.name) AS name, COALESCE(m.category_path, p.category_path) AS category_path, p.b2b_price, p.stock,
            COALESCE(m.image_url, p.image_url) AS image_url,
            p.uploaded_at
     ${joinClause}

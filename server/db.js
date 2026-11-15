@@ -379,6 +379,17 @@ CREATE TABLE IF NOT EXISTS password_reset_codes (
   )`);
 })();
 
+// 销售总表的商品资料（标题 / 属性 / 描述 / 分类 / 图片1-9），产品展示优先用总表数据
+(function ensureMasterDetailColumns() {
+  const cols = new Set(db.prepare("PRAGMA table_info(country_master_skus)").all().map(c => c.name));
+  for (const c of ['title', 'category_path', 'category', 'properties', 'description', 'images']) {
+    if (!cols.has(c)) db.exec(`ALTER TABLE country_master_skus ADD COLUMN ${c} TEXT`);
+  }
+  // 产品展示按 SKU 数值排序分页 / 按分类筛选走索引
+  db.exec("CREATE INDEX IF NOT EXISTS idx_master_sort ON country_master_skus(country, CAST(sku AS INTEGER), sku)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_master_cat_sort ON country_master_skus(country, category, CAST(sku AS INTEGER), sku)");
+})();
+
 // 首次启动：把 .env 的 DROPXL_API_EMAIL / DROPXL_API_TOKEN 作为美国账户种子数据
 // （DropXL 每个国家独立账户独立 token，初版只配置了美国）
 (function seedUsDropxlAccount() {

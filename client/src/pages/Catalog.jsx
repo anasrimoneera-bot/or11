@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import api from '../api';
 
 // 产品展示：按国家浏览可售商品（名称 / 分类 / 主图 / 库存 / 采购价）。
@@ -7,16 +8,28 @@ const countries = [
   { name: '美国', code: 'US' }, { name: '英国', code: 'GB' }, { name: '德国', code: 'DE' }, { name: '法国', code: 'FR' },
   { name: '意大利', code: 'IT' }, { name: '荷兰', code: 'NL' }, { name: '西班牙', code: 'ES' }, { name: '波兰', code: 'PL' },
 ];
-const currencySymbol = { 美国: '$', 英国: '£', 德国: '€', 法国: '€', 意大利: '€', 荷兰: '€', 西班牙: '€', 波兰: 'zł' };
+export const currencySymbol = { 美国: '$', 英国: '£', 德国: '€', 法国: '€', 意大利: '€', 荷兰: '€', 西班牙: '€', 波兰: 'zł' };
 const PAGE_SIZE = 24;
 
 export default function Catalog() {
-  const [country, setCountry] = useState('美国');
-  const [q, setQ] = useState('');
-  const [query, setQuery] = useState(''); // 已提交的搜索词
-  const [category, setCategory] = useState(null); // null = 全部
-  const [inStock, setInStock] = useState(false);
-  const [page, setPage] = useState(0);
+  // 筛选条件放在网址参数里：从商品详情页返回时保持原来的国家 / 分类 / 页码
+  const [sp, setSp] = useSearchParams();
+  const country = sp.get('country') || '美国';
+  const query = sp.get('q') || ''; // 已提交的搜索词
+  const category = sp.has('cat') ? sp.get('cat') : null; // null = 全部
+  const inStock = sp.get('stock') === '1';
+  const page = Number(sp.get('page')) || 0;
+  const update = (patch) => {
+    const next = new URLSearchParams(sp);
+    for (const [k, v] of Object.entries(patch)) {
+      // cat='' 表示「其他」分类，需要保留；其余空值直接去掉参数
+      if (v === null || (v === '' && k !== 'cat') || v === false || v === 0) next.delete(k); else next.set(k, String(v === true ? 1 : v));
+    }
+    setSp(next, { replace: true });
+  };
+  const setPage = (fn) => update({ page: typeof fn === 'function' ? fn(page) : fn });
+  const base = useLocation().pathname.startsWith('/admin') ? '/admin/catalog' : '/catalog';
+  const [q, setQ] = useState(query);
   const [cats, setCats] = useState({ total: 0, categories: [] });
   const [data, setData] = useState({ rows: [], total: 0 });
   const [loading, setLoading] = useState(false);
@@ -40,9 +53,9 @@ export default function Catalog() {
   const sym = currencySymbol[country] || '$';
   const code = countries.find(c => c.name === country)?.code;
   const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
-  const pickCountry = (c) => { setCountry(c); setCategory(null); setPage(0); };
-  const pickCategory = (c) => { setCategory(c); setPage(0); };
-  const search = () => { setQuery(q.trim()); setPage(0); };
+  const pickCountry = (c) => update({ country: c, cat: null, page: 0 });
+  const pickCategory = (c) => update({ cat: c, page: 0 });
+  const search = () => update({ q: q.trim(), page: 0 });
 
   return (
     <div className="space-y-4">
@@ -79,7 +92,7 @@ export default function Catalog() {
           <div className="flex items-center justify-between text-sm text-gray-600">
             <span>共 <b>{data.total}</b> 个产品</span>
             <label className="inline-flex items-center gap-1 cursor-pointer">
-              <input type="checkbox" checked={inStock} onChange={e => { setInStock(e.target.checked); setPage(0); }} /> 只看有库存
+              <input type="checkbox" checked={inStock} onChange={e => update({ stock: e.target.checked, page: 0 })} /> 只看有库存
             </label>
           </div>
 
@@ -89,7 +102,7 @@ export default function Catalog() {
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
               {data.rows.map(p => (
                 <div key={p.code} className="bg-white rounded-xl shadow border overflow-hidden flex flex-col">
-                  <div className="relative aspect-square bg-gray-50">
+                  <Link to={`${base}/${code}/${encodeURIComponent(p.code)}`} className="relative aspect-square bg-gray-50 block" title="查看商品详情">
                     {p.image_url
                       ? <img src={p.image_url} alt="" loading="lazy" className="w-full h-full object-contain" onError={e => { e.currentTarget.style.display = 'none'; }} />
                       : <div className="w-full h-full flex items-center justify-center text-4xl text-gray-300">📦</div>}
@@ -97,7 +110,7 @@ export default function Catalog() {
                     <span className={`absolute top-2 right-2 text-xs rounded px-1.5 text-white ${p.stock > 0 ? 'bg-red-500' : 'bg-gray-400'}`}>
                       {p.stock > 0 ? `库存 ${p.stock}` : '缺货'}
                     </span>
-                  </div>
+                  </Link>
                   <div className="p-3 flex flex-col gap-1 flex-1">
                     <div className="text-xs text-blue-600 font-mono">SKU: {p.code}</div>
                     <div className="text-sm text-gray-800 line-clamp-2 min-h-[2.5rem]" title={p.name || ''}>{p.name || '—'}</div>
