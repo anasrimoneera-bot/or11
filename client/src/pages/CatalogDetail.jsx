@@ -19,7 +19,7 @@ export default function CatalogDetail() {
       .catch(e => setError(e.response?.data?.error || '加载失败'));
   }, [country, code]);
 
-  const back = <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-blue-600">‹ 返回产品列表</button>;
+  const back = <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-blue-600">‹ 返回上一页</button>;
   if (error) return <div className="space-y-4 max-w-6xl mx-auto">{back}<div className="bg-white rounded-xl border p-6 text-center text-gray-400">{error}</div></div>;
   if (!item) return <div className="p-6 text-center text-gray-400">加载中...</div>;
 

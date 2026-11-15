@@ -8,6 +8,7 @@ const dropxl = require('../dropxl');
 const { authRequired, adminRequired, ownerRequired, permRequired, canViewCost, GRANTABLE_KEYS, parsePermissions, BASE_CONFIGURED_FLAG } = require('../middleware/auth');
 const { audit, setAudit } = require('../middleware/audit');
 const { pushOrderToSupplier, ensurePushed, withUserLock } = require('../supplierPush');
+const { attachPendingSkus } = require('../orderSkus');
 
 const router = express.Router();
 router.use(authRequired, adminRequired, audit);
@@ -348,7 +349,7 @@ router.get('/orders', (req, res) => {
     ORDER BY o.created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders o JOIN users u ON u.id = o.user_id ${where}`).get(...args).c;
-  res.json({ rows: stripSensitive(rows, canViewCost(req.user)), total });
+  res.json({ rows: attachPendingSkus(stripSensitive(rows, canViewCost(req.user))), total });
 });
 
 router.get('/orders/:id', (req, res) => {

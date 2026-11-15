@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const db = require('../db');
 const { vatFactor } = require('../vat');
+const { attachPendingSkus } = require('../orderSkus');
 const { authRequired } = require('../middleware/auth');
 const { ensurePushed, withUserLock } = require('../supplierPush');
 
@@ -47,7 +48,7 @@ router.get('/', authRequired, (req, res) => {
     FROM purchase_orders ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?
   `).all(...args, Number(limit), Number(offset));
   const total = db.prepare(`SELECT COUNT(*) AS c FROM purchase_orders ${where}`).get(...args).c;
-  res.json({ rows, total });
+  res.json({ rows: attachPendingSkus(rows), total });
 });
 
 router.get('/stats', authRequired, (req, res) => {
