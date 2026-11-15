@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
   quantity INTEGER DEFAULT 1,
   unit_price REAL DEFAULT 0
 );
+-- 按订单查明细（订单详情、列表里待采购订单的 SKU）走索引，避免扫整张明细表
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_order ON purchase_order_items(order_id);
 
 CREATE TABLE IF NOT EXISTS aftersales_tickets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

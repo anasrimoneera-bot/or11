@@ -58,8 +58,17 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, '0.0.0.0', () => {
   // 旧总表自动补导商品资料（启动后稍等再跑，避开启动高峰）
+  // 之后若分类计数格式升级（每一级分类都要计数），在子进程里把各国计数快照重算一次
   setTimeout(() => {
-    require('./routes/adminProducts').reimportStoredMasters().catch(e => console.error('[master-reimport] failed:', e));
+    require('./routes/adminProducts').reimportStoredMasters()
+      .catch(e => console.error('[master-reimport] failed:', e))
+      .finally(() => {
+        const CATEGORY_STATS_VERSION = 2;
+        const cur = require('./db').prepare("SELECT value FROM settings WHERE key = 'category_stats_version'").get();
+        if (Number(cur?.value) === CATEGORY_STATS_VERSION) return;
+        require('child_process').fork(path.join(__dirname, 'workers', 'categoryStatsRefresh.js'))
+          .send({ type: 'start', version: CATEGORY_STATS_VERSION });
+      });
   }, 10_000);
   const heapMB = Math.round(require('v8').getHeapStatistics().heap_size_limit / 1048576);
   console.log(`DropXL ERP server listening on 0.0.0.0:${PORT} (堆上限 ${heapMB} MB)`);

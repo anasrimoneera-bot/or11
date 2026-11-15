@@ -24,14 +24,18 @@ const Q_STATS = db.prepare('SELECT category, total, in_stock FROM product_catego
 const priceFactor = (country) => vatFactor(country) * (1 + (Number(Q_MARKUP.get(country)?.markup_pct) || 0) / 100);
 const toPrice = (b2b, factor) => Math.round((Number(b2b) || 0) * factor * 100) / 100;
 
-// 分类侧栏（读快照表，不扫商品表）
+// 第一级分类（含未分类 ''）的行加起来就是全部商品数；更深层级的行是它们的子集
+const isTopLevel = (path) => !path.includes(' > ');
+
+// 分类树（读快照表，不扫商品表）：返回每一级路径前缀及其计数，前端拼成树
 router.get('/categories', (req, res) => {
   const country = resolveCountry(req.query.country);
   if (!country) return res.status(400).json({ error: '请选择国家' });
   const rows = Q_STATS.all(country);
+  const top = rows.filter(r => isTopLevel(r.category));
   res.json({
-    total: rows.reduce((s, r) => s + r.total, 0),
-    in_stock: rows.reduce((s, r) => s + r.in_stock, 0),
+    total: top.reduce((s, r) => s + r.total, 0),
+    in_stock: top.reduce((s, r) => s + r.in_stock, 0),
     categories: rows.map(r => ({ name: r.category, label: brandText(r.category), total: r.total, in_stock: r.in_stock })),
   });
 });
@@ -83,7 +87,16 @@ router.get('/', (req, res) => {
   const conds = [`${t}.country = ?`];
   const args = [country];
   if (category === '') conds.push(`(${t}.category IS NULL OR ${t}.category = '')`);
-  else if (category !== null) { conds.push(`${t}.category = ?`); args.push(category); }
+  else if (category !== null) {
+    // 任意一级分类：第一级用 x.category = ? 走排序索引，更深层级再按分类路径前缀过滤
+    const parts = category.split(' > ');
+    conds.push(`${t}.category = ?`); args.push(parts[0]);
+    if (parts.length > 1) {
+      const pathExpr = hasMaster ? 'm.category_path' : "REPLACE(p.category_path, '/', ' > ')";
+      conds.push(`(${pathExpr} = ? OR substr(${pathExpr}, 1, ?) = ?)`);
+      args.push(category, category.length + 3, `${category} > `);
+    }
+  }
   if (inStock) conds.push('p.stock > 0');
   if (q) {
     conds.push(hasMaster ? '(m.sku LIKE ? OR m.title LIKE ?)' : '(p.code LIKE ? OR p.name LIKE ?)');
@@ -107,7 +120,7 @@ router.get('/', (req, res) => {
   if (!q) {
     const stats = Q_STATS.all(country);
     if (stats.length) {
-      const pick = category === null ? stats : stats.filter(s => s.category === category);
+      const pick = category === null ? stats.filter(s => isTopLevel(s.category)) : stats.filter(s => s.category === category);
       total = pick.reduce((s, r) => s + (inStock ? r.in_stock : r.total), 0);
     }
   }

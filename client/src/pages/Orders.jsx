@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ProductLinks from '../components/ProductLinks.jsx';
 import api from '../api';
 import EditableAmount from '../components/EditableAmount.jsx';
 
@@ -191,6 +192,7 @@ export default function Orders() {
                 <div className="flex gap-3 mt-1 text-xs" onClick={e => e.stopPropagation()}>
                   <button onClick={() => editTracking(o)} className="text-blue-600">✏️ {o.tracking_no ? '改跟踪号' : '填跟踪号'}</button>
                   {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="text-green-600 font-medium">✓ 确认采购</button>}
+                  <ProductLinks order={o} base="/catalog" />
                 </div>
               </div>
             );
@@ -271,6 +273,7 @@ export default function Orders() {
                   <td className={`px-3 py-2 text-right bg-inherit ${STICKY_ACTION}`}>
                     <div className="flex flex-col items-end gap-1 whitespace-nowrap">
                       {o.status === 'pending_purchase' && <button onClick={() => confirmPurchase(o)} className="px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white font-medium">确认采购</button>}
+                      <ProductLinks order={o} base="/catalog" />
                       <button onClick={() => setDetailId(o.id)} className="text-blue-600 hover:underline">查看</button>
                     </div>
                   </td>
