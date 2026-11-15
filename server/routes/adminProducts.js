@@ -556,13 +556,13 @@ async function* iterMasterXlsxRows(filePath) {
 // key=country, value={ status: 'parsing'|'writing'|'done'|'failed', rows, error, started_at, finished_at }
 const masterImportJobs = new Map();
 
-// 启动总表导入子进程并把进度写进 job；子进程结束（成功或失败）时 resolve
-function runMasterImportWorker(job, startMsg) {
+// 启动总表导入（或删行）子进程并把进度写进 job；子进程结束（成功或失败）时 resolve
+function runMasterImportWorker(job, startMsg, workerFile = 'masterImport.js') {
   const { country } = startMsg;
   job.status = 'writing';
   return new Promise((resolve) => {
     const { fork } = require('child_process');
-    const worker = fork(path.join(__dirname, '..', 'workers', 'masterImport.js'));
+    const worker = fork(path.join(__dirname, '..', 'workers', workerFile));
     let settled = false;
     worker.on('message', (m) => {
       if (!m) return;
@@ -599,6 +599,51 @@ function runMasterImportWorker(job, startMsg) {
     worker.send({ type: 'start', ...startMsg });
   });
 }
+
+// 从产品展示删除商品（仅 BOSS）：立即从总表数据里删掉这些 SKU（产品展示 / 库存价格下载随即不再出现），
+// 再在子进程里把已保存的总表 xlsx 中对应行删掉、更新行数与分类计数，之后下载或重新导入总表都不会带回这些商品。
+router.post('/master-delete/:country', ownerRequired, (req, res) => {
+  const country = resolveCountry(req.params.country);
+  if (!country) return res.status(400).json({ error: '不支持的国家' });
+  const skus = [...new Set((Array.isArray(req.body?.skus) ? req.body.skus : []).map(s => String(s).trim()).filter(Boolean))];
+  if (!skus.length) return res.status(400).json({ error: '请选择要删除的商品' });
+  if (skus.length > 500) return res.status(400).json({ error: '一次最多删除 500 个商品' });
+  const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
+  if (!meta) return res.status(400).json({ error: '该国家尚未上传销售总表' });
+  if (['parsing', 'writing'].includes(masterImportJobs.get(country)?.status)) {
+    return res.status(409).json({ error: `${country} 总表正在处理中，请稍后再试` });
+  }
+  const del = db.prepare('DELETE FROM country_master_skus WHERE country = ? AND sku = ?');
+  // 分类计数快照同步扣减（每一级分类前缀都减），删除后列表总数与分类数量立刻正确；
+  // 子进程处理完总表文件后还会整体重算一次
+  const info = db.prepare(`
+    SELECT m.category_path, p.stock FROM country_master_skus m
+    JOIN dropxl_products p ON p.country = m.country AND p.code = m.sku
+    WHERE m.country = ? AND m.sku = ?
+  `);
+  const dec = db.prepare('UPDATE product_category_stats SET total = total - 1, in_stock = in_stock - ? WHERE country = ? AND category = ?');
+  let deleted = 0;
+  db.transaction(() => {
+    for (const s of skus) {
+      const r = info.get(country, s);
+      if (r) {
+        const parts = String(r.category_path || '').split(' > ').map(x => x.trim()).filter(Boolean);
+        const keys = parts.length ? parts.map((_, i) => parts.slice(0, i + 1).join(' > ')) : [''];
+        for (const k of keys) dec.run(r.stock > 0 ? 1 : 0, country, k);
+      }
+      deleted += del.run(country, s).changes;
+    }
+  })();
+
+  const filePath = meta.stored_filename ? path.join(MASTER_DIR, meta.stored_filename) : null;
+  if (filePath && fs.existsSync(filePath)) {
+    const job = { status: 'writing', rows: 0, error: null, original_filename: meta.original_filename, started_at: new Date().toISOString() };
+    masterImportJobs.set(country, job);
+    runMasterImportWorker(job, { type: 'prune', country, filePath, skus }, 'masterPrune.js');
+  }
+  setAudit(res, { target_name: country, summary: `从 ${country} 销售总表删除 ${deleted} 个商品：${skus.slice(0, 20).join(', ')}${skus.length > 20 ? ' …' : ''}` });
+  res.json({ ok: true, deleted });
+});
 
 // 启动时自动补导：已上传但还没按新格式（标题/属性/描述/分类/图片1-9）导入过的总表，
 // 直接用服务器上已保存的总表文件重新导入，无需重新上传。逐个国家串行，跑在子进程里不阻塞主进程。

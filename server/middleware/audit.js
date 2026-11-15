@@ -43,6 +43,7 @@ const ACTIONS = [
   { re: /^POST \/products\/sync-country\/[^/]+$/, action: '从 DropXL API 同步国家库存', target: 'inventory' },
   { re: /^PUT \/products\/country-markup\/[^/]+$/, action: '修改国家加价百分比', target: 'country_markup' },
   { re: /^PUT \/products\/country-vat\/[^/]+$/, action: '修改国家增值税率', target: 'country_vat' },
+  { re: /^POST \/products\/master-delete\/[^/]+$/, action: '从销售总表删除商品', target: 'master' },
   // 售后政策
   { re: /^POST \/aftersales-policies$/, action: '新增售后政策章节', target: 'aftersales_policy' },
   { re: /^PUT \/aftersales-policies\/(\d+)$/, action: '编辑售后政策草稿', target: 'aftersales_policy' },

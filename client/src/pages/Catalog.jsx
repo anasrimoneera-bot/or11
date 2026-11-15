@@ -33,13 +33,19 @@ export default function Catalog() {
   const [cats, setCats] = useState({ total: 0, categories: [] });
   const [data, setData] = useState({ rows: [], total: 0 });
   const [loading, setLoading] = useState(false);
+  const [reload, setReload] = useState(0);
+  // 仅 BOSS：勾选商品后从该国销售总表删除
+  const [isOwner, setIsOwner] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => { api.get('/auth/me').then(r => setIsOwner(!!r.data?.is_owner)).catch(() => {}); }, []);
 
-  useEffect(() => {
-    api.get('/catalog/categories', { params: { country } }).then(r => setCats(r.data)).catch(() => setCats({ total: 0, categories: [] }));
-  }, [country]);
+  const loadCats = () => api.get('/catalog/categories', { params: { country } }).then(r => setCats(r.data)).catch(() => setCats({ total: 0, categories: [] }));
+  useEffect(() => { loadCats(); /* eslint-disable-next-line */ }, [country]);
 
   useEffect(() => {
     setLoading(true);
+    setSelected(new Set());
     const params = { country, limit: PAGE_SIZE, offset: page * PAGE_SIZE };
     if (query) params.q = query;
     if (category !== null) params.category = category;
@@ -48,7 +54,30 @@ export default function Catalog() {
       .then(r => setData(r.data))
       .catch(() => setData({ rows: [], total: 0 }))
       .finally(() => setLoading(false));
-  }, [country, query, category, inStock, page]);
+  }, [country, query, category, inStock, page, reload]);
+
+  const toggleSel = (code) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(code) ? next.delete(code) : next.add(code);
+    return next;
+  });
+  const allOnPage = data.rows.length > 0 && data.rows.every(r => selected.has(r.code));
+  const deleteSelected = async () => {
+    const skus = [...selected];
+    if (!skus.length) return;
+    if (!confirm(`确认从「${country}」销售总表删除选中的 ${skus.length} 个商品？\n\nSKU：${skus.slice(0, 10).join('、')}${skus.length > 10 ? ' …' : ''}\n\n删除后产品展示、库存价格更新下载中都不再出现这些商品，总表文件里对应的行也会删除，无法恢复。`)) return;
+    setDeleting(true);
+    try {
+      const { data: r } = await api.post(`/admin/products/master-delete/${encodeURIComponent(country)}`, { skus });
+      alert(`已删除 ${r.deleted} 个商品，总表文件正在后台同步更新`);
+      setReload(n => n + 1);
+      loadCats();
+    } catch (e) {
+      alert(e.response?.data?.error || '删除失败');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const sym = currencySymbol[country] || '$';
   const code = countries.find(c => c.name === country)?.code;
@@ -120,9 +149,24 @@ export default function Catalog() {
         <div className="flex-1 min-w-0 space-y-3 w-full">
           <div className="flex items-center justify-between text-sm text-gray-600">
             <span>共 <b>{data.total}</b> 个产品</span>
-            <label className="inline-flex items-center gap-1 cursor-pointer">
-              <input type="checkbox" checked={inStock} onChange={e => update({ stock: e.target.checked, page: 0 })} /> 只看有库存
-            </label>
+            <div className="flex items-center gap-3 flex-wrap justify-end">
+              {isOwner && data.rows.length > 0 && (
+                <>
+                  <label className="inline-flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={allOnPage}
+                      onChange={e => setSelected(e.target.checked ? new Set(data.rows.map(r => r.code)) : new Set())} /> 全选本页
+                  </label>
+                  {selected.size > 0 && (
+                    <button onClick={deleteSelected} disabled={deleting} className="btn btn-danger text-xs py-1 px-2 disabled:opacity-50">
+                      🗑️ {deleting ? '删除中…' : `删除所选（${selected.size}）`}
+                    </button>
+                  )}
+                </>
+              )}
+              <label className="inline-flex items-center gap-1 cursor-pointer">
+                <input type="checkbox" checked={inStock} onChange={e => update({ stock: e.target.checked, page: 0 })} /> 只看有库存
+              </label>
+            </div>
           </div>
 
           {loading && <div className="p-6 text-center text-gray-400">加载中...</div>}
@@ -141,7 +185,10 @@ export default function Catalog() {
                     </span>
                   </Link>
                   <div className="p-3 flex flex-col gap-1 flex-1">
-                    <div className="text-xs text-blue-600 font-mono">SKU: {p.code}</div>
+                    <div className="text-xs text-blue-600 font-mono flex items-center gap-1">
+                      {isOwner && <input type="checkbox" checked={selected.has(p.code)} onChange={() => toggleSel(p.code)} title="选中后可从销售总表删除" />}
+                      SKU: {p.code}
+                    </div>
                     <div className="text-sm text-gray-800 line-clamp-2 min-h-[2.5rem]" title={p.name || ''}>{p.name || '—'}</div>
                     <div className="mt-auto text-lg font-semibold text-blue-700">{sym}{p.price.toFixed(2)}</div>
                   </div>
