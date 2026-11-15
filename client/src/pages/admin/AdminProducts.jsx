@@ -13,7 +13,8 @@ export default function AdminProducts() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ q: '', min_price: '', max_price: '', stock_filter: 'all' });
+  const [filters, setFilters] = useState({ q: '', min_price: '', max_price: '', stock_filter: 'all', category: '' });
+  const [categories, setCategories] = useState([]);
   const [page, setPage] = useState(0);
   const [isOwner, setIsOwner] = useState(false);
   const [vatPct, setVatPct] = useState(null); // 当前国家增值税率，仅 BOSS 的接口响应里才有
@@ -47,11 +48,15 @@ export default function AdminProducts() {
     return () => clearInterval(t);
   }, [anySyncing, anyImporting]);
   useEffect(() => { setPage(0); /* eslint-disable-next-line */ }, [activeCountry]);
+  useEffect(() => {
+    api.get('/catalog/categories', { params: { country: activeCountry } })
+      .then(r => setCategories(r.data.categories.filter(c => c.name))).catch(() => setCategories([]));
+  }, [activeCountry]);
   useEffect(() => { loadProducts(); /* eslint-disable-next-line */ }, [activeCountry, page]);
 
   const applyFilters = () => { setPage(0); loadProducts(); };
   const resetFilters = () => {
-    setFilters({ q: '', min_price: '', max_price: '', stock_filter: 'all' });
+    setFilters({ q: '', min_price: '', max_price: '', stock_filter: 'all', category: '' });
     setPage(0);
     setTimeout(loadProducts, 0);
   };
@@ -105,8 +110,15 @@ export default function AdminProducts() {
             )}
           </div>
           <div className="flex-1 min-w-[160px]">
-            <label className="text-xs text-gray-500 block">SKU 搜索</label>
-            <input className="field" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} placeholder="如 110075" />
+            <label className="text-xs text-gray-500 block">SKU / 名称搜索</label>
+            <input className="field" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} placeholder="如 110075 或 Cat Tree" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block">分类</label>
+            <select className="field max-w-[200px]" value={filters.category} onChange={e => setFilters({ ...filters, category: e.target.value })}>
+              <option value="">全部分类</option>
+              {categories.map(c => <option key={c.name} value={c.name}>{c.label} ({c.total})</option>)}
+            </select>
           </div>
           <div>
             <label className="text-xs text-gray-500 block">最低价 USD</label>
@@ -149,6 +161,7 @@ export default function AdminProducts() {
                   : <div className="w-14 h-14 rounded bg-gray-100 border flex items-center justify-center text-gray-300 text-xl shrink-0">📦</div>}
                 <div className="flex-1 min-w-0">
                   <div className="font-mono text-xs truncate">{r.code}</div>
+                  {r.name && <div className="text-xs text-gray-600 line-clamp-2">{r.name}</div>}
                   <div className="text-sm flex items-center gap-2 mt-0.5">
                     <span>B2B ${r.b2b_price.toFixed(2)}</span>
                     <span className="font-semibold text-green-700">→ ${display.toFixed(2)}</span>
@@ -190,7 +203,10 @@ export default function AdminProducts() {
                         ? <img src={r.image_url} alt="" className="w-14 h-14 object-cover rounded bg-gray-100 border" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
                         : <div className="w-14 h-14 rounded bg-gray-100 border flex items-center justify-center text-gray-300 text-xl">📦</div>}
                     </td>
-                    <td className="px-3 py-2 font-mono">{r.code}</td>
+                    <td className="px-3 py-2">
+                      <div className="font-mono">{r.code}</div>
+                      {r.name && <div className="text-xs text-gray-600 line-clamp-2 max-w-md" title={r.category_path || ''}>{r.name}</div>}
+                    </td>
                     <td className="px-3 py-2 text-right">${r.b2b_price.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-green-700">${display.toFixed(2)}</td>
                     <td className={`px-3 py-2 text-right ${r.stock === 0 ? 'text-gray-400' : ''}`}>{r.stock}</td>
