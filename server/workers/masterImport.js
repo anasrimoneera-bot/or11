@@ -9,6 +9,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const ExcelJS = require('exceljs');
 const { refreshCategoryStats } = require('../categoryStats');
+const { brandText } = require('../brand');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data', 'erp.db');
 
@@ -34,6 +35,25 @@ const IMG_RE = /(^|[^a-z])image([^a-z]|$)/;
 const matchSku = (n) => n === 'sku' || SKU_RE.test(n);
 const matchImg = (n) => n === 'image 1' || n === 'image' || n === 'image_url' || n === 'image1' || IMG_RE.test(n);
 
+// 总表里的描述 / 属性常带 HTML：转成纯文本（段落、换行保留，列表项加 •），页面按纯文本显示，不渲染 HTML
+function htmlToText(s) {
+  if (!s) return null;
+  const t = String(s)
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '\n• ')
+    .replace(/<\s*\/\s*(p|div|li|ul|ol|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n\s*\n(?=• )/g, '\n')
+    .trim();
+  return t || null;
+}
+
+// 详情列（表头名不区分大小写）：Title / Properties / Description / Category / Image 1 ~ Image 9
+const DETAIL_COLS = ['title', 'properties', 'description', 'category'];
+
 async function* iterMasterRows(filePath) {
   const wb = new ExcelJS.stream.xlsx.WorkbookReader(filePath, {
     sharedStrings: 'cache', styles: 'ignore', hyperlinks: 'ignore', worksheets: 'emit',
@@ -43,6 +63,8 @@ async function* iterMasterRows(filePath) {
     if (sheetDone) break;
     sheetDone = true;
     let skuCol = -1, imgCol = -1, headerFound = false, scanned = 0, diag = [];
+    const detailCol = {};      // title/properties/description/category → 列号
+    const imageCols = [];      // Image 1..9 → 列号（按序号）
     for await (const row of ws) {
       if (!headerFound) {
         scanned++;
@@ -54,6 +76,9 @@ async function* iterMasterRows(filePath) {
         for (const x of cells) {
           if (skuCol < 0 && matchSku(x.norm)) skuCol = x.c;
           if (imgCol < 0 && matchImg(x.norm)) imgCol = x.c;
+          if (DETAIL_COLS.includes(x.norm) && !detailCol[x.norm]) detailCol[x.norm] = x.c;
+          const m = x.norm.match(/^image\s*([1-9])$/);
+          if (m && !imageCols[m[1] - 1]) imageCols[m[1] - 1] = x.c;
         }
         if (cells.length && diag.length === 0) diag = cells.map(x => x.raw);
         if (skuCol >= 0) { headerFound = true; continue; }
@@ -65,12 +90,25 @@ async function* iterMasterRows(filePath) {
       }
       const sku = cellText(row.getCell(skuCol).value).trim();
       if (!sku) continue;
-      let img = null;
-      if (imgCol >= 0) {
-        const u = cellText(row.getCell(imgCol).value).trim();
-        if (/^https?:\/\//i.test(u)) img = u;
-      }
-      yield { sku, image_url: img };
+      const url = (c) => {
+        const u = c ? cellText(row.getCell(c).value).trim() : '';
+        return /^https?:\/\//i.test(u) ? u : null;
+      };
+      const images = imageCols.map(url).filter(Boolean);
+      const img = images[0] || (imgCol >= 0 ? url(imgCol) : null);
+      const text = (k) => (detailCol[k] ? cellText(row.getCell(detailCol[k]).value).trim() || null : null);
+      // 分类路径分隔符可能是 / 或 >，统一成 " > "，第一级作为分类筛选
+      const catParts = (brandText(text('category')) || '').split(/\s*[>\/|]\s*/).filter(Boolean);
+      yield {
+        sku,
+        image_url: img,
+        title: brandText(text('title')),
+        properties: brandText(htmlToText(text('properties'))),
+        description: brandText(htmlToText(text('description'))),
+        category_path: catParts.length ? catParts.join(' > ') : null,
+        category: catParts[0] || null,
+        images: images.length ? JSON.stringify(images) : null,
+      };
     }
     if (!headerFound) {
       const found = diag.length ? `检测到的表头：${diag.slice(0, 30).join(' | ')}` : '工作表为空';
@@ -89,10 +127,14 @@ async function run(msg) {
     const now = new Date().toISOString();
 
     db.prepare('DELETE FROM country_master_skus WHERE country = ?').run(country);
-    const ins = db.prepare(
-      'INSERT OR REPLACE INTO country_master_skus (country, sku, image_url, uploaded_at) VALUES (?, ?, ?, ?)'
-    );
-    const flush = db.transaction((arr) => { for (const r of arr) ins.run(country, r.sku, r.image_url, now); });
+    const ins = db.prepare(`
+      INSERT OR REPLACE INTO country_master_skus
+        (country, sku, image_url, title, properties, description, category_path, category, images, uploaded_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const flush = db.transaction((arr) => {
+      for (const r of arr) ins.run(country, r.sku, r.image_url, r.title, r.properties, r.description, r.category_path, r.category, r.images, now);
+    });
 
     const BATCH = 5000;
     let batch = [];

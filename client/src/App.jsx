@@ -44,6 +44,7 @@ const AdminFinance = lazyWithRetry(() => import('./pages/admin/AdminFinance.jsx'
 const AfterSalesTemplates = lazyWithRetry(() => import('./pages/AfterSalesTemplates.jsx'));
 const Forum = lazyWithRetry(() => import('./pages/Forum.jsx'));
 const Catalog = lazyWithRetry(() => import('./pages/Catalog.jsx'));
+const CatalogDetail = lazyWithRetry(() => import('./pages/CatalogDetail.jsx'));
 
 // 居中铺满主区域的加载占位，懒加载 chunk 下载时显示，避免视觉白屏
 const PageLoader = () => (
@@ -86,6 +87,7 @@ export default function App() {
             {(user?.is_owner || perms.includes('aftersales')) && <Route path="/admin/aftersales" element={<AdminAfterSales />} />}
             <Route path="/admin/forum" element={<Lazy><Forum isAdmin /></Lazy>} />
             <Route path="/admin/catalog" element={<Lazy><Catalog /></Lazy>} />
+            <Route path="/admin/catalog/:country/:code" element={<Lazy><CatalogDetail /></Lazy>} />
             <Route path="/admin/aftersales-templates" element={<Lazy><AfterSalesTemplates canEdit={!!user?.is_owner || perms.includes('aftersales_template')} /></Lazy>} />
             {(user?.is_owner || perms.includes('purchase')) && <Route path="/admin/purchase" element={<PurchaseProducts />} />}
             {(user?.is_owner || perms.includes('downloads')) && <Route path="/admin/downloads" element={<Downloads />} />}
@@ -108,6 +110,7 @@ export default function App() {
             <Route path="/after-sales-templates" element={<Lazy><AfterSalesTemplates canEdit={false} /></Lazy>} />
             <Route path="/products" element={<PurchaseProducts />} />
             <Route path="/catalog" element={<Lazy><Catalog /></Lazy>} />
+            <Route path="/catalog/:country/:code" element={<Lazy><CatalogDetail /></Lazy>} />
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/balance" element={<Balance />} />
             <Route path="/accounts" element={<Accounts />} />
