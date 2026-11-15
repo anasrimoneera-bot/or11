@@ -175,3 +175,6 @@ async function run(msg) {
 process.on('message', (msg) => {
   if (msg && msg.type === 'start') run(msg);
 });
+
+// 表头识别工具，供总表删行子进程（masterPrune.js）复用
+module.exports = { normalizeHeader, cellText, matchSku };
