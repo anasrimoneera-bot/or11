@@ -57,6 +57,10 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, '0.0.0.0', () => {
+  // 旧总表自动补导商品资料（启动后稍等再跑，避开启动高峰）
+  setTimeout(() => {
+    require('./routes/adminProducts').reimportStoredMasters().catch(e => console.error('[master-reimport] failed:', e));
+  }, 10_000);
   const heapMB = Math.round(require('v8').getHeapStatistics().heap_size_limit / 1048576);
   console.log(`DropXL ERP server listening on 0.0.0.0:${PORT} (堆上限 ${heapMB} MB)`);
   // 启动自动同步调度器（6 小时一次，跑商品+订单双同步）
