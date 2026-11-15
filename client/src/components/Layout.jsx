@@ -25,6 +25,7 @@ const adminMenu = [
   { to: '/admin/aftersales-templates', icon: '📝', label: '售后处理模板' },
   { to: '/admin/forum', icon: '💬', label: '问题论坛' },
   { to: '/admin/purchase', icon: '🛒', label: '采购商品', perm: 'purchase' },
+  { to: '/admin/catalog', icon: '🛍️', label: '产品展示' },
   { to: '/admin/downloads', icon: '⬇️', label: '下载支持', perm: 'downloads' },
   { to: '/admin/aftersales-policy', icon: '📄', label: '售后政策维护', perm: 'aftersales_policy' },
   { to: '/admin/staff', icon: '🛡️', label: '管理员', ownerOnly: true },

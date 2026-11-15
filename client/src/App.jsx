@@ -85,6 +85,7 @@ export default function App() {
             {(user?.is_owner || perms.includes('orders')) && <Route path="/admin/orders" element={<AdminOrders />} />}
             {(user?.is_owner || perms.includes('aftersales')) && <Route path="/admin/aftersales" element={<AdminAfterSales />} />}
             <Route path="/admin/forum" element={<Lazy><Forum isAdmin /></Lazy>} />
+            <Route path="/admin/catalog" element={<Lazy><Catalog /></Lazy>} />
             <Route path="/admin/aftersales-templates" element={<Lazy><AfterSalesTemplates canEdit={!!user?.is_owner || perms.includes('aftersales_template')} /></Lazy>} />
             {(user?.is_owner || perms.includes('purchase')) && <Route path="/admin/purchase" element={<PurchaseProducts />} />}
             {(user?.is_owner || perms.includes('downloads')) && <Route path="/admin/downloads" element={<Downloads />} />}
