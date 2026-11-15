@@ -361,6 +361,24 @@ CREATE TABLE IF NOT EXISTS password_reset_codes (
   }
 })();
 
+// 商品名称 / 分类（API 同步时写入；category 为 category_path 第一级，供分类筛选）
+(function ensureProductDetailColumns() {
+  const cols = new Set(db.prepare("PRAGMA table_info(dropxl_products)").all().map(c => c.name));
+  if (!cols.has('name')) db.exec("ALTER TABLE dropxl_products ADD COLUMN name TEXT");
+  if (!cols.has('category_path')) db.exec("ALTER TABLE dropxl_products ADD COLUMN category_path TEXT");
+  if (!cols.has('category')) db.exec("ALTER TABLE dropxl_products ADD COLUMN category TEXT");
+  // 按分类筛选 + 按 code 数值排序分页走索引，避免几十万行临时排序
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dropxl_products_cat_sort ON dropxl_products(country, category, CAST(code AS INTEGER), code)");
+  // 各国分类计数快照（由同步 / 总表导入子进程刷新，见 server/categoryStats.js）
+  db.exec(`CREATE TABLE IF NOT EXISTS product_category_stats (
+    country TEXT NOT NULL,
+    category TEXT NOT NULL,
+    total INTEGER DEFAULT 0,
+    in_stock INTEGER DEFAULT 0,
+    PRIMARY KEY (country, category)
+  )`);
+})();
+
 // 首次启动：把 .env 的 DROPXL_API_EMAIL / DROPXL_API_TOKEN 作为美国账户种子数据
 // （DropXL 每个国家独立账户独立 token，初版只配置了美国）
 (function seedUsDropxlAccount() {

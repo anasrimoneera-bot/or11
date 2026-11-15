@@ -7,6 +7,8 @@
 //   回发 { type:'progress', fetched, upserted, total } / { type:'done', in_stock, total } / { type:'error', error }
 const db = require('../db');
 const dropxl = require('../dropxl');
+const { refreshCategoryStats } = require('../categoryStats');
+const { brandText } = require('../brand');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -15,12 +17,15 @@ const RATE_LIMIT_MS = Number(process.env.DROPXL_SYNC_RATE_MS) || 800;
 const MAX_RETRY = 4;
 
 const upsert = db.prepare(`
-  INSERT INTO dropxl_products (country, code, b2b_price, stock, image_url, uploaded_at)
-  VALUES (?, ?, ?, ?, ?, ?)
+  INSERT INTO dropxl_products (country, code, b2b_price, stock, image_url, name, category_path, category, uploaded_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(country, code) DO UPDATE SET
     b2b_price = excluded.b2b_price,
     stock = excluded.stock,
     image_url = COALESCE(excluded.image_url, dropxl_products.image_url),
+    name = COALESCE(excluded.name, dropxl_products.name),
+    category_path = COALESCE(excluded.category_path, dropxl_products.category_path),
+    category = COALESCE(excluded.category, dropxl_products.category),
     uploaded_at = excluded.uploaded_at
 `);
 
@@ -62,7 +67,10 @@ async function run(msg) {
       const tx = db.transaction((arr) => {
         for (const p of arr) {
           if (!p.code) continue;
-          upsert.run(country, String(p.code), Number(p.price) || 0, Number(p.quantity) || 0, extractImage(p), now);
+          // 名称 / 分类去供应商品牌字样后再入库
+          const catPath = p.category_path ? brandText(p.category_path) : null;
+          upsert.run(country, String(p.code), Number(p.price) || 0, Number(p.quantity) || 0, extractImage(p),
+            p.name ? brandText(p.name) : null, catPath, catPath ? catPath.split('/')[0].trim() : null, now);
           upserted++;
         }
       });
@@ -84,6 +92,7 @@ async function run(msg) {
       INSERT INTO inventory_uploads (country, original_filename, stored_filename, rows_count, in_stock_count, uploaded_by, uploaded_at, source)
       VALUES (?, NULL, NULL, ?, ?, ?, ?, 'api')
     `).run(country, totalCount, inStock, startedBy, now);
+    refreshCategoryStats(db, country);
     send({ type: 'done', in_stock: inStock, total: totalCount, fetched, upserted });
     process.exit(0);
   } catch (e) {

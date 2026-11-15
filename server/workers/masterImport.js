@@ -8,6 +8,7 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 const ExcelJS = require('exceljs');
+const { refreshCategoryStats } = require('../categoryStats');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data', 'erp.db');
 
@@ -114,6 +115,8 @@ async function run(msg) {
         (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(country, originalFilename, storedFilename, total, username, now);
+    // 总表白名单变了，分类计数随之刷新
+    refreshCategoryStats(db, country);
 
     if (process.send) process.send({ type: 'done', rows: total });
     db.close();

@@ -43,6 +43,7 @@ const AdminSettings = lazyWithRetry(() => import('./pages/admin/AdminSettings.js
 const AdminFinance = lazyWithRetry(() => import('./pages/admin/AdminFinance.jsx'));
 const AfterSalesTemplates = lazyWithRetry(() => import('./pages/AfterSalesTemplates.jsx'));
 const Forum = lazyWithRetry(() => import('./pages/Forum.jsx'));
+const Catalog = lazyWithRetry(() => import('./pages/Catalog.jsx'));
 
 // 居中铺满主区域的加载占位，懒加载 chunk 下载时显示，避免视觉白屏
 const PageLoader = () => (
@@ -105,6 +106,7 @@ export default function App() {
             <Route path="/forum" element={<Lazy><Forum /></Lazy>} />
             <Route path="/after-sales-templates" element={<Lazy><AfterSalesTemplates canEdit={false} /></Lazy>} />
             <Route path="/products" element={<PurchaseProducts />} />
+            <Route path="/catalog" element={<Lazy><Catalog /></Lazy>} />
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/balance" element={<Balance />} />
             <Route path="/accounts" element={<Accounts />} />

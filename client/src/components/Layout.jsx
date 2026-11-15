@@ -10,6 +10,7 @@ const userMenu = [
   { to: '/after-sales-templates', icon: '📝', label: '售后模板' },
   { to: '/forum', icon: '💬', label: '问题论坛' },
   { to: '/products', icon: '📦', label: '采购商品' },
+  { to: '/catalog', icon: '🛍️', label: '产品展示' },
   { to: '/downloads', icon: '⬇️', label: '下载支持' },
   { to: '/balance', icon: '💰', label: '我的余额记录' },
   { to: '/accounts', icon: '👥', label: '账户管理' },
