@@ -668,17 +668,6 @@ router.get('/master-status', (req, res) => {
   }));
 });
 
-// 下载店主上传的总表源文件（仅店主）
-router.get('/master-file/:country', (req, res) => {
-  const country = resolveCountry(req.params.country);
-  if (!country) return res.status(400).json({ error: '不支持的国家' });
-  const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
-  if (!meta) return res.status(404).json({ error: '该国家总表暂未上传' });
-  const file = path.join(MASTER_DIR, meta.stored_filename);
-  if (!fs.existsSync(file)) return res.status(410).json({ error: '源文件不存在，请重新上传总表' });
-  res.download(file, meta.original_filename || `${country}-master.xlsx`);
-});
-
 module.exports = router;
 // 供 scheduler 调用：自动同步时复用同一套 job 跟踪逻辑
 module.exports.runCountryApiSync = runCountryApiSync;
