@@ -385,6 +385,9 @@ CREATE TABLE IF NOT EXISTS password_reset_codes (
   for (const c of ['title', 'category_path', 'category', 'properties', 'description', 'images']) {
     if (!cols.has(c)) db.exec(`ALTER TABLE country_master_skus ADD COLUMN ${c} TEXT`);
   }
+  // 标记总表是否已按新格式（含商品资料）导入；旧总表启动后由 adminProducts.reimportStoredMasters 自动补导
+  const upCols = new Set(db.prepare("PRAGMA table_info(country_master_uploads)").all().map(c => c.name));
+  if (!upCols.has('detail_imported')) db.exec("ALTER TABLE country_master_uploads ADD COLUMN detail_imported INTEGER DEFAULT 0");
   // 产品展示按 SKU 数值排序分页 / 按分类筛选走索引
   db.exec("CREATE INDEX IF NOT EXISTS idx_master_sort ON country_master_skus(country, CAST(sku AS INTEGER), sku)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_master_cat_sort ON country_master_skus(country, category, CAST(sku AS INTEGER), sku)");

@@ -81,7 +81,7 @@ export default function AdminProducts() {
         未配置或想全量替换的国家可手动上传 xlsx。在 <b>系统设置 → 供应商多国账户</b> 维护各国凭据。
       </div>
 
-      <MasterUploadGrid masterStatus={masterStatus} onChange={() => { loadMasterStatus(); loadProducts(); }} />
+      <MasterUploadGrid masterStatus={masterStatus} isOwner={isOwner} onChange={() => { loadMasterStatus(); loadProducts(); }} />
 
       <CountryUploadGrid
         status={status}
@@ -232,7 +232,7 @@ export default function AdminProducts() {
   );
 }
 
-function MasterUploadGrid({ masterStatus, onChange }) {
+function MasterUploadGrid({ masterStatus, isOwner, onChange }) {
   return (
     <div className="bg-white rounded-xl shadow border">
       <div className="border-b px-4 py-3 font-medium">
@@ -244,14 +244,14 @@ function MasterUploadGrid({ masterStatus, onChange }) {
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
         {COUNTRIES.map(c => {
           const s = masterStatus.find(x => x.country === c);
-          return <MasterCard key={c} country={c} status={s} onChange={onChange} />;
+          return <MasterCard key={c} country={c} status={s} isOwner={isOwner} onChange={onChange} />;
         })}
       </div>
     </div>
   );
 }
 
-function MasterCard({ country, status, onChange }) {
+function MasterCard({ country, status, isOwner, onChange }) {
   const fileRef = useRef(null);
   const [, force] = useState(0);
   // 跨页订阅 bgUpload，让 nav 切换不影响"上传中"指示
@@ -285,14 +285,13 @@ function MasterCard({ country, status, onChange }) {
     bgUpload.start(`master:${country}`, promise, `${country} 总表 (${sizeMB}MB)`);
     if (fileRef.current) fileRef.current.value = '';
   };
+  // 总表源文件下载（仅 BOSS）：先取票据再让浏览器原生下载，大文件不经过内存 Blob
   const download = async () => {
     try {
-      const r = await api.get(`/admin/products/master-file/${encodeURIComponent(country)}`, { responseType: 'blob' });
-      const url = URL.createObjectURL(r.data);
+      const { data } = await api.post(`/inventory/master/${encodeURIComponent(country)}/ticket`);
       const a = document.createElement('a');
-      a.href = url; a.download = status?.original_filename || `${country}-master.xlsx`;
+      a.href = `/api/inventory/master/${encodeURIComponent(country)}?ticket=${encodeURIComponent(data.ticket)}`;
       document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
     } catch (err) {
       alert(err.response?.data?.error || '下载失败');
     }
@@ -301,7 +300,7 @@ function MasterCard({ country, status, onChange }) {
     <div className={`rounded-lg border p-3 ${status?.available ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200'}`}>
       <div className="flex justify-between items-center">
         <div className="font-medium text-sm">📑 {country}</div>
-        {status?.available && (
+        {isOwner && status?.available && (
           <span onClick={download} className="text-xs text-blue-600 hover:underline cursor-pointer" title="下载源文件">⬇️</span>
         )}
       </div>

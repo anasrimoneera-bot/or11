@@ -21,21 +21,7 @@ function resolveCountry(input) {
   return COUNTRY_TO_CODE[s] ? s : null;
 }
 
-// 各国销售总表：仅 BOSS 可查看/下载（分销商、管理员不可）
-router.get('/master-status', authRequired, ownerRequired, (req, res) => {
-  const rows = db.prepare(`
-    SELECT country, rows_count, uploaded_at FROM country_master_uploads
-  `).all();
-  const map = Object.fromEntries(rows.map(r => [r.country, r]));
-  res.json(Object.keys(COUNTRY_TO_CODE).map(c => ({
-    country: c,
-    code: COUNTRY_TO_CODE[c],
-    available: !!map[c],
-    rows_count: map[c]?.rows_count || 0,
-    uploaded_at: map[c]?.uploaded_at || null,
-  })));
-});
-
+// 各国销售总表源文件下载：仅 BOSS（商品库存价格管理页总表卡片上的 ⬇️）
 // 申请下载票据：让浏览器原生下载器直连下方 GET（避免 axios 把整个 xlsx 灌进 Blob、缺 Content-Length/Range）
 router.post('/master/:country/ticket', authRequired, ownerRequired, (req, res) => {
   const country = resolveCountry(req.params.country);

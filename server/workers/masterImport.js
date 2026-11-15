@@ -118,7 +118,8 @@ async function* iterMasterRows(filePath) {
 }
 
 async function run(msg) {
-  const { country, filePath, storedFilename, originalFilename, username } = msg;
+  // uploadedAt：自动补导旧总表时传入原上传时间，界面上的「更新日期」保持不变
+  const { country, filePath, storedFilename, originalFilename, username, uploadedAt } = msg;
   let db;
   try {
     db = new Database(DB_PATH);
@@ -126,7 +127,7 @@ async function run(msg) {
     db.pragma('busy_timeout = 30000'); // 等主进程的读锁，最多 30s
     const now = new Date().toISOString();
 
-    db.prepare('DELETE FROM country_master_skus WHERE country = ?').run(country);
+    // 不先清空：逐批覆盖写入，导入期间产品展示 / 白名单保持完整；写完后再删掉新总表里没有的 SKU
     const ins = db.prepare(`
       INSERT OR REPLACE INTO country_master_skus
         (country, sku, image_url, title, properties, description, category_path, category, images, uploaded_at)
@@ -152,11 +153,12 @@ async function run(msg) {
 
     if (total === 0) throw new Error('找到了 SKU 列但没有任何有效数据行（SKU 单元格均为空）');
 
+    db.prepare('DELETE FROM country_master_skus WHERE country = ? AND uploaded_at <> ?').run(country, now);
     db.prepare(`
       INSERT OR REPLACE INTO country_master_uploads
-        (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(country, originalFilename, storedFilename, total, username, now);
+        (country, original_filename, stored_filename, rows_count, uploaded_by, uploaded_at, detail_imported)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+    `).run(country, originalFilename, storedFilename, total, username, uploadedAt || now);
     // 总表白名单变了，分类计数随之刷新
     refreshCategoryStats(db, country);
 

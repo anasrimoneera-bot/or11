@@ -556,12 +556,78 @@ async function* iterMasterXlsxRows(filePath) {
 // key=country, value={ status: 'parsing'|'writing'|'done'|'failed', rows, error, started_at, finished_at }
 const masterImportJobs = new Map();
 
+// 启动总表导入子进程并把进度写进 job；子进程结束（成功或失败）时 resolve
+function runMasterImportWorker(job, startMsg) {
+  const { country } = startMsg;
+  job.status = 'writing';
+  return new Promise((resolve) => {
+    const { fork } = require('child_process');
+    const worker = fork(path.join(__dirname, '..', 'workers', 'masterImport.js'));
+    let settled = false;
+    worker.on('message', (m) => {
+      if (!m) return;
+      if (m.type === 'progress') {
+        job.rows = m.rows;
+      } else if (m.type === 'done') {
+        settled = true;
+        job.status = 'done';
+        job.rows = m.rows;
+        job.finished_at = new Date().toISOString();
+      } else if (m.type === 'error') {
+        settled = true;
+        job.status = 'failed';
+        job.error = m.error;
+        console.error('[master-upload] worker error', country, m.error);
+      }
+    });
+    worker.on('exit', (codeNum) => {
+      // 子进程异常退出（如内存不足崩溃）且未上报 done/error
+      if (!settled) {
+        job.status = 'failed';
+        job.error = `导入进程异常退出（code ${codeNum}）。文件可能过大导致内存不足，请稍后重试或缩减总表列数。`;
+        console.error('[master-upload] worker exited abnormally', country, 'code', codeNum);
+      }
+      resolve();
+    });
+    worker.on('error', (e) => {
+      settled = true;
+      job.status = 'failed';
+      job.error = '无法启动导入子进程：' + e.message;
+      console.error('[master-upload] fork error', country, e);
+      resolve();
+    });
+    worker.send({ type: 'start', ...startMsg });
+  });
+}
+
+// 启动时自动补导：已上传但还没按新格式（标题/属性/描述/分类/图片1-9）导入过的总表，
+// 直接用服务器上已保存的总表文件重新导入，无需重新上传。逐个国家串行，跑在子进程里不阻塞主进程。
+async function reimportStoredMasters() {
+  const rows = db.prepare('SELECT * FROM country_master_uploads WHERE COALESCE(detail_imported, 0) = 0').all();
+  for (const m of rows) {
+    const filePath = m.stored_filename ? path.join(MASTER_DIR, m.stored_filename) : null;
+    if (!filePath || !fs.existsSync(filePath)) continue;
+    if (['parsing', 'writing'].includes(masterImportJobs.get(m.country)?.status)) continue;
+    const job = { status: 'writing', rows: 0, error: null, original_filename: m.original_filename, started_at: new Date().toISOString() };
+    masterImportJobs.set(m.country, job);
+    console.log(`[master-reimport] ${m.country} 开始补导商品资料`);
+    await runMasterImportWorker(job, {
+      country: m.country, filePath, storedFilename: m.stored_filename,
+      originalFilename: m.original_filename, username: m.uploaded_by, uploadedAt: m.uploaded_at,
+    });
+    console.log(`[master-reimport] ${m.country} ${job.status}${job.error ? '：' + job.error : ''}（${job.rows} 行）`);
+  }
+}
+
 // 上传/替换某国总表（大文件 流式 sparse 读 + 批次写入，避免内存撑爆）
 router.post('/master-upload/:country', masterUploadMw, (req, res) => {
   const country = resolveCountry(req.params.country);
   const cleanup = () => { if (req.file?.path && fs.existsSync(req.file.path)) { try { fs.unlinkSync(req.file.path); } catch {} } };
   if (!country) { cleanup(); return res.status(400).json({ error: '不支持的国家' }); }
   if (!req.file) return res.status(400).json({ error: '请选择文件' });
+  if (['parsing', 'writing'].includes(masterImportJobs.get(country)?.status)) {
+    cleanup(); return res.status(409).json({ error: `${country} 总表正在导入中，请稍后再试` });
+  }
 
   const code = COUNTRY_TO_CODE[country];
   const tempPath = req.file.path;
@@ -590,42 +656,7 @@ router.post('/master-upload/:country', masterUploadMw, (req, res) => {
         fs.copyFileSync(tempPath, storedPath);
         try { fs.unlinkSync(tempPath); } catch {}
       }
-      job.status = 'writing';
-
-      const { fork } = require('child_process');
-      const worker = fork(path.join(__dirname, '..', 'workers', 'masterImport.js'));
-      let settled = false;
-      worker.on('message', (m) => {
-        if (!m) return;
-        if (m.type === 'progress') {
-          job.rows = m.rows;
-        } else if (m.type === 'done') {
-          settled = true;
-          job.status = 'done';
-          job.rows = m.rows;
-          job.finished_at = new Date().toISOString();
-        } else if (m.type === 'error') {
-          settled = true;
-          job.status = 'failed';
-          job.error = m.error;
-          console.error('[master-upload] worker error', country, m.error);
-        }
-      });
-      worker.on('exit', (codeNum) => {
-        // 子进程异常退出（如内存不足崩溃）且未上报 done/error
-        if (!settled) {
-          job.status = 'failed';
-          job.error = `导入进程异常退出（code ${codeNum}）。文件可能过大导致内存不足，请稍后重试或缩减总表列数。`;
-          console.error('[master-upload] worker exited abnormally', country, 'code', codeNum);
-        }
-      });
-      worker.on('error', (e) => {
-        settled = true;
-        job.status = 'failed';
-        job.error = '无法启动导入子进程：' + e.message;
-        console.error('[master-upload] fork error', country, e);
-      });
-      worker.send({ type: 'start', country, filePath: storedPath, storedFilename, originalFilename, username });
+      runMasterImportWorker(job, { country, filePath: storedPath, storedFilename, originalFilename, username });
     } catch (e) {
       job.status = 'failed';
       job.error = String(e.message || e);
@@ -668,20 +699,10 @@ router.get('/master-status', (req, res) => {
   }));
 });
 
-// 下载店主上传的总表源文件（仅店主）
-router.get('/master-file/:country', (req, res) => {
-  const country = resolveCountry(req.params.country);
-  if (!country) return res.status(400).json({ error: '不支持的国家' });
-  const meta = db.prepare('SELECT * FROM country_master_uploads WHERE country = ?').get(country);
-  if (!meta) return res.status(404).json({ error: '该国家总表暂未上传' });
-  const file = path.join(MASTER_DIR, meta.stored_filename);
-  if (!fs.existsSync(file)) return res.status(410).json({ error: '源文件不存在，请重新上传总表' });
-  res.download(file, meta.original_filename || `${country}-master.xlsx`);
-});
-
 module.exports = router;
 // 供 scheduler 调用：自动同步时复用同一套 job 跟踪逻辑
 module.exports.runCountryApiSync = runCountryApiSync;
 module.exports.apiSyncJobs = apiSyncJobs;
+module.exports.reimportStoredMasters = reimportStoredMasters;
 // 供测试用：总表流式行迭代
 module.exports.iterMasterXlsxRows = iterMasterXlsxRows;
