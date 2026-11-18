@@ -354,9 +354,9 @@ export default function AdminOrders() {
                   <>
                     <button onClick={() => confirmPurchase(o)} className="text-green-600 hover:underline">确认采购</button>
                     <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
-                    <ProductLinks order={o} base="/admin/catalog" />
                   </>
                 )}
+                <ProductLinks order={o} base="/admin/catalog" />
                 <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline">详情</button>
                 <button onClick={() => setAssignOrder(o)} className="text-blue-600 hover:underline">👤 分配</button>
                 <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline">删除</button>
@@ -489,9 +489,9 @@ export default function AdminOrders() {
                       <>
                         <button onClick={() => confirmPurchase(o)} className="text-green-600 hover:underline text-xs">确认采购</button>
                         <button onClick={() => pushDropxl(o)} className="text-orange-600 hover:underline text-xs" title={o.dropxl_push_error || '通过 API 重新推送到供应商'}>🚚 重新推送</button>
-                        <ProductLinks order={o} base="/admin/catalog" className="text-xs" />
                       </>
                     )}
+                    <ProductLinks order={o} base="/admin/catalog" className="text-xs" />
                     <button onClick={() => setDetailOrder(o)} className="text-blue-600 hover:underline text-xs">详情</button>
                     <button onClick={() => deleteOrder(o)} className="text-red-600 hover:underline text-xs">删除</button>
                   </div>
