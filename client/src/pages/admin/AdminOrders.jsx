@@ -479,7 +479,15 @@ export default function AdminOrders() {
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-col items-start gap-1">
-                    <StatusCell order={o} onSave={async (v) => { await api.put(`/admin/orders/${o.id}`, { status: v }); load(); }} />
+                    <StatusCell order={o} onSave={async (v) => {
+                      if (v === 'cancelled' && o.status !== 'cancelled' && o.status !== 'pending_purchase'
+                        && !confirm(`确认将订单 ${o.order_no} 改为「已取消」？\n该订单的采购扣款会自动退回到用户余额。`)) return;
+                      try {
+                        const { data } = await api.put(`/admin/orders/${o.id}`, { status: v });
+                        if (data?.refunded > 0) alert(`已改为已取消，已退回用户余额 ¥${data.refunded.toFixed(2)}`);
+                      } catch (e) { alert(e.response?.data?.error || '修改失败'); }
+                      load();
+                    }} />
                     {isNewConfirmed(o) && <NewBadge />}
                   </div>
                 </td>
