@@ -6,6 +6,7 @@
 //   回发 { type:'done', result:{total,updated,not_found,since} } / { type:'error', error }
 const db = require('../db');
 const dropxl = require('../dropxl');
+const { refundOrderBalance } = require('../orderRefund');
 
 function mapStatus(s) {
   if (!s) return 'pending_shipment';
@@ -39,6 +40,12 @@ const byRef = db.prepare(`
   WHERE order_no = ? AND COALESCE(dropxl_order_id, '') = ''
 `);
 
+// 即将被供应商状态改成「已取消」、此前未取消的本地订单（用于取消后自动退款）
+const activeOrders = db.prepare(`
+  SELECT id, user_id, order_no FROM purchase_orders
+  WHERE (dropxl_order_id IN (?, ?) OR (order_no = ? AND COALESCE(dropxl_order_id, '') = '')) AND status <> 'cancelled'
+`);
+
 async function run(msg) {
   const { sinceDays = 90, country = null } = msg;
   const send = (m) => { if (process.send) process.send(m); };
@@ -61,8 +68,13 @@ async function run(msg) {
         const tracking = o.shipping_tracking || o.tracking_number || o.tracking || '';
         const carrier = o.shipping_option_name || o.shipping_carrier || o.carrier_name || o.carrier || '';
         const status = mapStatus(o.status_order_name || o.status);
+        // 供应商把订单取消时，本地转为已取消并自动退回采购扣款（只对此前未取消的订单）
+        const wasActive = status === 'cancelled'
+          ? activeOrders.all(rawId, numId, ref)
+          : [];
         let r = byId.run(status, tracking, status, tracking, tracking, carrier, carrier, rawId, numId);
         if (r.changes === 0 && ref) r = byRef.run(status, tracking, status, tracking, tracking, carrier, carrier, rawId, ref);
+        for (const ord of wasActive) refundOrderBalance(ord, '供应商取消订单退款');
         if (r.changes > 0) updated++; else notFound++;
       }
       totalFetched += wraps.length;

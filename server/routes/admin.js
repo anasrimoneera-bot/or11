@@ -9,6 +9,7 @@ const { authRequired, adminRequired, ownerRequired, permRequired, canViewCost, G
 const { audit, setAudit } = require('../middleware/audit');
 const { pushOrderToSupplier, ensurePushed, withUserLock } = require('../supplierPush');
 const { attachOrderSkus } = require('../orderSkus');
+const { refundOrderBalance } = require('../orderRefund');
 
 const router = express.Router();
 router.use(authRequired, adminRequired, audit);
@@ -278,14 +279,14 @@ router.post('/users/:id/balance', ownerRequired, (req, res) => {
     db.prepare(`
       INSERT INTO balance_records (user_id, type, amount, balance_after, description)
       VALUES (?, ?, ?, ?, ?)
-    `).run(userId, t, amt, newBal, description || `管理员${t}: ${amt > 0 ? '+' : ''}¥${amt.toFixed(2)}`);
+    `).run(userId, t, amt, newBal, description || `管理员${t}: ${amt > 0 ? '+' : '-'}¥${Math.abs(amt).toFixed(2)}`);
     return { newBal, cur };
   });
   const { newBal, cur } = tx();
   setAudit(res, {
     target_id: userId,
     target_name: u ? `${u.display_name || ''}（${u.username}）` : null,
-    summary: `${t}: ${amt > 0 ? '+' : ''}¥${amt.toFixed(2)}  余额: ¥${cur.toFixed(2)} → ¥${newBal.toFixed(2)}${description ? ' - ' + description : ''}`,
+    summary: `${t}: ${amt > 0 ? '+' : '-'}¥${Math.abs(amt).toFixed(2)}  余额: ¥${cur.toFixed(2)} → ¥${newBal.toFixed(2)}${description ? ' - ' + description : ''}`,
   });
   res.json({ ok: true, balance: newBal });
 });
@@ -479,8 +480,13 @@ router.post('/test-dropxl', ownerRequired, async (req, res) => {
 
 router.post('/orders/:id/reject', (req, res) => {
   const { reason } = req.body || {};
-  db.prepare(`UPDATE purchase_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending_purchase'`).run(req.params.id);
-  res.json({ ok: true });
+  const order = db.prepare('SELECT id, user_id, order_no FROM purchase_orders WHERE id = ?').get(req.params.id);
+  let refunded = 0;
+  db.transaction(() => {
+    const r = db.prepare(`UPDATE purchase_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending_purchase'`).run(req.params.id);
+    if (r.changes && order) refunded = refundOrderBalance(order, '订单取消退款');
+  })();
+  res.json({ ok: true, refunded });
 });
 
 // 分配订单归属用户（解决历史订单挂在错的账户上的问题）
@@ -753,21 +759,28 @@ router.put('/orders/:id', (req, res) => {
     }
   }
 
-  db.prepare(`
-    UPDATE purchase_orders
-    SET status = COALESCE(?, status),
-        tracking_no = COALESCE(?, tracking_no),
-        shipping_carrier = COALESCE(?, shipping_carrier),
-        amazon_amount = COALESCE(?, amazon_amount),
-        amazon_tax_amount = COALESCE(?, amazon_tax_amount),
-        shipping_fee = COALESCE(?, shipping_fee),
-        amazon_rate_locked = CASE WHEN ? THEN ? ELSE amazon_rate_locked END,
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(status, tracking_no, carrier, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
+  const prev = db.prepare('SELECT id, user_id, order_no, status FROM purchase_orders WHERE id = ?').get(req.params.id);
+  let refunded = 0;
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE purchase_orders
+      SET status = COALESCE(?, status),
+          tracking_no = COALESCE(?, tracking_no),
+          shipping_carrier = COALESCE(?, shipping_carrier),
+          amazon_amount = COALESCE(?, amazon_amount),
+          amazon_tax_amount = COALESCE(?, amazon_tax_amount),
+          shipping_fee = COALESCE(?, shipping_fee),
+          amazon_rate_locked = CASE WHEN ? THEN ? ELSE amazon_rate_locked END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(status, tracking_no, carrier, amazonAmt, amazonTax, shipFee, updateRateFlag ? 1 : 0, rateLocked, req.params.id);
+    // 改为「已取消」时，自动退回该订单的采购扣款到用户余额
+    if (status === 'cancelled' && prev && prev.status !== 'cancelled') refunded = refundOrderBalance(prev, '订单取消退款');
+  })();
   // 填写了跟踪号的待发货订单自动转为已发货（本次显式改状态时以管理员选择为准）
   if (tracking_no && !status) db.prepare("UPDATE purchase_orders SET status = 'shipped' WHERE id = ? AND status = 'pending_shipment' AND COALESCE(tracking_no, '') <> ''").run(req.params.id);
-  res.json({ ok: true });
+  if (refunded > 0) setAudit(res, { target_id: String(prev.id), target_name: prev.order_no, summary: `订单 ${prev.order_no} 改为已取消，退回用户余额 ¥${refunded.toFixed(2)}` });
+  res.json({ ok: true, refunded });
 });
 
 // 修改买家收货地址（BOSS/管理员）。分销商填错邮编/省份等时用于订正。
@@ -818,24 +831,12 @@ router.delete('/orders/:id', (req, res) => {
   const order = db.prepare('SELECT id, user_id, order_no FROM purchase_orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: '订单不存在' });
 
-  const net = db.prepare('SELECT IFNULL(SUM(amount), 0) AS s FROM balance_records WHERE related_order = ?').get(order.order_no).s;
-  const refund = net < 0 ? -net : 0;
-
-  const tx = db.transaction(() => {
-    if (refund > 0) {
-      const bal = db.prepare('SELECT balance FROM user_balance WHERE user_id = ?').get(order.user_id);
-      if (!bal) db.prepare('INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)').run(order.user_id);
-      const newBal = (bal?.balance || 0) + refund;
-      db.prepare('UPDATE user_balance SET balance = ? WHERE user_id = ?').run(newBal, order.user_id);
-      db.prepare(`
-        INSERT INTO balance_records (user_id, type, amount, balance_after, description, related_order)
-        VALUES (?, '退款', ?, ?, ?, ?)
-      `).run(order.user_id, refund, newBal, `订单删除退款 - ${order.order_no}`, order.order_no);
-    }
+  let refund = 0;
+  db.transaction(() => {
+    refund = refundOrderBalance(order, '订单删除退款');
     db.prepare('DELETE FROM purchase_order_items WHERE order_id = ?').run(order.id);
     db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(order.id);
-  });
-  tx();
+  })();
 
   setAudit(res, {
     target_id: String(order.id), target_name: order.order_no,

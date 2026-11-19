@@ -3,6 +3,7 @@ const path = require('path');
 const db = require('../db');
 const { vatFactor } = require('../vat');
 const { attachOrderSkus } = require('../orderSkus');
+const { refundOrderBalance } = require('../orderRefund');
 const { authRequired } = require('../middleware/auth');
 const { ensurePushed, withUserLock } = require('../supplierPush');
 
@@ -182,14 +183,18 @@ router.put('/:id/status', authRequired, async (req, res) => {
   try {
     // 与确认采购共用用户锁：确认采购推送进行中时不允许同时取消
     await withUserLock(req.user.id, () => {
-      const o = db.prepare('SELECT id, status, dropxl_order_id FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+      const o = db.prepare('SELECT id, user_id, order_no, status, dropxl_order_id FROM purchase_orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
       if (!o) throw Object.assign(new Error('订单不存在或不属于你'), { status: 404 });
       if (o.status === to) return;
       const ok = (SHIPPING_STATUSES.includes(o.status) && SHIPPING_STATUSES.includes(to))
         || (o.status === 'pending_purchase' && to === 'cancelled');
       if (!ok) throw Object.assign(new Error('该订单状态不能这样修改，如需处理请联系管理员'), { status: 400 });
       if (to === 'cancelled' && o.dropxl_order_id) throw Object.assign(new Error('该订单已推送供应商，请联系管理员取消'), { status: 400 });
-      db.prepare('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?').run(to, o.id, o.status);
+      db.transaction(() => {
+        const r = db.prepare('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?').run(to, o.id, o.status);
+        // 取消时若该订单有过扣款（如管理员手工录入的待采购单），一并退回
+        if (r.changes && to === 'cancelled') refundOrderBalance(o, '订单取消退款');
+      })();
     });
   } catch (e) {
     return res.status(e.status || 500).json({ error: e.message });

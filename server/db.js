@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS balance_records (
   related_order TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+-- 按订单汇总余额变动（订单取消 / 删除退款时算净扣款）走索引
+CREATE INDEX IF NOT EXISTS idx_balance_records_order ON balance_records(related_order);
 
 CREATE TABLE IF NOT EXISTS user_balance (
   user_id INTEGER PRIMARY KEY,

@@ -137,14 +137,12 @@ function BalanceModal({ user, onClose, onDone }) {
   const [amount, setAmount] = useState('');
   const [type, setType] = useState('充值');
   const [desc, setDesc] = useState('');
+  // 余额调整：按输入的正负号直接加减（正数增加、负数减少）；充值 / 退款恒为增加，扣除恒为减少
+  const signed = type === '余额调整' ? Number(amount) : Math.abs(Number(amount)) * (type === '扣除' ? -1 : 1);
   const submit = async () => {
+    if (!signed || !isFinite(signed)) return alert('请输入有效金额');
     try {
-      const sign = type === '扣除' ? -1 : 1;
-      await api.post(`/admin/users/${user.id}/balance`, {
-        amount: Math.abs(Number(amount)) * sign,
-        type,
-        description: desc,
-      });
+      await api.post(`/admin/users/${user.id}/balance`, { amount: signed, type, description: desc });
       onDone();
     } catch (e) { alert(e.response?.data?.error || '操作失败'); }
   };
@@ -158,10 +156,16 @@ function BalanceModal({ user, onClose, onDone }) {
         <option value="充值">充值（增加余额）</option>
         <option value="扣除">扣除（减少余额）</option>
         <option value="退款">售后退款（增加余额）</option>
-        <option value="余额调整">余额调整</option>
+        <option value="余额调整">余额调整（正数增加，负数减少）</option>
       </select>
-      <label className="text-sm">金额 (¥)</label>
-      <input className="field mb-2" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} />
+      <label className="text-sm">金额 (¥){type === '余额调整' && <span className="text-xs text-gray-500 ml-1">可填负数，如 -50</span>}</label>
+      <input className="field mb-1" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
+        placeholder={type === '余额调整' ? '例：100 或 -100' : ''} />
+      {signed !== 0 && isFinite(signed) && (
+        <div className={`text-xs mb-2 ${signed > 0 ? 'text-green-600' : 'text-red-600'}`}>
+          {signed > 0 ? '+' : '−'}¥{Math.abs(signed).toFixed(2)}，操作后余额 ¥{(user.balance + signed).toFixed(2)}
+        </div>
+      )}
       <label className="text-sm">描述</label>
       <input className="field mb-4" value={desc} onChange={e => setDesc(e.target.value)} placeholder="例：线下转账充值" />
       <div className="flex justify-end gap-2">
